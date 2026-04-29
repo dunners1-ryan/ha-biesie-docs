@@ -261,15 +261,13 @@ data:
         - action: notify.send_message
           data:
             message: "Hello"
-            data:
-              inline_keyboard:
-                - "Ack:/ack_alert"
+            inline_keyboard:        # Telegram extras at TOP level of data — never nested under data.data
+              - "Ack:/ack_alert"
   default:
     - action: notify.send_message
       data:
         message: "Hello"
-        data:
-          disable_notification: "{{ sev == 'information' }}"
+        disable_notification: "{{ sev == 'information' }}"   # TOP level of data
 ```
 
 Jinja2 `{{ }}` expressions are valid anywhere inside a YAML **scalar value** (strings, block scalars with `>` or `|`). The rule applies only to `{% if %}`, `{% for %}`, `{% set %}` etc. used to *conditionally emit YAML structure* (keys, list items, mappings).
@@ -350,6 +348,37 @@ service: notify.mobile_app_ryan_iphone
 data:
   message: "Tank level below 30%"
 ```
+
+### Rule — `notify.send_message` never uses `data.data`
+
+`notify.send_message` (HA 2024.8+) has a strict schema: it rejects a `data` key nested inside `data`. This error reads as `extra keys not allowed @ data['data']` and breaks script execution unless `continue_on_error: true` is set (in which case it fails silently).
+
+Telegram-specific extras (`inline_keyboard`, `disable_notification`) go **directly inside `data:`**, at the same level as `message:`.
+
+```yaml
+# ❌ WRONG — schema rejects data.data; breaks silently or fatally
+- action: notify.send_message
+  target:
+    entity_id: notify.telegram_bot_5527
+  data:
+    message: "Alert"
+    data:                          # ← rejected
+      inline_keyboard:
+        - "Acknowledge:/ack"
+      disable_notification: true
+
+# ✅ CORRECT — Telegram extras at top level of data
+- action: notify.send_message
+  target:
+    entity_id: notify.telegram_bot_5527
+  data:
+    message: "Alert"
+    inline_keyboard:               # ← same level as message
+      - "Acknowledge:/ack"
+    disable_notification: true     # ← same level as message
+```
+
+> **Note:** The old `notify.STD_*` group services still accept `data.data` for companion app push extras (`push:`, `channel:`, `ttl:`, `priority:`). Only `notify.send_message` rejects it.
 
 ### Severity levels
 
@@ -458,8 +487,9 @@ Before saving and applying any change:
 - [ ] If `alert:` entities changed — HA restart required, noted in commit message
 - [ ] New entity IDs checked against `.storage/core.entity_registry` — no UI duplicates
 - [ ] No `{% if %}` / `{% for %}` blocks used to conditionally emit YAML keys — use `choose:` branches instead
+- [ ] `notify.send_message` calls have NO nested `data.data` — Telegram extras (`inline_keyboard`, `disable_notification`) are at top level of `data:`
 
 ---
 
 *Last updated: 2026-04-29*  
-*Updated by: Added Rule 6 (Jinja2 block tags cannot emit YAML keys — causes illegal % token / recovery mode) + pre-commit checklist entry. Added pyscript rules section 2026-04-22.*
+*Updated by: Added Rule 6 (Jinja2 block tags cannot emit YAML keys) + pyscript rules (2026-04-22). Fixed Rule 6 example (was showing broken data.data pattern). Added notify.send_message data.data rule + pre-commit checklist entry (2026-04-29).*
