@@ -1,6 +1,37 @@
 # HABiesie — Session Starter Prompts
-> Updated 2026-04-13 after full system audit.
-> Contracts are authoritative — always prefer CONTRACT over CONTEXT for real work.
+> Updated 2026-04-29. Contracts are authoritative — always prefer CONTRACT over CONTEXT for real work.
+
+---
+
+## 🔄 Claude Chat — Context Refresh Commands
+
+Claude chat (claude.ai "HA Biesie — Way of Work") fetches docs live from:
+  https://github.com/dunners1-ryan/ha-biesie-docs
+
+Commands to use at session start:
+- `refresh context`          → fetches PROJECT_STATE.md
+- `fetch coding standards`   → fetches CODING_STANDARDS.md
+- `fetch [domain] contract`  → fetches domains/[DOMAIN]_CONTRACT.md
+- `refresh all`              → fetches PROJECT_STATE + CODING_STANDARDS
+
+No file uploads or pasting needed. GitHub sync is automatic on every `gitupdate.sh`.
+
+---
+
+## 🏁 Claude Code — Session Closing Ritual
+
+Run this at the end of EVERY Claude Code session before disconnecting:
+
+1. Update `/config/docs/PROJECT_STATE.md`
+   - Append session summary to the bottom of the session log section
+   - Format: `*2026-MM-DD session: [what changed, what was fixed, what was deferred]*`
+
+2. Update `/config/docs/CODING_STANDARDS.md` if any new rules were learned
+
+3. Run: `./gitupdate.sh "docs: update PROJECT_STATE [brief description]"`
+   This auto-syncs to ha-biesie-docs — Claude chat will have current state next session.
+
+4. Confirm: "docs synced and pushed to ha-biesie-docs ✅"
 
 ---
 
@@ -208,32 +239,4 @@ Rules:
 
 ---
 
-## 💬 Chat Session Start
-
-When opening a new Claude chat (claude.ai):
-
-| What you say | What happens |
-|---|---|
-| `refresh context` | Claude fetches PROJECT_STATE.md from ha-biesie-docs |
-| `refresh all` | Claude fetches PROJECT_STATE.md + CODING_STANDARDS.md |
-| `fetch [domain] contract` | Claude fetches e.g. domains/POWER_CONTRACT.md |
-
-Docs are always live — every `./gitupdate.sh` run syncs `/config/docs/` to:
-`https://github.com/dunners1-ryan/ha-biesie-docs`
-
----
-
-## 🔚 Closing Ritual
-
-At the end of every Claude Code session:
-
-1. Update `PROJECT_STATE.md` — add session log entry: what changed, what's open
-2. Update `CODING_STANDARDS.md` — if any new rules or patterns were established
-3. Run: `./gitupdate.sh "docs: update PROJECT_STATE + session notes"`
-4. Confirm output ends with `sync_docs: pushed successfully`
-
-This keeps claude.ai chat sessions automatically up to date for the next session.
-
----
-
-*Last updated: 2026-04-29 — Added GitHub sync workflow, chat session start, closing ritual*
+*Last updated: 2026-04-29 — Added GitHub sync workflow, context refresh commands, closing ritual*
