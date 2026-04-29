@@ -1,0 +1,182 @@
+# HABiesie — automations.yaml Full Audit
+> Generated: 2026-04-29 (Claude Code session)  
+> Source: `/config/automations.yaml` — 2,915 lines post-migration (was 3,836)  
+> Scope: All active (non-commented) automations. Commented blocks listed separately.
+
+---
+
+## Methodology
+
+Each active automation was read in full. The following flags are applied:
+- `⚠️ DEAD ENTITY` — references `sensor.inverter_power` (dead, use `sensor.inverter_load_power`)
+- `⚠️ DIRECT NOTIFY` — calls `notify.STD_*` directly instead of `script.notify_*_event`
+- `⚠️ WHATSAPP` — calls `notify.whatsapp` (dropped 2026-04-20; remove on migration)
+- `⚠️ DEVICE_ID` — uses device_id not entity_id; HA UI-managed; risky to migrate
+- `🚫 GEYSER` — geyser automations; DO NOT TOUCH — geyser system not started
+- `⏳ POWER SESSION` — defer to dedicated power session; do not migrate piecemeal
+
+---
+
+## Active Automations
+
+### CORE / NETWORK
+
+| ID | Alias | Lines | Purpose | Complexity | Migration Target |
+|---|---|---|---|---|---|
+| `update_device_uptimes_group` | Update Device Uptimes Group | 1–25 | Rebuilds `group.network_device_uptimes` from all `*_uptime/*_last_boot` sensors on HA start, group reload, or button press | trivial | `packages/core/ha_monitoring.yaml` |
+| `device_restart_info_alert_active` | Device Restart Info Alert Active | 26–67 | Notifies when `binary_sensor.device_restart_alert_active` turns ON — lists restarted devices | moderate | `packages/core/ha_monitoring.yaml` |
+
+**Flags — `device_restart_info_alert_active`:**
+- `⚠️ DIRECT NOTIFY` → `notify.STD_Information` + Telegram direct. On migration: use `script.notify_system_event` (keep Telegram direct as fallback if desired).
+- `⚠️ WHATSAPP` → `notify.whatsapp` step exists but `enabled: false`. Remove on migration.
+
+---
+
+### LOAD SHEDDING
+
+> **3 automations migrated 2026-04-29** to `packages/load_shedding/load_shedding_automations.yaml`.
+> Commented-out blocks retained in `automations.yaml` for stable observation period.
+
+| ID | Alias | Status |
+|---|---|---|
+| `announce_load_shedding_stage` | Load Shedding Stage Announce | ✅ MIGRATED 2026-04-29 |
+| `load_shedding_warning_15` | Load Shedding Warning 15 Minutes | ✅ MIGRATED 2026-04-29 |
+| `load_shedding_warning_2hr` | Load Shedding Warning 2 Hours | ✅ MIGRATED 2026-04-29 |
+
+**Remaining (NOT migrated — POWER SESSION):**
+
+| ID | Alias | Lines | Purpose | Complexity | Migration Target |
+|---|---|---|---|---|---|
+| `1741007573197` | Load Shedding Inverter Scene Switcher | 511–726 | Changes inverter scenes (no_load_shedding / stage_2 / stage_4 / stage_6_priority_charge) based on load shedding stage change, 15-min debounce | complex | `packages/load_shedding/load_shedding_automations.yaml` ⏳ POWER SESSION |
+
+**Flags — Scene Switcher:**
+- `⚠️ DEAD ENTITY` → `sensor.inverter_power` in 4 notification message templates. Fix: `sensor.inverter_load_power`.
+- `⚠️ DIRECT NOTIFY` → `notify.STD_Critical` on all 4 branches. Fix: `script.notify_power_event`.
+- `⚠️ WHATSAPP` → 4 `notify.whatsapp` steps, all `enabled: false`. Remove on migration.
+
+---
+
+### POWER — INVERTER SCENE / SOLAR FORECAST CONTROL
+
+> ⏳ **POWER SESSION — defer all.** These 5 automations are the original inverter
+> scene-switching engine, predating the power package. They are active and functional
+> but tightly coupled to `input_select.inverter_solar_mode_helper`,
+> `input_select.inverter_solar_appliance_mode_helper`, and legacy inverter scenes.
+> Do NOT migrate piecemeal — coordinate with power session to rationalise the
+> scene architecture first.
+
+| ID | Alias | Lines | Purpose | Complexity |
+|---|---|---|---|---|
+| `1741870692661` | Solar Forecast Today Update Inverter Scenes 8am-1pm | 813–973 | Switches inverter scene (low_solar_forecast / high_solar_forecast) based on Solcast today forecast hourly 8am–1pm | complex |
+| `1741870952191` | Solar Forecast Check Update Appliances 2pm-5pm | 974–1292 | Sets inverter_solar_appliance_mode to Low/Medium Solar based on SOC + hourly forecast, 2pm–5pm every 2 min | complex |
+| `1741899615829` | Solar Forecast Remaining Update Inverter Scenes 3-4pm | 1293–1445 | Adjusts inverter mode based on remaining solar + SOC 3–4pm (some actions disabled) | complex |
+| `1741900108775` | Solar Forecast Remaining Update Inverter Scenes 4-5pm | 1446–1568 | Adjusts inverter mode based on remaining solar + SOC 4–5pm | complex |
+| `1742122936369` | Solar Forecast Check Update Appliances 8am-2pm | 1569–1894 | Sets inverter_solar_appliance_mode (Low/Medium/High Solar) based on SOC + hourly forecast, 8am–2pm | complex |
+
+**Flags — all 5:**
+- `⚠️ DEAD ENTITY` → `sensor.inverter_power` in notification message templates across all. Fix: `sensor.inverter_load_power`.
+- `⚠️ DIRECT NOTIFY` → `notify.STD_Information` calls. Fix: `script.notify_power_event`.
+
+---
+
+### POWER — GEYSER
+
+> 🚫 **DO NOT TOUCH — geyser system not started.**
+> Both automations use `device_id` (hardware-bound, UI-managed). Migrating entity_id
+> requires confirming actual entity is `switch.geyser_heat_pump_switch`. The geyser
+> automation logic is complex and load-shedding aware; wait for a dedicated geyser session.
+
+| ID | Alias | Lines | Purpose | Complexity |
+|---|---|---|---|---|
+| `1742224800650` | Geyser Heat Pump Turn On AM / PM | 1895–2227 | Turns geyser on for morning (04:00–09:00), midday (12:00–15:00) and evening (20:00–22:00) runs; gated on grid + load shedding stage | complex 🚫 GEYSER |
+| `1744130174080` | Geyser Heat Pump Turn Off PM | 2696–2915 | Turns geyser off at 21:00; also turns off early if grid off + low SOC + load shedding in AM window | complex 🚫 GEYSER |
+
+**Flags — both:**
+- `⚠️ DEVICE_ID` → target is `device_id: 04313162c9b0bb48347b8002235c725d` not entity_id. Confirm entity is `switch.geyser_heat_pump_switch` before migrating.
+- `⚠️ DEAD ENTITY` → `sensor.inverter_power` in notification messages.
+- `⚠️ DIRECT NOTIFY` → `notify.STD_Information` throughout. Fix on migration: `script.notify_power_event`.
+
+---
+
+### POWER — GRID USAGE
+
+| ID | Alias | Lines | Purpose | Complexity | Migration Target |
+|---|---|---|---|---|---|
+| `1742385109757` | Grid Usage Warning per day | 2233–2415 | Notifies at low/medium/high daily grid import thresholds (3 branches) as `sensor.grid_energy_import_today` changes | moderate | `packages/power/power_automations.yaml` ⏳ POWER SESSION |
+
+**Flags:**
+- `⚠️ DEAD ENTITY` → `sensor.inverter_power` in message of Branch 2 (medium) and Branch 3 (high). Branch 1 already uses `sensor.inverter_load_power` correctly — copy that pattern.
+- `⚠️ DIRECT NOTIFY` → `notify.STD_Warning` (uppercase) in Branch 1; `notify.std_warning` (lowercase!) in Branches 2 and 3. Fix: `script.notify_power_event`.
+- No `from:` guard needed — trigger is `numeric_state` (stateless threshold crossing).
+
+---
+
+### GARDEN / MISC
+
+| ID | Alias | Lines | Purpose | Complexity | Migration Target |
+|---|---|---|---|---|---|
+| `1742999668407` | Alert Pond Pump Unscheduled Turn on | 2633–2695 | Alerts when `switch.sonoff_pond_fountain_pump` turns on after 11:00; uses mobile action button | moderate | `packages/admin/admin_automations.yaml` (create) |
+
+**Flags:**
+- `⚠️ DIRECT NOTIFY` → `notify.mobile_app_iphone16promax_ryan` direct call. Fix: `script.notify_system_event` (info severity).
+- **Broken action pattern** → `wait_for_trigger` and `service: switch.turn_off` are nested inside `notify.mobile_app_iphone16promax_ryan` data block. This is invalid YAML structure — HA will reject or silently ignore. On migration: move the wait+turn_off into the top-level action sequence.
+- Missing `from: "off"` guard on the state trigger — will fire on unavailable→on restart. Add `from: "off"` on migration.
+
+---
+
+## Commented-Out Automations (Reference Only)
+
+| ID / Alias | Status | Reason |
+|---|---|---|
+| `announce_load_shedding_stage` | ✅ MIGRATED 2026-04-29 | → `load_shedding_automations.yaml` |
+| `load_shedding_warning_15` | ✅ MIGRATED 2026-04-29 | → `load_shedding_automations.yaml` |
+| `load_shedding_warning_2hr` | ✅ MIGRATED 2026-04-29 | → `load_shedding_automations.yaml` |
+| `inverter_alert_battery_soc_critical` | ✅ MIGRATED 2026-04-21 | → `power_automations.yaml` (ssa_* → ss_* fix applied) |
+| Pool pump ×4 (IDs 1742227789739 etc.) | ✅ MIGRATED 2026-04-22 | → `power_automations.yaml` (pool_pump_solar_control) |
+| `grid_status_monitoring` | ✅ SUPERSEDED | By `alert.power_alert` in `alerts_power.yaml` |
+| `inverter_pwer_monitoring` | ✅ SUPERSEDED | By `alerts_power.yaml` excess load sensor |
+| `notify_prepaid_units_low` | ✅ SUPERSEDED | By `prepaid_core.yaml` (prepaid_auto_reconcile) |
+| `1742557570638` (prepaid units low v2) | ✅ SUPERSEDED | By `prepaid_core.yaml` |
+
+---
+
+## Migration Priority Queue
+
+### Do Now (non-power, low-risk)
+| Automation | Target | Effort |
+|---|---|---|
+| `update_device_uptimes_group` | `packages/core/ha_monitoring.yaml` | trivial |
+| `device_restart_info_alert_active` | `packages/core/ha_monitoring.yaml` | trivial |
+| `1742999668407` Pond Pump alert | `packages/admin/admin_automations.yaml` | moderate (fix broken action structure) |
+
+### Power Session (defer — batch together)
+| Automation | Target | Notes |
+|---|---|---|
+| Load Shedding Inverter Scene Switcher | `load_shedding_automations.yaml` | Fix inverter_power → inverter_load_power, remove whatsapp |
+| Solar Forecast 8am-1pm | `power_automations.yaml` | Fix dead entities + direct notify |
+| Solar Forecast Appliances 2pm-5pm | `power_automations.yaml` | Fix dead entities + direct notify |
+| Solar Forecast Remaining 3-4pm | `power_automations.yaml` | Fix dead entities + disabled actions |
+| Solar Forecast Remaining 4-5pm | `power_automations.yaml` | Fix dead entities |
+| Solar Forecast Appliances 8am-2pm | `power_automations.yaml` | Fix dead entities + direct notify |
+| Grid Usage Warning | `power_automations.yaml` | Fix dead entity + mixed-case notify |
+
+### Geyser Session (never before geyser work starts)
+| Automation | Target | Notes |
+|---|---|---|
+| Geyser Turn On AM/PM | `packages/power/power_geyser.yaml` (create) | Confirm device_id→entity_id |
+| Geyser Turn Off PM | `packages/power/power_geyser.yaml` (create) | Confirm device_id→entity_id |
+
+---
+
+## Summary Statistics
+
+| Category | Count |
+|---|---|
+| Active automations remaining | 12 |
+| Already migrated to packages | 10 |
+| Ready to migrate (non-power) | 3 |
+| Deferred to power session | 7 |
+| Deferred to geyser session | 2 |
+| Dead entity references (`sensor.inverter_power`) | 8 automations |
+| Direct `notify.STD_*` calls | 8 automations |
+| `notify.whatsapp` references | 2 automations (both `enabled: false`) |

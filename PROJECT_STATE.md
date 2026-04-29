@@ -234,7 +234,7 @@ input_boolean.load_control_borehole_enabled  ← OFF turns off + blocks borehole
 ```
 Devices: switch.geyser_heat_pump_switch, switch.pool_pump_switch, switch.borehole_pump
 # Renamed 2026-04-22: _switch_1 → _switch for both geyser and pool pump (HA entity registry + all YAML + dashboards)
-TODO: Add load_control_borehole_enabled check to binary_sensor.water_refill_allowed
+✅ DONE 2026-04-29: load_control_borehole_enabled added to binary_sensor.water_refill_allowed state condition (water_templates.yaml:299)
 
 ### UI-Managed Utility Meters (DO NOT recreate in YAML)
 ```
@@ -277,7 +277,7 @@ input_boolean.water_alert_notify   ← suppress water alert pipeline
 | 🔔 Alerts | All domains live | BUG-A06 fixed 2026-04-16 — door severity unified into single sensor. Water alerts expanded. Presence pipeline implemented. Remaining open: A08 note only (presence pipeline now done). |
 | 🔔 Notifications | Scripts correct | All C-series bypasses resolved. BUG-N02 counter entity correct. |
 | 🧭 Presence | Alert pipeline live | Unknown AP alert + occupancy anomaly implemented. Trust chain intact. |
-| 💡 Lighting | BUG-L10 open | All L01–L08 fixed and verified 2026-04-29. BUG-L10: script.notify_lighting_event calls in bedtime automations have no continue_on_error — notification failure stops automation before scene fires. Likely caused last-night bedtime failure (T2 fix introduced illegal Jinja2 in notify files; script reload error would have blocked notification call). BUG-L09 still open (entertainment/energy saving wiring). |
+| 💡 Lighting | Stable | All L01–L10 fixed and verified 2026-04-29. BUG-L09 closed: lighting_entertainment.yaml + lighting_energy_saving.yaml both populated. M1/M2/M3 implemented. SOC-based energy saving trigger remains future work (power session). |
 | 🌐 Network | 3 bugs remain | BUG-NET01/02 (unavailable sensors), BUG-NET03 (packet loss formula wrong). APs migrated from ping → UniFi state sensors 2026-04-21. BUG-NET04 FIXED: unavailable AP sensors now surface correctly in alert summary. |
 | 🏗️ Context | 3 arch issues | BUG-CTX01 (trust model in wrong package), BUG-CTX02 (stub file), BUG-CTX03 (reversed dependency) |
 | 🔧 Infra | 4 bugs found | BUG-CORE01 (fake EPS sensor), BUG-INF01 (printer binary_sensor broken), BUG-BKP01 (direct Telegram), BUG-WEA01 (stale alert no action) |
@@ -360,9 +360,9 @@ B2. Implement alerts_security.yaml — done 2026-04-14 (already complete)
                         Fixed 2026-04-28: Removed sensor from ha_monitoring.yaml (real delta-based
                         rate needs sensor.recorder_events which isn't available)
 
-[ ] IMP-IDS01 [MED]:    IDS Hyyp alarm has no package file — config/automations buried in automations.yaml
-                        Fix: Create packages/security/security_alarm.yaml documenting entity interface
-                        NOTE 2026-04-28: Intentionally deferred — IDS alarm integration still needs to be done
+✅ IMP-IDS01 [MED]:    IDS Hyyp alarm stub created 2026-04-29: packages/security/security_alarm.yaml
+                        Search of automations.yaml found ZERO IDS/hyyp references — integration not yet wired.
+                        Stub documents provisional entity interface + migration instructions for when IDS goes live.
 
 ✅ BUG-CTX02 [LOW]:    context_schedules.yaml was stub
                         Fixed 2026-04-28: bedtime_mode moved to lighting_helpers.yaml (7 lighting consumers);
@@ -407,7 +407,7 @@ B2. Implement alerts_security.yaml — done 2026-04-14 (already complete)
 ✅ BUG-L06 [LOW]: from:"off" on departure trigger — already present, checkbox not updated
 ✅ BUG-L07 [LOW]: kids_bedtime_enabled had no consumers — removed from lighting_helpers.yaml 2026-04-28
 ✅ BUG-L08 [LOW]: patio_second_wake_time had no consumers — removed from lighting_helpers.yaml 2026-04-28
-[ ] BUG-L09 [LOW]: Implement lighting_entertainment.yaml + lighting_energy_saving.yaml or remove buttons
+✅ BUG-L09 [LOW]: M1 + M3 implemented 2026-04-29. M2 helpers added. SOC trigger deferred to power session.
 ✅ BUG-L10 [MED]: kids_bedtime_week + kids_bedtime_weekend — added continue_on_error: true to both
       script.notify_lighting_event calls. Notification failure can no longer stop the scene from firing.
       GAP ANALYSIS (2026-04-29):
@@ -450,20 +450,33 @@ B2. Implement alerts_security.yaml — done 2026-04-14 (already complete)
            - Add condition: input_boolean.entertaining_mode is OFF before pool_light_switch step
            NOTE: scene.scene_entertainment_mode already exists — no scene work needed
 
-[ ] M2. Energy saving mode — power side (power package)
-        a. Add input_boolean.energy_saving_mode to power_helpers.yaml
-        b. Add to power_automations.yaml:
-           - SOC trigger: battery SOC < configurable threshold (input_number) → energy_saving_mode ON
-           - SOC recovery: battery SOC > recovery threshold → energy_saving_mode OFF (with hysteresis)
-           - Orchestrator: energy_orchestrator_state hits critical/shed state → energy_saving_mode ON
-           - Manual buttons: energy_saving_mode_on/off buttons are overrides (set/clear boolean directly)
+✅ M1. Entertainment mode — lighting side (lighting package) [2026-04-29]
+        a. input_boolean.entertainment_mode added to lighting_helpers.yaml (NOT to be confused with
+           input_boolean.entertaining_mode in context_presence.yaml — different boolean, different purpose)
+        b. lighting_entertainment.yaml populated:
+           - Button → boolean on (entertainment_mode_button_on)
+           - Boolean ON (from: "off") → scene.scene_entertainment_mode (entertainment_mode_scene_on)
+           - Boolean OFF (from: "on") → scene.scene_evening_routine_on if civil_night is on (entertainment_mode_scene_off)
+           - 06:00 daily clear → entertainment_mode OFF if currently on (entertainment_mode_daily_clear)
+        c. kids_bedtime_week + kids_bedtime_weekend: entertainment_mode guard added — if ON, skip
+           pool_light_switch in scene; turn off other 4 lights individually instead.
 
-[ ] M3. Energy saving mode — lighting side (lighting package)
-        a. Populate lighting_energy_saving.yaml:
-           - energy_saving_mode ON → suppress bar_lights, patio_lights, feature/accent lights
-           - energy_saving_mode OFF → restore prior lighting state (or let next presence trigger do it)
-        NOTE: define which lights are "non-essential" by consulting LIGHTING_CONTRACT.md scene inventory
-        DEPENDENCY: M2 must be done first (boolean must exist before lighting responds to it)
+✅ M2. Energy saving mode — power side helpers (power package) [2026-04-29]
+        a. input_boolean.energy_saving_mode added to power_helpers.yaml (icon: mdi:lightning-bolt-outline, initial: false)
+        b. input_number.energy_saving_soc_threshold (default 25%) added to power_helpers.yaml
+        c. input_number.energy_saving_soc_recovery (default 40%) added to power_helpers.yaml
+        OPEN: power_automations.yaml SOC trigger + orchestrator trigger not yet wired (future M2 work)
+        Manual override buttons (energy_saving_mode_on/off) now wired via lighting_energy_saving.yaml.
+        Morning wake routine clears energy_saving_mode (lighting_morning.yaml morning_wake_lights_on).
+
+✅ M3. Energy saving mode — lighting side (lighting package) [2026-04-29]
+        a. lighting_energy_saving.yaml populated:
+           - Button on/off → boolean wiring automations
+           - energy_saving_mode ON (from: "off") → turn off TIER 2 lights:
+               switch.pool_light_switch, switch.pool_patio_down_lights, switch.back_house_security_light
+           - logbook + notify (continue_on_error: true)
+        b. Restoration NOT done here — presence/routine triggers handle it naturally.
+        TIER 2 definition: pool light, pool patio, back house security (entertainment/comfort lights).
 ```
 
 ### Group F — Restart-Protection Guards ✅ Done 2026-04-13
@@ -523,7 +536,7 @@ Rule: binary sensors / input_booleans → `from: "off"`. Template/state sensors 
 |---|---|---|---|
 | `hikvision_next` v1.1.1 | Sets invalid entity IDs with uppercase serial number (`DS-7116HGHI-F1...`). Deprecation warning — breaks in HA 2027.2 | Low | File upstream bug at maciej-or/hikvision_next |
 | `bellows` (Zigbee) | `RESET_SOFTWARE: 11` on startup | None | Normal coordinator reset during init — ignore |
-| `ids_hyyp` v1.9.0 | No package file — all alarm config in legacy automations.yaml | Medium | Create packages/security/security_alarm.yaml (IMP-IDS01) |
+| `ids_hyyp` v1.9.0 | Zero automations in automations.yaml — integration not yet wired at HA level | Medium | Stub created (IMP-IDS01 ✅). Migrate entity interface when IDS is live. |
 | `localtuya` v5.2.3 | False reconnect event can trigger spurious water tank abort | Medium | See WATER_CONTRACT.md — input_boolean.water_refill_aborted_due_to_safety can get stuck |
 | Multiple weather integrations | OWM + OWM History + Met.no + Met Nowcast all installed — canonical source unclear | Low | Document which is used for what in INFRA_CONTRACT.md |
 
@@ -532,6 +545,7 @@ Rule: binary sensors / input_booleans → `from: "off"`. Template/state sensors 
 *2026-04-15 session (Group A audit): A1 confirmed superseded — low_trust_start/end never needed; complete trust chain runs through maid_start/end + gardener_start/end datetimes → schedule automations → maid_on_site/gardener_on_site booleans → binary_sensor.staff_on_site → binary_sensor.low_trust_present. A2 confirmed done — boundary_permissive_window reads maid_on_site + weekday()==0 + override, no longer always false. Group A fully complete.*
 *Last updated: 2026-04-28 (session 3)*
 *2026-04-28 session (pool pump bugs): pool_pump_solar_control in power_automations.yaml — Bug 1: no 16:00 hard-stop trigger. Pump turned on at 15:00 by Branch 5 (solar surplus), ran until manually turned off at 18:05 (confirmed via DB: switch state change had empty context = physical/manual, not automation). Fix: added "16:00:00" time trigger (id: end_of_day); added Branch 0 (unconditional 16:00 turn-off, no minimum run time guard); removed before:"16:00:00" from global conditions; added before:"16:00:00" to Branch 5 turn-on conditions only. Bug 2: input_datetime.pool_pump_last_on never updated — mode:single caused Branch 1 (records pump start time) to be silently dropped (max_exceeded:silent) when it queued behind Branch 5 that had just turned the pump on. Result: pool_pump_continuous_run_minutes always showed ~1085 min (today_at('00:00:00') = midnight), so 45-min minimum run time guard was always trivially met. Fix: mode:single → mode:queued.*
+*2026-04-29 session: TASK 1 M1 entertainment mode — lighting_entertainment.yaml populated (4 automations: button→boolean, boolean ON→scene, boolean OFF→evening restore gated on civil_night, 06:00 daily clear). input_boolean.entertainment_mode added to lighting_helpers.yaml (distinct from input_boolean.entertaining_mode in context_presence.yaml — lighting-specific gate). kids_bedtime_week + kids_bedtime_weekend: entertainment_mode guard added via choose block — if ON, skip pool light; turn off other 4 lights individually. TASK 2 energy saving — M2 helpers fixed (threshold 25%, icon mdi:lightning-bolt-outline); M3 already done in prior micro-session; morning_wake_lights_on now clears energy_saving_mode (lighting_morning.yaml). TASK 3 IDS stub: security_alarm.yaml created — zero IDS refs found in automations.yaml; provisional entity interface documented; IMP-IDS01 closed. TASK 4 water borehole gate: load_control_borehole_enabled added to binary_sensor.water_refill_allowed condition (water_templates.yaml:299); borehole_enabled attribute added. TASK 5 load shedding migration: announce_load_shedding_stage + load_shedding_warning_15 + load_shedding_warning_2hr migrated to packages/load_shedding/load_shedding_automations.yaml (fixes: notify.STD_* → script.notify_system_event, whatsapp removed, dead notify.mobile_app_ap_0223_1001 removed); blocks commented out in automations.yaml with migration banner; ha core check passed. Inverter Scene Switcher deferred to power session. TASK 6 automations.yaml full audit: AUTOMATIONS_AUDIT.md created in docs/. 12 active automations remaining (was 3,836 line file, now 2,915 lines). Power session owns 7 automations; geyser session owns 2; 3 ready to migrate now. Dead entity flags: 8 automations still reference sensor.inverter_power.*
 *2026-04-29 session: BUG-L10 FIXED — kids_bedtime_week + kids_bedtime_weekend: added continue_on_error: true to both script.notify_lighting_event calls (pre-notification and post-scene). Root cause of bedtime failure on 2026-04-28 night: T2 fix introduced illegal {% if %} Jinja2 in notify_power_event.yaml + notify_security_events.yaml; those files caused script load error at reload time; when notify_lighting_event was called (no continue_on_error), HA may have been in a partial recovery state causing the call to fail, stopping the automation before scene.turn_on. NOTE: DB query earlier in session incorrectly showed switch entities as unavailable — this was historical data from April 24-25 outage; recorder does not write new entries while state unchanged after recovery. Sonoff integration IS working (confirmed via UI screenshot). BUG-L10 entry corrected from Sonoff-outage to notification-hardening issue.*
 *2026-04-29 session: BUG-L10 found — Sonoff integration offline since ~2026-04-24. DB query confirmed switch.front_house_security_light, back_house_security_light, entrance_down_lights, dining_room_light, pool_light_switch all showing only "unavailable" state since April 24 (no on/off transitions recorded). Kids bedtime automation (kids_bedtime_week/weekend) condition: or check uses state:"on" — all unavailable switches evaluate to false, condition fails after setting bedtime_mode, scene never fires. Physical lights stayed on in last relay state. Root cause: Sonoff (EWElink) cloud integration down — check Settings → Integrations → Sonoff. Both switches are sonoff platform, config_entry 01JHTXM2, device 1001e1f931. LIGHTING_CONTRACT.md updated: L05/L07/L08 marked fixed; scene_kids_bedtime inventory corrected to 5 lights; helper inventory pruned (kids_bedtime_enabled + patio_second_wake_time removed); entertaining_mode entity name clarified (input_boolean.entertaining_mode exists in context_presence.yaml; button name mismatch "entertainment" vs "entertaining"). M1 planning note in GROUP M corrected — no new boolean needed, wire button to existing input_boolean.entertaining_mode.*
 *2026-04-29 session: Recovery mode caused by illegal % token in notify_power_event.yaml line 198 and notify_security_events.yaml — both had {% if sev == 'critical' %} blocks used to conditionally include the inline_keyboard YAML key inside a data: mapping. HA's YAML parser sees {% at structural YAML level (where a key would appear) as an illegal % token and enters recovery mode. Fixed both files by splitting the Telegram notify.send_message into a choose block: critical branch includes inline_keyboard, default branch uses disable_notification. Both files verified correct: critical branch → inline_keyboard present, default branch → disable_notification present, no {% %} at key level. CODING_STANDARDS Rule 6 added: never use Jinja2 block tags to conditionally emit YAML keys — use choose: branches instead. Rule also added to pre-commit checklist.*
