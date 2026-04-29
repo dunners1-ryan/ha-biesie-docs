@@ -18,6 +18,32 @@ No file uploads or pasting needed. GitHub sync is automatic on every `gitupdate.
 
 ---
 
+## 💬 Claude Chat — Project Context Primer
+
+Paste this at the start of a new claude.ai chat (or save as the project system prompt):
+
+```
+HABiesie — production Home Assistant on Raspberry Pi 4, Johannesburg SA.
+
+My role in this project: planning, architecture, review, debugging.
+Claude Code (VS Code SSH to habiesie/10.10.1.5) is the executor.
+
+To load full context at session start, fetch:
+https://github.com/dunners1-ryan/ha-biesie-docs/blob/main/PROJECT_STATE.md
+
+Key rules (never violate):
+- All notifications via script.notify_*_event — never call notify.* directly
+- No new automations in automations.yaml — package files only
+- Never use {% %} Jinja2 to conditionally emit YAML keys — use choose: branches
+- Always check entity registry before creating entities in YAML
+- All float/int must have defaults: float(0), int(0)
+- binary_sensor.low_trust_present always — never input_boolean.low_trust_present
+
+Public docs repo: https://github.com/dunners1-ryan/ha-biesie-docs
+```
+
+---
+
 ## 🏁 Claude Code — Session Closing Ritual
 
 Run this at the end of EVERY Claude Code session before disconnecting:
