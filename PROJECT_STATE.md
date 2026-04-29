@@ -277,7 +277,7 @@ input_boolean.water_alert_notify   ← suppress water alert pipeline
 | 🔔 Alerts | All domains live | BUG-A06 fixed 2026-04-16 — door severity unified into single sensor. Water alerts expanded. Presence pipeline implemented. Remaining open: A08 note only (presence pipeline now done). |
 | 🔔 Notifications | Scripts correct | All C-series bypasses resolved. BUG-N02 counter entity correct. |
 | 🧭 Presence | Alert pipeline live | Unknown AP alert + occupancy anomaly implemented. Trust chain intact. |
-| 💡 Lighting | Fixed 2026-04-16 | Audit complete. 5 bugs fixed: scene_night_away now includes entrance_down_lights; night departure applies morning_routine_off as second scene; departure trigger has from:"off" guard; arrival scenario-1 anyone_home→anyone_connected_home; morning has time+cam14 fallback triggers; kids bedtime scene adds entrance/dining off + 30s confirmation with cancel button. |
+| 💡 Lighting | BUG-L10 active | All L01–L08 fixed and verified 2026-04-29. BUG-L10: Sonoff integration offline since ~2026-04-24 — all security + indoor switches (front/back security, entrance_down, dining, pool) are `unavailable`. Bedtime condition check (state:"on") silently fails → scene never fires → physical lights stuck in last relay state. Fix: check Sonoff integration cloud auth. BUG-L09 still open (entertainment/energy saving wiring). |
 | 🌐 Network | 3 bugs remain | BUG-NET01/02 (unavailable sensors), BUG-NET03 (packet loss formula wrong). APs migrated from ping → UniFi state sensors 2026-04-21. BUG-NET04 FIXED: unavailable AP sensors now surface correctly in alert summary. |
 | 🏗️ Context | 3 arch issues | BUG-CTX01 (trust model in wrong package), BUG-CTX02 (stub file), BUG-CTX03 (reversed dependency) |
 | 🔧 Infra | 4 bugs found | BUG-CORE01 (fake EPS sensor), BUG-INF01 (printer binary_sensor broken), BUG-BKP01 (direct Telegram), BUG-WEA01 (stale alert no action) |
@@ -408,6 +408,12 @@ B2. Implement alerts_security.yaml — done 2026-04-14 (already complete)
 ✅ BUG-L07 [LOW]: kids_bedtime_enabled had no consumers — removed from lighting_helpers.yaml 2026-04-28
 ✅ BUG-L08 [LOW]: patio_second_wake_time had no consumers — removed from lighting_helpers.yaml 2026-04-28
 [ ] BUG-L09 [LOW]: Implement lighting_entertainment.yaml + lighting_energy_saving.yaml or remove buttons
+[ ] BUG-L10 [HIGH]: Sonoff integration offline since ~2026-04-24 — switch.front_house_security_light,
+      back_house_security_light, entrance_down_lights, dining_room_light, pool_light_switch all reporting
+      unavailable. Kids bedtime scene never fires (condition: or only checks state:"on", not "unavailable").
+      Physical lights stuck in last relay state since integration went offline.
+      Fix: Settings → Integrations → Sonoff/EWElink → re-auth or restart integration.
+      Future hardening: add 'unavailable' to condition states so scene always fires when integration recovers.
       GAP ANALYSIS (2026-04-29):
       --- Entertainment mode ---
       • input_button.entertainment_mode_on exists (defined); input_boolean.entertainment_mode does NOT exist
@@ -436,14 +442,16 @@ B2. Implement alerts_security.yaml — done 2026-04-14 (already complete)
 ### Group M — Mode Features (Entertainment + Energy Saving) [PLANNED 2026-04-29]
 ```
 [ ] M1. Entertainment mode — lighting side (lighting package)
-        a. Add input_boolean.entertainment_mode to lighting_helpers.yaml
-        b. Populate lighting_entertainment.yaml:
-           - button→boolean: input_button.entertainment_mode_on → entertainment_mode ON
-           - scene apply: entertainment_mode turns ON → scene.scene_entertainment_mode
-           - scene restore: entertainment_mode turns OFF → scene.scene_evening_routine (or off)
-           - morning clear: morning routine (06:00) → entertainment_mode OFF
-        c. Guard both kids_bedtime_week + kids_bedtime_weekend:
-           - Add condition: input_boolean.entertainment_mode is OFF before switch.pool_light_switch off step
+        NOTE: input_boolean.entertaining_mode ALREADY EXISTS in context_presence.yaml.
+              Button is input_button.entertainment_mode_on (name mismatch: "entertainment" vs "entertaining").
+              DO NOT create a new input_boolean — wire the button to the EXISTING entertaining_mode boolean.
+        a. Populate lighting_entertainment.yaml:
+           - button→boolean: input_button.entertainment_mode_on → input_boolean.entertaining_mode ON
+           - scene apply: entertaining_mode turns ON → scene.scene_entertainment_mode
+           - scene restore: entertaining_mode turns OFF → revert (or apply scene_evening_routine)
+           - morning clear: morning routine → input_boolean.entertaining_mode OFF
+        b. Guard both kids_bedtime_week + kids_bedtime_weekend:
+           - Add condition: input_boolean.entertaining_mode is OFF before pool_light_switch step
            NOTE: scene.scene_entertainment_mode already exists — no scene work needed
 
 [ ] M2. Energy saving mode — power side (power package)
@@ -528,6 +536,7 @@ Rule: binary sensors / input_booleans → `from: "off"`. Template/state sensors 
 *2026-04-15 session (Group A audit): A1 confirmed superseded — low_trust_start/end never needed; complete trust chain runs through maid_start/end + gardener_start/end datetimes → schedule automations → maid_on_site/gardener_on_site booleans → binary_sensor.staff_on_site → binary_sensor.low_trust_present. A2 confirmed done — boundary_permissive_window reads maid_on_site + weekday()==0 + override, no longer always false. Group A fully complete.*
 *Last updated: 2026-04-28 (session 3)*
 *2026-04-28 session (pool pump bugs): pool_pump_solar_control in power_automations.yaml — Bug 1: no 16:00 hard-stop trigger. Pump turned on at 15:00 by Branch 5 (solar surplus), ran until manually turned off at 18:05 (confirmed via DB: switch state change had empty context = physical/manual, not automation). Fix: added "16:00:00" time trigger (id: end_of_day); added Branch 0 (unconditional 16:00 turn-off, no minimum run time guard); removed before:"16:00:00" from global conditions; added before:"16:00:00" to Branch 5 turn-on conditions only. Bug 2: input_datetime.pool_pump_last_on never updated — mode:single caused Branch 1 (records pump start time) to be silently dropped (max_exceeded:silent) when it queued behind Branch 5 that had just turned the pump on. Result: pool_pump_continuous_run_minutes always showed ~1085 min (today_at('00:00:00') = midnight), so 45-min minimum run time guard was always trivially met. Fix: mode:single → mode:queued.*
+*2026-04-29 session: BUG-L10 found — Sonoff integration offline since ~2026-04-24. DB query confirmed switch.front_house_security_light, back_house_security_light, entrance_down_lights, dining_room_light, pool_light_switch all showing only "unavailable" state since April 24 (no on/off transitions recorded). Kids bedtime automation (kids_bedtime_week/weekend) condition: or check uses state:"on" — all unavailable switches evaluate to false, condition fails after setting bedtime_mode, scene never fires. Physical lights stayed on in last relay state. Root cause: Sonoff (EWElink) cloud integration down — check Settings → Integrations → Sonoff. Both switches are sonoff platform, config_entry 01JHTXM2, device 1001e1f931. LIGHTING_CONTRACT.md updated: L05/L07/L08 marked fixed; scene_kids_bedtime inventory corrected to 5 lights; helper inventory pruned (kids_bedtime_enabled + patio_second_wake_time removed); entertaining_mode entity name clarified (input_boolean.entertaining_mode exists in context_presence.yaml; button name mismatch "entertainment" vs "entertaining"). M1 planning note in GROUP M corrected — no new boolean needed, wire button to existing input_boolean.entertaining_mode.*
 *2026-04-29 session: Recovery mode caused by illegal % token in notify_power_event.yaml line 198 and notify_security_events.yaml — both had {% if sev == 'critical' %} blocks used to conditionally include the inline_keyboard YAML key inside a data: mapping. HA's YAML parser sees {% at structural YAML level (where a key would appear) as an illegal % token and enters recovery mode. Fixed both files by splitting the Telegram notify.send_message into a choose block: critical branch includes inline_keyboard, default branch uses disable_notification. Both files verified correct: critical branch → inline_keyboard present, default branch → disable_notification present, no {% %} at key level. CODING_STANDARDS Rule 6 added: never use Jinja2 block tags to conditionally emit YAML keys — use choose: branches instead. Rule also added to pre-commit checklist.*
 *2026-04-29 planning: BUG-L09 gap analysis completed. Entertainment mode: scene.scene_entertainment_mode already exists (pool light + patio + entrance_down + dining); missing are input_boolean.entertainment_mode, a button→boolean automation in lighting_entertainment.yaml (currently empty), and an entertainment-mode guard in both kids_bedtime automations which unconditionally turn off switch.pool_light_switch today. Energy saving mode: input_boolean.energy_saving_mode missing entirely; lighting_energy_saving.yaml empty; architecture decision — power system owns the SOC/orchestrator trigger (power_automations.yaml); lighting side only consumes the boolean. Manual override buttons exist (energy_saving_mode_on/off). Implementation captured in Group M (M1/M2/M3). Not yet implemented.*
 *2026-04-28 session 3: T1 fixed — telegram_bot.send_photo added to notify_security_events.yaml after Telegram text message, guarded on img not none. T2 fixed — inline_keyboard added for critical severity in security (→ /ack_security_alert → alert.security_alert off) and power (→ /ack_power_alert → alert.power_alert off); callback automations added to respective notify files. T3 fixed — disable_notification: sev==information added to all 6 Telegram send_message calls. T4 fixed — push.interruption-level: critical (iOS) + channel: alarm + ttl/priority (Android) added to all 6 STD_Critical notify calls. BUG-WEA01 confirmed already fixed (checkbox not updated). BUG-CORE01 fixed — ha_events_per_second removed (was returning total sensor count not rate). BUG-CTX02 fixed — bedtime_mode moved to lighting_helpers.yaml, bedtime_time deleted, context_schedules.yaml deleted. BUG-L07/L08 fixed — kids_bedtime_enabled + patio_second_wake_time removed (no consumers). Only BUG-L09 remains open.*

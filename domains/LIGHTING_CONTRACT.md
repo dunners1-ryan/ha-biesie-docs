@@ -38,7 +38,9 @@ binary_sensor.office_occupied        ← office presence
 binary_sensor.garage_occupied        ← garage presence
 binary_sensor.living_areas_occupied  ← morning trigger
 input_boolean.bedtime_mode           ← set by kids/full bedtime automations
-input_boolean.entertaining_mode      ← suppresses tier 3 door alerts + lighting
+input_boolean.entertaining_mode      ← suppresses tier 3 door alerts; defined in context_presence.yaml
+                                       NOTE: button is input_button.entertainment_mode_on (name mismatch:
+                                       "entertaining" vs "entertainment") — BUG-L09 wires the button to this boolean
 input_boolean.holiday_mode           ← modifies bedtime schedule
 sensor.security_lighting_intent      ← security engine drives security lights
 sensor.security_movement_path        ← security engine path for area lights
@@ -97,7 +99,7 @@ All scenes defined in `lighting_scenes.yaml`.
 | Scene | Lights ON | Lights OFF |
 |---|---|---|
 | `scene.scene_entertainment_mode` | pool_light, back_house_security, entrance_down_lights, dining_room | — |
-| `scene.scene_kids_bedtime` | — | front_house_security, back_house_security, pool_light |
+| `scene.scene_kids_bedtime` | — | front_house_security, back_house_security, pool_light, entrance_down_lights, dining_room (updated 2026-04-16 — BUG-L05 fixed) |
 | `scene.scene_full_bedtime` | — | front_house_security, back_house_security, laundry, pool_light, office, dining_room |
 | `scene.scene_night_away` | laundry (deterrence), office_entrance | garage, main_entrance, dining_room, pool_light, pool_patio_down_lights, front_house_security, back_house_security |
 
@@ -157,13 +159,13 @@ when turned on by evening_routine. See BUG-L01 and BUG-L02.
 
 | ID | Trigger | Condition | Action |
 |---|---|---|---|
-| `kids_bedtime_week` | kids_week_bedtime time OR button | weekday Sun-Thu, holiday=off | scene_kids_bedtime, bedtime_mode=ON |
-| `kids_bedtime_weekend` | kids_weekend_bedtime time OR button | Fri-Sat, holiday=off | scene_kids_bedtime, bedtime_mode=ON |
+| `kids_bedtime_week` | kids_week_bedtime time OR button | weekday Sun-Thu, holiday=off | set bedtime_mode ON; if any managed light is "on" → send 30s warning notification → (cancel check) → scene_kids_bedtime |
+| `kids_bedtime_weekend` | kids_weekend_bedtime time OR button | Fri-Sat, holiday=off | same as above |
 | `kids_bedtime_holiday_override` | either bedtime time | holiday=on | scene_full_bedtime, bedtime_mode=ON |
 
-**Default kids bedtime scene turns OFF:** front_house_security, back_house_security, pool_light.
-**Does NOT turn off:** entrance_down_lights, dining_room_light — these stay on from evening routine.
-**No confirmation notification** before lights off. See BUG-L05.
+**Kids bedtime scene turns OFF:** front_house_security, back_house_security, pool_light, entrance_down_lights, dining_room (BUG-L05 fixed 2026-04-16).
+**30-second mobile confirmation window** with cancel button (`input_button.kids_bedtime_cancel`) before scene fires.
+**⚠️ KNOWN ISSUE:** Condition check uses `state: "on"` only — if all managed lights are `unavailable` (e.g. Sonoff integration offline), condition fails and scene never fires. Physical lights stay in last relay state.
 
 ### Boundary Security (`lighting_boundary.yaml`)
 
@@ -209,8 +211,8 @@ patio_second_wake_time        ← (defined but not referenced — potential orph
 ```
 morning_routine_ran_today     ← once-per-day gate for morning
 evening_routine_ran_today     ← once-per-day gate for evening
-kids_bedtime_enabled          ← (defined but not referenced in automations — orphan)
-bedtime_mode                  ← set by bedtime, cleared by morning (lives in context_schedules.yaml)
+bedtime_mode                  ← set by bedtime, cleared by morning (lives in lighting_helpers.yaml — moved from context_schedules.yaml 2026-04-28)
+# kids_bedtime_enabled        ← REMOVED 2026-04-28 (no consumers — BUG-L07 fixed)
 ```
 
 ### input_button
@@ -219,9 +221,16 @@ boundary_security_on/off
 morning_routine_on/off
 evening_routine_on/off
 kids_bedtime_on
+kids_bedtime_cancel           ← cancel button for 30s bedtime confirmation window (added 2026-04-16)
 full_bedtime_on/off
-energy_saving_mode_on/off
-entertainment_mode_on         ← (defined but lighting_entertainment.yaml is empty)
+energy_saving_mode_on/off     ← no backing automation yet (BUG-L09)
+entertainment_mode_on         ← button name uses "entertainment" but backing boolean is input_boolean.entertaining_mode
+                                 (name mismatch); lighting_entertainment.yaml still empty (BUG-L09)
+```
+
+### input_datetime (removed)
+```
+# patio_second_wake_time      ← REMOVED 2026-04-28 (no consumers — BUG-L08 fixed)
 ```
 
 ---
@@ -296,18 +305,14 @@ Once-per-day gate handles duplicates.
 
 ---
 
-### BUG-L05 [MEDIUM] Kids bedtime turns off entrance/dining lights without confirmation
+### ~~BUG-L05~~ [MEDIUM] ✅ FIXED 2026-04-16
 
-**File:** `packages/lighting/lighting_bedtime.yaml`
-**Description:** scene_kids_bedtime currently only turns off security lights
-(front_house_security, back_house_security, pool_light). It does NOT turn off
-entrance_down_lights or dining_room_light which are on from evening routine.
-Per design: these should turn off at kids bedtime with a 30s mobile notification
-confirmation window (cancel button) before acting — and only if the lights
-are currently on.
-**Fix:** Add entrance_down_lights and dining_room_light to scene_kids_bedtime.
-Add pre-notification + 30s cancel window. Add input_button.kids_bedtime_cancel
-to helpers.
+**File:** `packages/lighting/lighting_bedtime.yaml` + `lighting_scenes.yaml`
+**Was:** scene_kids_bedtime only turned off security lights (front/back/pool). No confirmation notification.
+**Fix applied:** entrance_down_lights and dining_room_light added to scene_kids_bedtime. 30-second mobile
+confirmation window added with cancel button (input_button.kids_bedtime_cancel). Condition: or check gates
+notification on any managed light being "on". NOTE: condition check does not handle `unavailable` state —
+see Section 4 ⚠️ note.
 
 ---
 
@@ -320,21 +325,19 @@ to helpers.
 
 ---
 
-### BUG-L07 [LOW] input_boolean.kids_bedtime_enabled defined but never used
+### ~~BUG-L07~~ [LOW] ✅ FIXED 2026-04-28
 
 **File:** `packages/lighting/lighting_helpers.yaml`
-**Description:** Helper exists but no automation references it. The bedtime
-automations don't check this boolean — they check holiday_mode instead.
-Either wire it in as a master bedtime enable/disable or remove it.
+**Was:** input_boolean.kids_bedtime_enabled defined but no automation referenced it.
+**Fix applied:** Removed from lighting_helpers.yaml.
 
 ---
 
-### BUG-L08 [LOW] input_datetime.patio_second_wake_time defined but not used
+### ~~BUG-L08~~ [LOW] ✅ FIXED 2026-04-28
 
 **File:** `packages/lighting/lighting_helpers.yaml`
-**Description:** Defined but not referenced. `morning_second_wake_time` is
-used instead. Either remove `patio_second_wake_time` or wire it up for
-the pool patio light specifically.
+**Was:** input_datetime.patio_second_wake_time defined but not referenced.
+**Fix applied:** Removed from lighting_helpers.yaml.
 
 ---
 
@@ -422,27 +425,37 @@ are safe because the gate handles deduplication.
 ## Section 10: Implementation Checklist
 
 ```
-OPEN — Lighting Bugs (priority order)
-[ ] BUG-L01: Add entrance_down_lights to scene_night_away
-[ ] BUG-L02: Add main_entrance_light:off to scene_night_away
-[ ] BUG-L03: Fix anyone_home → anyone_connected_home in arrival
-[ ] BUG-L01+L02: Add morning_routine_off to night departure action
-[ ] BUG-L04: Add time + cam14 motion triggers to morning routine
-[ ] BUG-L05: Add entrance_down_lights + dining to kids bedtime scene
-             + 30s mobile confirmation before acting
-[ ] BUG-L06: Add from:"off" to departure trigger
-[ ] BUG-L07: Wire kids_bedtime_enabled or remove
-[ ] BUG-L08: Remove patio_second_wake_time or wire to pool patio
-[ ] BUG-L09: Implement entertainment + energy saving or remove buttons
+CLOSED — All L01–L08 fixed (verified against live files 2026-04-29)
+✅ BUG-L01: entrance_down_lights already in scene_night_away — confirmed present
+✅ BUG-L02: main_entrance_light removed from scene_night_away (stays on overnight as deterrence);
+            explicit turn_off added to morning_wake_lights_on — fixed 2026-04-28
+✅ BUG-L01+L02: scene_morning_routine_off applied after scene_night_away in departure — confirmed present
+✅ BUG-L03: anyone_home → anyone_connected_home in arrival — confirmed present
+✅ BUG-L04: time + cam14 motion fallback triggers in morning routine — confirmed present
+✅ BUG-L05: entrance_down_lights + dining_room in scene_kids_bedtime + 30s cancel — fixed 2026-04-16
+✅ BUG-L06: from:"off" on departure trigger — confirmed present
+✅ BUG-L07: kids_bedtime_enabled removed — fixed 2026-04-28
+✅ BUG-L08: patio_second_wake_time removed — fixed 2026-04-28
 
-FUTURE
-[ ] Wire entertaining_mode to lighting (currently only affects door alerts)
-[ ] Implement lighting_entertainment.yaml for scene.scene_entertainment_mode
-[ ] Implement lighting_energy_saving.yaml
+OPEN
+[ ] BUG-L09: Wire entertainment_mode_on button → input_boolean.entertaining_mode;
+             populate lighting_entertainment.yaml; guard kids bedtime from clobbering scene;
+             implement energy_saving_mode (power domain owns SOC trigger).
+             See GROUP M in PROJECT_STATE.md for full plan.
+
+KNOWN INTEGRATION ISSUE (not a code bug)
+[ ] BUG-L10: Sonoff integration offline since ~2026-04-24 — all security + indoor switches
+             reporting unavailable. Kids bedtime scene cannot fire (condition: or check
+             returns false for unavailable entities). Physical lights stuck in last relay state.
+             Fix: Settings → Integrations → Sonoff → check cloud connectivity / re-auth.
+             Future hardening: expand condition check to include 'unavailable' state so scene
+             always fires when any light might need attention.
 ```
 
 ---
 
 *Audit completed: 2026-04-16*
+*Updated: 2026-04-29 — BUG-L05/L07/L08 marked fixed; scene inventory corrected; helper inventory pruned;
+entertaining_mode entity name clarified; Sonoff outage (BUG-L10) documented; checklist updated.*
 *Audited by: claude.ai session — live file review*
 *Next review: After new AI cameras installed (cam motion valid sensors change)*
