@@ -61,9 +61,9 @@ packages/
   office/         # 1 file   — office_helpers.yaml (printer cartridge monitoring)
   weather/        # 2 files  — weather_core.yaml, weather_helpers.yaml (OWM health tracking)
   sensors/        # 1 file   — filter.yaml (sensor smoothing utilities)
-  load_shedding/  # 1 file   — load_shedding_templates.yaml (migrated from power/ 2026-04-21)
-                 #             ⚠️ New package dir — requires HA restart to activate
-                 #             Pending: load_shedding_automations.yaml (3 automations still in automations.yaml)
+  load_shedding/  # 2 files  — load_shedding_templates.yaml (migrated from power/ 2026-04-21)
+                 #             load_shedding_automations.yaml (3 warning automations migrated 2026-04-29)
+                 #             ⚠️ New package dir — requires HA restart if not yet restarted since 2026-04-21
   admin/          # 0 files  — EMPTY directory (reserved for future admin automations)
 ```
 
