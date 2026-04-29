@@ -21,14 +21,10 @@ Each active automation was read in full. The following flags are applied:
 
 ### CORE / NETWORK
 
-| ID | Alias | Lines | Purpose | Complexity | Migration Target |
-|---|---|---|---|---|---|
-| `update_device_uptimes_group` | Update Device Uptimes Group | 1–25 | Rebuilds `group.network_device_uptimes` from all `*_uptime/*_last_boot` sensors on HA start, group reload, or button press | trivial | `packages/core/ha_monitoring.yaml` |
-| `device_restart_info_alert_active` | Device Restart Info Alert Active | 26–67 | Notifies when `binary_sensor.device_restart_alert_active` turns ON — lists restarted devices | moderate | `packages/core/ha_monitoring.yaml` |
-
-**Flags — `device_restart_info_alert_active`:**
-- `⚠️ DIRECT NOTIFY` → `notify.STD_Information` + Telegram direct. On migration: use `script.notify_system_event` (keep Telegram direct as fallback if desired).
-- `⚠️ WHATSAPP` → `notify.whatsapp` step exists but `enabled: false`. Remove on migration.
+| ID | Alias | Status |
+|---|---|---|
+| `update_device_uptimes_group` | Update Device Uptimes Group | ✅ DELETED 2026-04-29 — superseded by `alerts_network.yaml` (group auto-managed) |
+| `device_restart_info_alert_active` | Device Restart Info Alert Active | ✅ DELETED 2026-04-29 — superseded by `binary_sensor.device_restart_alert_active` + `alert.network_alert` pipeline in `alerts_network.yaml` |
 
 ---
 
@@ -113,14 +109,14 @@ Each active automation was read in full. The following flags are applied:
 
 ### GARDEN / MISC
 
-| ID | Alias | Lines | Purpose | Complexity | Migration Target |
-|---|---|---|---|---|---|
-| `1742999668407` | Alert Pond Pump Unscheduled Turn on | 2633–2695 | Alerts when `switch.sonoff_pond_fountain_pump` turns on after 11:00; uses mobile action button | moderate | `packages/admin/admin_automations.yaml` (create) |
+| ID | Alias | Status |
+|---|---|---|
+| `1742999668407` | Alert Pond Pump Unscheduled Turn on | ✅ MIGRATED 2026-04-29 → `packages/alerts/alerts_garden.yaml` |
 
-**Flags:**
-- `⚠️ DIRECT NOTIFY` → `notify.mobile_app_iphone16promax_ryan` direct call. Fix: `script.notify_system_event` (info severity).
-- **Broken action pattern** → `wait_for_trigger` and `service: switch.turn_off` are nested inside `notify.mobile_app_iphone16promax_ryan` data block. This is invalid YAML structure — HA will reject or silently ignore. On migration: move the wait+turn_off into the top-level action sequence.
-- Missing `from: "off"` guard on the state trigger — will fire on unavailable→on restart. Add `from: "off"` on migration.
+Fixes applied on migration:
+- `⚠️ DIRECT NOTIFY` → `notify.mobile_app_iphone16promax_ryan` replaced by `alert.garden_alert → STD_Alerts` + `script.notify_system_event` confirmation.
+- **Broken action pattern** → `wait_for_trigger` and `service: switch.turn_off` nested inside notify data block removed. Replaced by proper `mobile_app_notification_action` event automation (`garden_alert_ack_turn_off_pond_pump`).
+- Full canonical pipeline implemented: `binary_sensor.garden_alert_active → sensor.garden_alert_context → alert.garden_alert → aggregator`.
 
 ---
 
@@ -137,17 +133,22 @@ Each active automation was read in full. The following flags are applied:
 | `inverter_pwer_monitoring` | ✅ SUPERSEDED | By `alerts_power.yaml` excess load sensor |
 | `notify_prepaid_units_low` | ✅ SUPERSEDED | By `prepaid_core.yaml` (prepaid_auto_reconcile) |
 | `1742557570638` (prepaid units low v2) | ✅ SUPERSEDED | By `prepaid_core.yaml` |
+| `1742999668407` Pond Pump Unscheduled | ✅ MIGRATED 2026-04-29 | → `packages/alerts/alerts_garden.yaml` (full canonical pipeline) |
+| `update_device_uptimes_group` | ✅ DELETED 2026-04-29 | Superseded by `alerts_network.yaml` pipeline |
+| `device_restart_info_alert_active` | ✅ DELETED 2026-04-29 | Superseded by `alerts_network.yaml` pipeline |
 
 ---
 
 ## Migration Priority Queue
 
 ### Do Now (non-power, low-risk)
-| Automation | Target | Effort |
-|---|---|---|
-| `update_device_uptimes_group` | `packages/core/ha_monitoring.yaml` | trivial |
-| `device_restart_info_alert_active` | `packages/core/ha_monitoring.yaml` | trivial |
-| `1742999668407` Pond Pump alert | `packages/admin/admin_automations.yaml` | moderate (fix broken action structure) |
+*All immediate items resolved 2026-04-29.*
+
+| Automation | Status |
+|---|---|
+| `update_device_uptimes_group` | ✅ DELETED — superseded |
+| `device_restart_info_alert_active` | ✅ DELETED — superseded |
+| `1742999668407` Pond Pump alert | ✅ MIGRATED → `alerts_garden.yaml` |
 
 ### Power Session (defer — batch together)
 | Automation | Target | Notes |
@@ -172,9 +173,8 @@ Each active automation was read in full. The following flags are applied:
 
 | Category | Count |
 |---|---|
-| Active automations remaining | 12 |
-| Already migrated to packages | 10 |
-| Ready to migrate (non-power) | 3 |
+| Active automations remaining | 9 (was 12; −2 deleted, −1 migrated 2026-04-29) |
+| Already migrated to packages | 13 |
 | Deferred to power session | 7 |
 | Deferred to geyser session | 2 |
 | Dead entity references (`sensor.inverter_power`) | 8 automations |
