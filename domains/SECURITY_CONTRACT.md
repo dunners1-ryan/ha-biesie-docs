@@ -66,7 +66,7 @@ binary_sensor.security_{zone}_motion  ← zone aggregation: perimeter / grounds 
 | cam07_front_kitchen | Grounds Front | Hikvision NVR (analog) |
 | cam09_back_bedroom | Grounds Rear | Hikvision NVR (analog) |
 | cam10_pool_bar | Grounds Rear | Hikvision NVR (analog) |
-| cam11_back_pond | Grounds Rear | Hikvision NVR (analog) |
+| cam11_back_pond | Grounds Rear | Hikvision NVR (analog) — NVR friendly name is "Cam12-Back-Pond"; entity IDs use cam11_back_pond (pre-dates NVR renumbering). DO NOT rename entities. |
 | cam14_lounge | Inside House | Hikvision NVR (analog) |
 | cam15_passage | Inside House | Hikvision NVR (analog) |
 
