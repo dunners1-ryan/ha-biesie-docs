@@ -72,8 +72,8 @@ person.*                             ← HA mobile geo — UNRELIABLE for local 
 | `lighting_garage.yaml` | ~90 | Garage presence-aware lighting |
 | `lighting_office_presence.yaml` | ~90 | Office presence-aware lighting |
 | `lighting_bar_presence.yaml` | ~180 | Bar presence + Telegram confirmation |
-| `lighting_entertainment.yaml` | 0 | EMPTY — no content |
-| `lighting_energy_saving.yaml` | 0 | EMPTY — no content |
+| `lighting_entertainment.yaml` | ~90 | Entertaining mode — wires button→input_boolean.entertaining_mode, applies/restores scene, 06:00 clear |
+| `lighting_energy_saving.yaml` | ~80 | Energy saving mode — button wiring, TIER 2 light suppression (pool, patio, back security) |
 
 ---
 
@@ -165,6 +165,7 @@ when turned on by evening_routine. See BUG-L01 and BUG-L02.
 
 **Kids bedtime scene turns OFF:** front_house_security, back_house_security, pool_light, entrance_down_lights, dining_room (BUG-L05 fixed 2026-04-16).
 **30-second mobile confirmation window** with cancel button (`input_button.kids_bedtime_cancel`) before scene fires.
+**Entertainment guard (2026-04-29):** if `input_boolean.entertaining_mode` is ON, pool_light is preserved — only front/back security, entrance_down, dining are turned off.
 **⚠️ KNOWN ISSUE:** Condition check uses `state: "on"` only — if all managed lights are `unavailable` (e.g. Sonoff integration offline), condition fails and scene never fires. Physical lights stay in last relay state.
 
 ### Boundary Security (`lighting_boundary.yaml`)
