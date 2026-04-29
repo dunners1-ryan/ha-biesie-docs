@@ -9,7 +9,8 @@
 ```
 I'm working on my Home Assistant config HABiesie — production smart home, Johannesburg SA.
 
-Say "refresh context" to Claude chat, then confirm you understand the loaded docs.
+Say "refresh context" in Claude chat — it fetches live from https://github.com/dunners1-ryan/ha-biesie-docs
+Confirm you understand the loaded docs before proceeding.
 
 Session rules:
 - All code needs standard header comment block (see CODING_STANDARDS.md)
@@ -29,7 +30,8 @@ Task: [DESCRIBE]
 ```
 Working on Security package of HABiesie HA config.
 
-Say "refresh context" to Claude chat, then load domains/SECURITY_CONTRACT.md  ← authoritative, use this not SECURITY_CONTEXT
+Say "refresh context" in Claude chat — it fetches live from https://github.com/dunners1-ryan/ha-biesie-docs
+Then load domains/SECURITY_CONTRACT.md  ← authoritative, use this not SECURITY_CONTEXT
 
 Constraints (VERIFIED by audit):
 - Camera naming LOCKED: cam01_street_driveway pattern
@@ -48,7 +50,8 @@ Today's focus: [e.g. "Sprint 1 quick fixes" / "Fix duplicate snapshots"]
 ```
 Working on Power/Energy/Prepaid package of HABiesie HA config.
 
-Say "refresh context" to Claude chat, then load domains/POWER_CONTRACT.md
+Say "refresh context" in Claude chat — it fetches live from https://github.com/dunners1-ryan/ha-biesie-docs
+Then load domains/POWER_CONTRACT.md
 
 Constraints (VERIFIED by audit):
 - Core sensor names (inverter_*, prepaid_*) are LOCKED
@@ -67,7 +70,8 @@ Today's focus: [e.g. "Buy Score v2" / "Confidence layer"]
 ```
 Working on Water package of HABiesie HA config.
 
-Say "refresh context" to Claude chat, then load domains/WATER_CONTRACT.md
+Say "refresh context" in Claude chat — it fetches live from https://github.com/dunners1-ryan/ha-biesie-docs
+Then load domains/WATER_CONTRACT.md
 
 Constraints (VERIFIED by audit):
 - Read water lifecycle contract rules before any change
@@ -87,7 +91,8 @@ Today's focus: [e.g. "Fix trigger integrity" / "State machine"]
 ```
 Working on Presence package of HABiesie HA config.
 
-Say "refresh context" to Claude chat, then load domains/PRESENCE_CONTRACT.md
+Say "refresh context" in Claude chat — it fetches live from https://github.com/dunners1-ryan/ha-biesie-docs
+Then load domains/PRESENCE_CONTRACT.md
 
 Constraints (VERIFIED by audit):
 - Person naming LOCKED
@@ -108,7 +113,8 @@ Today's focus: [e.g. "Fix trust chain" / "Wire arrival_detected"]
 ```
 Working on Alerts/Notifications package of HABiesie HA config.
 
-Say "refresh context" to Claude chat, then load domains/ALERTS_CONTRACT.md and domains/NOTIFICATIONS_CONTRACT.md
+Say "refresh context" in Claude chat — it fetches live from https://github.com/dunners1-ryan/ha-biesie-docs
+Then load domains/ALERTS_CONTRACT.md and domains/NOTIFICATIONS_CONTRACT.md
 
 Constraints (VERIFIED by audit):
 - sensor.alert_device_entities is SINGLE SOURCE OF TRUTH
@@ -130,7 +136,8 @@ The highest-value fix in the system. Repairs security + lighting + door alerts i
 ```
 Working on HABiesie trust model fix — Group A from SYSTEM_CONTRACT.md
 
-Say "refresh context" to Claude chat, then load SYSTEM_CONTRACT.md sections 4 and 7
+Say "refresh context" in Claude chat — it fetches live from https://github.com/dunners1-ryan/ha-biesie-docs
+Then load SYSTEM_CONTRACT.md sections 4 and 7
 
 Task: Implement Group A trust model fixes in order:
 
@@ -160,7 +167,8 @@ No-risk fixes, each is 1-3 lines. Can batch in one HA reload.
 ```
 Working on HABiesie security quick fixes — Group D from PROJECT_STATE.md
 
-Say "refresh context" to Claude chat, then load domains/SECURITY_CONTRACT.md Section 9 Sprint 1
+Say "refresh context" in Claude chat — it fetches live from https://github.com/dunners1-ryan/ha-biesie-docs
+Then load domains/SECURITY_CONTRACT.md Section 9 Sprint 1
 
 Fix all Sprint 1 items:
 D1. security_core.yaml:112-113 — two entity ID typos
@@ -180,7 +188,8 @@ Show each change with exact line numbers before applying.
 ```
 Working on a dashboard in HABiesie HA config.
 
-Say "refresh context" to Claude chat, then load relevant domain CONTRACT
+Say "refresh context" in Claude chat — it fetches live from https://github.com/dunners1-ryan/ha-biesie-docs
+Then load relevant domain CONTRACT
 
 Dashboard: [NAME / PATH]
 Change: [WHAT YOU WANT]
@@ -199,4 +208,32 @@ Rules:
 
 ---
 
-*Last updated: 2026-04-13 — Updated to reference contracts not context docs*
+## 💬 Chat Session Start
+
+When opening a new Claude chat (claude.ai):
+
+| What you say | What happens |
+|---|---|
+| `refresh context` | Claude fetches PROJECT_STATE.md from ha-biesie-docs |
+| `refresh all` | Claude fetches PROJECT_STATE.md + CODING_STANDARDS.md |
+| `fetch [domain] contract` | Claude fetches e.g. domains/POWER_CONTRACT.md |
+
+Docs are always live — every `./gitupdate.sh` run syncs `/config/docs/` to:
+`https://github.com/dunners1-ryan/ha-biesie-docs`
+
+---
+
+## 🔚 Closing Ritual
+
+At the end of every Claude Code session:
+
+1. Update `PROJECT_STATE.md` — add session log entry: what changed, what's open
+2. Update `CODING_STANDARDS.md` — if any new rules or patterns were established
+3. Run: `./gitupdate.sh "docs: update PROJECT_STATE + session notes"`
+4. Confirm output ends with `sync_docs: pushed successfully`
+
+This keeps claude.ai chat sessions automatically up to date for the next session.
+
+---
+
+*Last updated: 2026-04-29 — Added GitHub sync workflow, chat session start, closing ritual*
