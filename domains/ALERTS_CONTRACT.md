@@ -5,8 +5,9 @@
 # Date:         2026-04-13
 # Auditor:      Claude Code (claude-sonnet-4-6)
 #
-# Scope: All 12 packages/alerts/*.yaml files
+# Scope: All 13 packages/alerts/*.yaml files
 #        Plus cross-domain aggregation in alerts_summary.yaml
+# Last updated: 2026-04-29 — alerts_garden.yaml added (13th file)
 ###############################################################################
 
 ---
@@ -15,11 +16,9 @@
 
 The alert system is a multi-layer pipeline that aggregates domain-level
 conditions into a unified global severity sensor. The design is sound and
-largely correct. Critical gaps are:
+largely correct. Remaining open issue:
 
-1. **Water and Security domains have no alert entities** — both files are empty stubs
-2. **Temperature and Device Power bypass the central notification script** — direct `notify.STD_*` calls with no Telegram delivery and no quiet-hours enforcement
-3. **Two alert entities not in the aggregator trigger list** — network and media have 60s update lag
+1. **Temperature domain bypasses central notification script** — direct `notify.STD_*` calls with no Telegram delivery and no quiet-hours enforcement (BUG-A03)
 
 ---
 
@@ -36,13 +35,13 @@ largely correct. Critical gaps are:
 | `alerts_device_power.yaml` | 325 | ✅ Active | Device power fault (RPi, UPS) — BUG-A04 fixed 2026-04-14 |
 | `alerts_media.yaml` | 179 | ✅ Active | Media server downtime |
 | `alerts_system_health.yaml` | 265 | ✅ Active | Critical sensor watchman monitoring |
-| `alerts_presence.yaml` | 17 | ❌ Empty stub | No entities defined |
+| `alerts_presence.yaml` | 17 | ✅ Active | Unknown AP + occupancy anomaly — implemented 2026-04-16 |
 | `alerts_water.yaml` | 123 | ✅ Active | Water alert pipeline — implemented 2026-04-14 |
 | `alerts_security.yaml` | 109 | ✅ Active | Security alert pipeline — implemented 2026-04-14 |
+| `alerts_garden.yaml` | ~120 | ✅ Active | Garden/pond pump unscheduled alert — implemented 2026-04-29 |
 
-**Context documents out of date:** ALERTS_CONTEXT.md lists `alerts_core.yaml`
-and `alerts_device.yaml` — neither exists. Actual file inventory differs
-from documentation.
+**Note:** ALERTS_CONTEXT.md lists `alerts_core.yaml` and `alerts_device.yaml` — neither
+exists. That context file is stale; this contract is authoritative.
 
 ---
 
@@ -86,6 +85,7 @@ Scans all `sensor.*_alert_context` entities. For each non-normal context:
 | `sensor.lan_temp_alert_context` | `alert.lan_temp` | ✅ |
 | `sensor.device_temp_alert_context` | `alert.device_temp` | ✅ |
 | `sensor.storage_temp_alert_context` | `alert.storage_temp` | ✅ |
+| `sensor.garden_alert_context` | `alert.garden_alert` | ✅ (fallback candidate2) |
 
 All active alert entities resolve correctly. No broken name mappings.
 
@@ -101,12 +101,20 @@ entity_id:
   - alert.power_alert           ✅
   - alert.critical_sensor_health ✅
   - alert.device_power_fault    ✅
+  - alert.network_alert         ✅
+  - alert.media_alert           ✅
+  - alert.security_alert        ✅
+  - alert.water_alert           ✅
+  - alert.water_borehole_fault  ✅
+  - alert.water_borehole_critical_fault ✅
+  - alert.presence_alert        ✅
+  - alert.garden_alert          ✅
 - trigger: time_pattern
   minutes: "/1"                 # fallback poll
 ```
 
 **Fixed 2026-04-14:** `alert.network_alert`, `alert.media_alert`, `alert.security_alert`,
-and `alert.water_alert` added to both trigger lists in alerts_summary.yaml (BUG-A05).
+`alert.water_alert` added (BUG-A05). **Fixed 2026-04-29:** `alert.garden_alert` added.
 
 ---
 
@@ -220,10 +228,25 @@ automations bypass the central script (see BUG-A03).
 | Binary sensor | `binary_sensor.media_devices_down_alert_active` | ✅ |
 | Context sensor | `sensor.media_alert_context` | ✅ with devices list |
 | Alert entity | `alert.media_alert` | ✅ |
-| In aggregator trigger | **Missing** | ⚠️ 60s lag |
+| In aggregator trigger | ✅ (triggered) | Fixed 2026-04-14 BUG-A05 |
 | Notification | Via `alert.media_alert` → `STD_Alerts` | ✅ |
 
-**PASS with caveat.** 60s aggregator update lag.
+**PASS.**
+
+### Garden Domain — `alerts_garden.yaml`
+
+**IMPLEMENTED 2026-04-29.**
+
+| Stage | Entity | Status |
+|---|---|---|
+| Toggle | `input_boolean.garden_alert_notify` | ✅ suppress gate |
+| Binary sensor | `binary_sensor.garden_alert_active` | ✅ delay_on 1 min, delay_off 5 min — pond pump after 11:00 |
+| Context sensor | `sensor.garden_alert_context` | ✅ warning/normal, devices attribute |
+| Alert entity | `alert.garden_alert` | ✅ 60 min repeat, mobile action: `TURN_OFF_POND_PUMP` |
+| In aggregator trigger | ✅ (triggered) | Added 2026-04-29 |
+| Mobile action handler | `automation.garden_alert_ack_turn_off_pond_pump` | ✅ |
+
+**PASS.** Replaces broken `1742999668407` in `automations.yaml` (wait_for_trigger nested in notify data — silently ignored by HA). See [GARDEN_CONTRACT.md](GARDEN_CONTRACT.md) for full detail.
 
 ### System Health Domain — `alerts_system_health.yaml`
 
@@ -254,6 +277,7 @@ prevents spurious watchman alerts.
 | `alert.device_temp` | `binary_sensor.device_temp_alert_active` | (varies) | `STD_Alerts` | Implicit |
 | `alert.storage_temp` | `binary_sensor.storage_temp_alert_active` | (varies) | `STD_Alerts` | Implicit |
 | `alert.media_alert` | `binary_sensor.media_devices_down_alert_active` | 3/10/30/60 min | `STD_Alerts` | Implicit |
+| `alert.garden_alert` | `binary_sensor.garden_alert_active` | 60 min | `STD_Alerts` | ✅ |
 
 All active alert entities use `STD_Alerts` (mobile + Telegram group).
 
@@ -452,6 +476,7 @@ automation, not an alert entity. No pipeline entry.
 | Water | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A01 |
 | Security | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A02 |
 | Presence | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-16 B1 |
+| Garden | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-29 new |
 
 ---
 
@@ -463,7 +488,7 @@ automation, not an alert entity. No pipeline entry.
 | BUG-A02 | **High** | ✅ Fixed 2026-04-14 | `alerts_security.yaml` empty — security never in global alert context | alerts_security.yaml |
 | BUG-A03 | **High** | ⏳ Open | Temperature routing calls `notify.STD_*` directly (no Telegram, no quiet hours) | alerts_temperature.yaml |
 | BUG-A04 | **High** | ✅ Fixed 2026-04-14 | Device power: direct notify call + alert entity = duplicate delivery | alerts_device_power.yaml |
-| BUG-A05 | **Medium** | ✅ Fixed 2026-04-14 | `alert.network_alert` and `alert.media_alert` missing from aggregator trigger list | alerts_summary.yaml |
+| BUG-A05 | **Medium** | ✅ Fixed 2026-04-14 | `alert.network_alert` and `alert.media_alert` missing from aggregator trigger list (and others added over time) | alerts_summary.yaml |
 | BUG-A06 | **Medium** | ✅ Fixed 2026-04-16 | Two door severity engines unified — `sensor.doors_open_alert_severity` deleted | alerts_doors.yaml |
 | BUG-A07 | **Low** | ✅ Fixed 2026-04-14 | Power context `devices` list empty during battery-low / prepaid-drift events | alerts_power.yaml |
 | BUG-A08 | **Low** | ✅ Fixed 2026-04-16 | `alerts_presence.yaml` implemented — unknown AP + occupancy anomaly pipeline | alerts_presence.yaml |
@@ -476,5 +501,5 @@ automation, not an alert entity. No pipeline entry.
 ---
 
 *Contract generated: 2026-04-13*  
-*Last updated: 2026-04-22*  
-*Based on: 12 alerts package files + cross-domain dependency trace*
+*Last updated: 2026-04-29 — alerts_garden.yaml added; garden domain pipeline audit added; aggregator trigger list corrected to full current state*  
+*Based on: 13 alerts package files + cross-domain dependency trace*
