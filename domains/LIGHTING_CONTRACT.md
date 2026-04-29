@@ -443,13 +443,11 @@ OPEN
              implement energy_saving_mode (power domain owns SOC trigger).
              See GROUP M in PROJECT_STATE.md for full plan.
 
-KNOWN INTEGRATION ISSUE (not a code bug)
-[ ] BUG-L10: Sonoff integration offline since ~2026-04-24 — all security + indoor switches
-             reporting unavailable. Kids bedtime scene cannot fire (condition: or check
-             returns false for unavailable entities). Physical lights stuck in last relay state.
-             Fix: Settings → Integrations → Sonoff → check cloud connectivity / re-auth.
-             Future hardening: expand condition check to include 'unavailable' state so scene
-             always fires when any light might need attention.
+HARDENING NEEDED
+[ ] Add continue_on_error: true to the script.notify_lighting_event calls in kids_bedtime_week
+    and kids_bedtime_weekend. Currently a notification failure (script unavailable, HA recovery
+    mode, Telegram down) stops the automation before the scene fires. Lights should turn off
+    regardless of whether the notification succeeded.
 ```
 
 ---
