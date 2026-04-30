@@ -74,12 +74,12 @@ Domain State Change
 
 ### Notes
 
-**All scripts — Incomplete MarkdownV2 escape chain** *(Fixed 2026-04-13)*
-All 6 scripts were missing `| replace('.', '\\.')` and `| replace('!', '\\!')` from both
-`escaped_title` and `escaped_message` escape chains. MarkdownV2 requires 18 characters escaped;
-the chains only covered 16. Every float sensor value (e.g. `R123.45`, `5.2 days`, `3.5 kWh/day`)
-produced an unescaped period, causing `telegram.error.BadRequest: Can't parse entities` at byte
-offset 62 on any notification containing decimal numbers. See BUG-N09 (resolved).
+**All scripts — Escape chain reduced to old Markdown only** *(Revised 2026-04-30)*
+The Telegram bot integration is configured globally with `parse_mode: markdown` (old Markdown, not MarkdownV2).
+Old Markdown only treats `*`, `_`, and `` ` `` as special. The 18-character MarkdownV2 escape chain applied
+2026-04-13 caused characters like `\.`, `\(`, `\+` to appear literally in Telegram messages, since old Markdown
+does not recognise backslash as an escape for those characters. Reduced to 4-character chain:
+`\\`, `\*`, `\_`, `` \` ``. See BUG-N09 (history below).
 
 **All scripts — `escaped_title` / `escaped_message` default guards** *(Fixed 2026-04-13)*
 All 6 domain notification scripts (`notify_power_event.yaml`, `notify_water_events.yaml`,
@@ -342,18 +342,16 @@ script path.
 
 ---
 
-### BUG-N09 [HIGH] ~~All 6 scripts: incomplete MarkdownV2 escape chain — missing `.` and `!`~~ ✅ FIXED 2026-04-13
+### BUG-N09 [HIGH] ~~All 6 scripts: incorrect MarkdownV2 escape chain applied to old Markdown bot~~ ✅ REVISED 2026-04-30
 
 **Files:** All 6 `notify_*_event.yaml` scripts  
-**Description:** The `escaped_title` and `escaped_message` escape chains covered only 16 of the
-18 characters MarkdownV2 requires escaping. Missing: `.` (period) and `!` (exclamation mark).
-Any notification containing a float sensor value (decimal numbers such as `R123.45`, `5.2 days`,
-`3.5 kWh/day`) caused `telegram.error.BadRequest: Can't parse entities: can't find end of the
-entity starting at byte offset 62`. Confirmed via live error in `automation.prepaid_buy_decision_notification` →
-`script.notify_power_event`.  
-**Fix applied:** Added `| replace('.', '\\.')` and `| replace('!', '\\!')` to both
-`escaped_title` and `escaped_message` chains in all 6 scripts. Chains now cover all 18 required
-MarkdownV2 characters: `\ _ * [ ] ( ) ~ \` > # + - = | { } . !`
+**History:** 2026-04-13 fix added `.` and `!` to complete an 18-character MarkdownV2 escape chain.
+But the Telegram bot config entry (`core.config_entries`) has `options.parse_mode: markdown` (old Markdown),
+not `markdownv2`. Old Markdown does not recognise `\.`, `\(`, `\+` etc. as escape sequences —
+they rendered literally, producing visible backslashes in all Telegram messages.  
+**Fix 2026-04-30:** Reduced all 6 escape chains to 4 characters only: `\\` (backslash), `\*` (bold prevention),
+`\_` (italic prevention), `` \` `` (code prevention). These are the only special characters in old Telegram
+Markdown. Do NOT expand this chain unless the bot integration is changed to `parse_mode: markdownv2`.
 
 ---
 
