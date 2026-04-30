@@ -35,7 +35,7 @@ largely correct. Remaining open issue:
 | `alerts_device_power.yaml` | 325 | ✅ Active | Device power fault (RPi, UPS) — BUG-A04 fixed 2026-04-14 |
 | `alerts_media.yaml` | 179 | ✅ Active | Media server downtime |
 | `alerts_system_health.yaml` | 265 | ✅ Active | Critical sensor watchman monitoring |
-| `alerts_presence.yaml` | 17 | ✅ Active | Unknown AP + occupancy anomaly — implemented 2026-04-16 |
+| `alerts_presence.yaml` | ~158 | ✅ Active | Unknown AP + occupancy anomaly — implemented 2026-04-16 |
 | `alerts_water.yaml` | 123 | ✅ Active | Water alert pipeline — implemented 2026-04-14 |
 | `alerts_security.yaml` | 109 | ✅ Active | Security alert pipeline — implemented 2026-04-14 |
 | `alerts_garden.yaml` | ~120 | ✅ Active | Garden/pond pump unscheduled alert — implemented 2026-04-29 |
