@@ -1,0 +1,1968 @@
+- id: '1741007573197'
+  alias: Load Shedding Inverter Scene Switcher
+  description: Change Inverter Settings Based on load shedding level
+  triggers:
+  - entity_id: input_text.test_eskom_load_shedding
+    trigger: state
+    enabled: false
+  - trigger: state
+    entity_id:
+    - sensor.load_shedding_stage_eskom
+    attribute: stage
+    enabled: true
+    for:
+      hours: 0
+      minutes: 15
+      seconds: 0
+  conditions: []
+  actions:
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ trigger.to_state.state in [''No Load Shedding''] and trigger.from_state.state
+          in [''Stage 1'', ''Stage 2'', ''Stage 3'', ''Stage 4'', ''Stage 5'', ''Stage
+          6'', ''Stage 7'', ''Stage 8''] }}'
+      sequence:
+      - action: scene.turn_on
+        data: {}
+        target:
+          entity_id: scene.no_load_shedding
+      - action: notify.STD_Critical
+        data:
+          message: 'Inverter settings changed to No Load Shedding - no grid charge;
+
+            Current load is {{ states(''sensor.inverter_power'')}}W
+
+            Current grid load is {{ states(''sensor.inverter_grid_power'')}}W
+
+            Solar power is {{states(''sensor.inverter_pv_power'')}}W
+
+            Battery SOC is {{ states(''sensor.inverter_battery_soc'')}}%'
+        enabled: true
+      - action: notify.whatsapp
+        data:
+          message: "Inverter settings changed to No Load Shedding - no grid charge;\n
+            Current load is {{ states('sensor.inverter_power')}}W \n Current grid
+            load is {{ states('sensor.inverter_grid_power')}}W \n Solar power is {{
+            states('sensor.inverter_pv_power')}}W  \n Battery SOC is {{ states('sensor.inverter_battery_soc')}}%"
+          title: Load Shedding Status Alert
+        enabled: false
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_bot_5527
+        data:
+          title: Load Shedding Status Alert
+          message: 'Inverter settings changed to No Load Shedding - no grid charge;
+
+            Current load is {{ states(''sensor.inverter_power'')}}W
+
+            Current grid load is {{ states(''sensor.inverter_grid_power'')}}W
+
+            Solar power is {{ states(''sensor.inverter_pv_power'')}}W
+
+            Battery SOC is {{ states(''sensor.inverter_battery_soc'')}}%'
+        enabled: true
+      alias: If Stage is equal to No Load Shedding
+    - conditions:
+      - condition: template
+        value_template: '{{ trigger.to_state.state in [''Stage 1'', ''Stage 2'', ''Stage
+          3''] }} '
+      sequence:
+      - action: scene.turn_on
+        target:
+          entity_id: scene.stage_2_load_shedding
+        data: {}
+      - action: notify.STD_Critical
+        data:
+          message: 'Inverter settings changed to Stage 2 Load Shedding - Grid charging;
+
+            Current load is {{ states(''sensor.inverter_power'')}}W
+
+            Current grid load is {{ states(''sensor.inverter_grid_power'')}}W
+
+            Solar power is {{ states(''sensor.inverter_pv_power'')}}W
+
+            Battery SOC is {{ states(''sensor.inverter_battery_soc'')}}%"'
+      - action: notify.whatsapp
+        data:
+          message: Inverter settings changed to Stage 2 Load Shedding - Grid charging;
+            \n Current load is {{states('sensor.inverter_power')}}W \n Current grid
+            load is {{states('sensor.inverter_grid_power')}}W \n  Solar power is {{states('sensor.inverter_pv_power')}}W
+            \n  Battery SOC is {{states('sensor.inverter_battery_soc')}}%
+          title: Load Shedding Status Alert
+        enabled: false
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_bot_5527
+        data:
+          title: Load Shedding Status Alert
+          message: 'Inverter settings changed to Stage 2 Load Shedding - Grid charging;
+
+            Current load is {{ states(''sensor.inverter_power'')}}W
+
+            Current grid load is {{ states(''sensor.inverter_grid_power'')}}W
+
+            Solar power is {{ states(''sensor.inverter_pv_power'')}}W
+
+            Battery SOC is {{ states(''sensor.inverter_battery_soc'')}}%'
+        enabled: true
+      alias: If Stage is 1, 2 or 3
+    - conditions:
+      - condition: template
+        value_template: '{{ trigger.to_state.state == ''Stage 4'' }}'
+      sequence:
+      - action: scene.turn_on
+        target:
+          entity_id: scene.stage_4_load_shedding
+        data: {}
+      - action: notify.STD_Critical
+        data:
+          message: 'Inverter settings changed to Stage 4 Load Shedding - Grid
+
+            Current load is {{ states(''sensor.inverter_power'')}}W
+
+            Current grid load is {{ states(''sensor.inverter_grid_power'')}}W
+
+            Solar power is {{ states(''sensor.inverter_pv_power'')}}W
+
+            Battery SOC is {{ states(''sensor.inverter_battery_soc'')}}%"'
+      - action: notify.whatsapp
+        data:
+          message: Inverter settings changed to Stage 4 Load Shedding - Grid Charging
+            + Priority Charge;\n Current load is {{ states('sensor.inverter_power')}}W\n
+            Current grid load is {{ states('sensor.inverter_grid_power')}}W\n Solar
+            power is {{ states('sensor.inverter_pv_power')}}W\n Battery SOC is {{
+            states('sensor.inverter_battery_soc')}}%
+          title: Load Shedding Status Alert
+        enabled: false
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_bot_5527
+        data:
+          title: Load Shedding Status Alert
+          message: 'Inverter settings changed to Stage 4 Load Shedding - Grid Charging
+            + Priority Charge;
+
+            Current load is {{ states(''sensor.inverter_power'')}}W
+
+            Current grid load is {{ states(''sensor.inverter_grid_power'')}}W
+
+            Solar power is {{ states(''sensor.inverter_pv_power'')}}W
+
+            Battery SOC is {{ states(''sensor.inverter_battery_soc'')}}%'
+        enabled: true
+      alias: If Stage is equal to 4
+    - conditions:
+      - condition: template
+        value_template: '{{ trigger.to_state.state >= ''Stage 5'' }}'
+      sequence:
+      - action: scene.turn_on
+        target:
+          entity_id: scene.stage_6_load_shedding_priority_charge
+        data: {}
+      - action: notify.STD_Critical
+        data:
+          message: 'Inverter settings changed to Stage 6 Load Shedding - No Time +
+            Priority Charge;
+
+            Current load is {{ states(''sensor.inverter_power'')}}W
+
+            Current grid load is {{ states(''sensor.inverter_grid_power'')}}W
+
+            Solar power is {{ states(''sensor.inverter_pv_power'')}}W
+
+            Battery SOC is {{ states(''sensor.inverter_battery_soc'')}}%"'
+      - action: notify.whatsapp
+        data:
+          message: Inverter settings changed to Stage 6 Load Shedding - No Time +
+            Priority Charge;\n Current load is {{ states('sensor.inverter_power')}}W\n
+            Current grid load is {{ states('sensor.inverter_grid_power')}}W\n Solar
+            power is {{ states('sensor.inverter_pv_power')}}W\n Battery SOC is {{
+            states('sensor.inverter_battery_soc')}}%
+          title: Load Shedding Status Alert
+        enabled: false
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_bot_5527
+        data:
+          title: Load Shedding Status Alert
+          message: '"Inverter settings changed to Stage 6 Load Shedding - No Time
+            +  Priority Charge;
+
+            Current load is {{ states(''sensor.inverter_power'')}}W
+
+            Current grid load is {{ states(''sensor.inverter_grid_power'')}}W
+
+            Solar power is {{ states(''sensor.inverter_pv_power'')}}W
+
+            Battery SOC is {{ states(''sensor.inverter_battery_soc'')}}%"
+
+            '
+        enabled: true
+      alias: If Stage is 5 and above
+    default: []
+  mode: single
+- id: '1741870692661'
+  alias: Solar Forecast Today Update Inverter Scenes 8am-1pm
+  description: ''
+  triggers:
+  - alias: Time between 8am & 1pm
+    trigger: template
+    value_template: '{{ now().hour in [8,12] and now().minute % 60 == 0 }}'
+    enabled: false
+  - trigger: time_pattern
+    hours: /1
+  conditions:
+  - condition: time
+    after: 08:00:00
+    before: 01:00:00
+  actions:
+  - choose:
+    - conditions:
+      - condition: and
+        conditions:
+        - condition: numeric_state
+          entity_id: sensor.solcast_pv_forecast_forecast_today
+          below: input_number.low_solar_forecast_trigger
+        - condition: state
+          entity_id: input_select.inverter_scene_state_helper
+          state: High Solar
+          enabled: false
+      sequence:
+      - action: scene.turn_on
+        target:
+          entity_id: scene.low_solar_forecast
+        data: {}
+      - action: input_select.select_option
+        metadata: {}
+        data:
+          option: Low Solar
+        target:
+          entity_id: input_select.inverter_scene_state_helper
+        alias: Change Inverter Helper to Low Solar
+      - action: notify.STD_Information
+        metadata: {}
+        data:
+          message: 'Inverter set to Low Solar Forecast (Include grid charge)
+
+            Solar Forecast today: {{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh
+            |
+
+            Inverter load: {{states(''sensor.inverter_power'')}}W |
+
+            Grid feed: {{states(''sensor.inverter_grid_power'')}}W |
+
+            Solar power: {{states(''sensor.inverter_pv_power'')}}W |
+
+            Battery SOC: {{states(''sensor.inverter_battery_soc'')}}%'
+          title: Inverter Control
+          data:
+            actions:
+            - action: URI
+              title: Open Solar Inverter
+              uri: /dashboard-home/energy-control/
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_bot_5527
+        data:
+          title: Inverter Control
+          message: 'Inverter set to Low Solar Forecast (Include grid charge)
+
+            Solar Forecast today: {{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh
+            |
+
+            Inverter load: {{states(''sensor.inverter_power'')}}W |
+
+            Grid feed: {{states(''sensor.inverter_grid_power'')}}W |
+
+            Solar power: {{states(''sensor.inverter_pv_power'')}}W |
+
+            Battery SOC: {{states(''sensor.inverter_battery_soc'')}}%'
+    - conditions:
+      - condition: and
+        conditions:
+        - condition: numeric_state
+          entity_id: sensor.solcast_pv_forecast_forecast_today
+          above: input_number.high_solar_forecast_trigger
+        - condition: state
+          entity_id: input_select.inverter_scene_state_helper
+          state: Low Solar
+          enabled: false
+      sequence:
+      - action: scene.turn_on
+        target:
+          entity_id: scene.high_solar_forecast
+        data: {}
+      - action: input_select.select_option
+        metadata: {}
+        data:
+          option: High Solar
+        target:
+          entity_id: input_select.inverter_scene_state_helper
+        alias: Change Inverter Helper to High Solar
+      - action: notify.STD_Information
+        metadata: {}
+        data:
+          title: Inverter Control
+          message: 'Inverter set to High Solar Forecast Scene (No grid charge)
+
+            Solar Forecast today: {{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh
+            |
+
+            Inverter load: {{states(''sensor.inverter_power'')}}W |
+
+            Grid feed: {{states(''sensor.inverter_grid_power'')}}W |
+
+            Solar power: {{states(''sensor.inverter_pv_power'')}}W |
+
+            Battery SOC: {{states(''sensor.inverter_battery_soc'')}}%'
+          data:
+            actions:
+            - action: URI
+              title: Open Solar Inverter
+              uri: /dashboard-home/energy-control/
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_bot_5527
+        data:
+          title: Inverter Control
+          message: 'Inverter set to High Solar Forecast Scene (No grid charge)
+
+            Solar Forecast today: {{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh
+            |
+
+            Inverter load: {{states(''sensor.inverter_power'')}}W |
+
+            Grid feed: {{states(''sensor.inverter_grid_power'')}}W |
+
+            Solar power: {{states(''sensor.inverter_pv_power'')}}W |
+
+            Battery SOC: {{states(''sensor.inverter_battery_soc'')}}%'
+    default:
+    - action: notify.send_message
+      target:
+        entity_id: notify.telegram_bot_5527
+      data:
+        title: Inverter Control No Changes
+        message: 'Inverter settings remain the same at {{states(''input_select.inverter_scene_state_helper'')}}
+          Forecast Scene
+
+          Solar Forecast today: {{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh
+          |
+
+          Inverter load: {{states(''sensor.inverter_power'')}}W |
+
+          Grid feed: {{states(''sensor.inverter_grid_power'')}}W |
+
+          Solar power: {{states(''sensor.inverter_pv_power'')}}W |
+
+          Battery SOC: {{states(''sensor.inverter_battery_soc'')}}%'
+  mode: single
+- id: '1741870952191'
+  alias: Solar Forecast Check Update Appliances 2pm-5pm
+  description: ''
+  triggers:
+  - trigger: time
+    at: '14:02:00'
+  - trigger: time_pattern
+    enabled: true
+    minutes: '2'
+  conditions:
+  - condition: time
+    after: '14:00:00'
+    before: '17:00:00'
+    weekday:
+    - mon
+    - tue
+    - wed
+    - thu
+    - fri
+    - sat
+    - sun
+  actions:
+  - choose:
+    - conditions:
+      - alias: If Low SOC, Low Solar Hour Forecast
+        condition: and
+        conditions:
+        - condition: numeric_state
+          entity_id: sensor.inverter_battery_soc
+          below: input_number.inverter_battery_soc_prog5_low_trigger
+        - condition: numeric_state
+          entity_id: sensor.solcast_pv_forecast_forecast_this_hour
+          below: input_number.this_hour_low_solar_forecast_trigger
+        - alias: If solar conditions are not high for the day
+          condition: template
+          value_template: '{{states(''input_select.inverter_solar_mode_helper'') not
+            in [''High Solar''] }}'
+          enabled: true
+        - alias: If Inverter mode not already set to Low Solar
+          condition: template
+          value_template: '{{states(''input_select.inverter_solar_appliance_mode_helper'')
+            not in [''Low Solar''] }}'
+          enabled: true
+      sequence:
+      - action: scene.turn_on
+        data: {}
+        target:
+          entity_id: scene.low_solar_inverter_mode
+      - alias: Change Inverter Solar Appliance Mode to Low Solar
+        action: input_select.select_option
+        metadata: {}
+        data:
+          option: Low Solar
+        target:
+          entity_id: input_select.inverter_solar_appliance_mode_helper
+      - action: notify.STD_Information
+        metadata: {}
+        data:
+          message: 'Inverter set to "{{states(''input_select.inverter_solar_appliance_mode_helper'')}}"
+            Appliance Mode (Appliances off | Battery First | Grid Charge).
+
+            Inverter Solar Mode is "{{states(''input_select.inverter_solar_mode_helper'')}}"
+            |
+
+            Solar Hour: {{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh
+            | Today: {{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh
+            |
+
+            Load Shedding "{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}"
+            & Eskom Stage "{{states(''sensor.load_shedding_stage_eskom'')}}" |
+
+            Inverter load: {{states(''sensor.inverter_power'')}}W | Battery SOC: {{states(''sensor.inverter_battery_soc'')}}%
+            |
+
+            Solar power: {{states(''sensor.inverter_pv_power'')}}W | Grid feed: {{states(''sensor.inverter_grid_power'')}}W
+            |'
+          title: Inverter Control - Changes
+          data:
+            actions:
+            - action: URI
+              title: Open Solar Inverter
+              uri: /dashboard-home/energy-control/
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_bot_5527
+        data:
+          title: Inverter Control (Changes)
+          message: 'Inverter set to *{{states(''input_select.inverter_solar_appliance_mode_helper'')}}*
+            Appliance Mode (Appliances off | Battery First | Grid Charge).
+
+            Inverter Solar Mode is *{{states(''input_select.inverter_solar_mode_helper'')}}*
+            |
+
+            Solar Hour: {{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh
+            | Today: *{{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh*
+            |
+
+            Load Shedding *{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}*
+            & Eskom Stage *{{states(''sensor.load_shedding_stage_eskom'')}}* |
+
+            Inverter load: *{{states(''sensor.inverter_power'')}}W* | Battery SOC:
+            *{{states(''sensor.inverter_battery_soc'')}}%* |
+
+            Solar power: *{{states(''sensor.inverter_pv_power'')}}W* | Grid feed:
+            *{{states(''sensor.inverter_grid_power'')}}W* |'
+    - conditions:
+      - alias: If Medium SOC, Medium Solar Hour Forecast
+        condition: and
+        conditions:
+        - condition: numeric_state
+          entity_id: sensor.inverter_battery_soc
+          above: input_number.inverter_battery_soc_prog5_low_trigger
+          below: input_number.inverter_battery_soc_prog5_high_trigger
+        - condition: numeric_state
+          entity_id: sensor.solcast_pv_forecast_forecast_this_hour
+          above: input_number.this_hour_low_solar_forecast_trigger
+          enabled: false
+        - alias: If Inverter mode not already set to Medium Solar
+          condition: template
+          value_template: '{{states(''input_select.inverter_solar_appliance_mode_helper'')
+            not in [''Medium Solar''] }}'
+          enabled: true
+      sequence:
+      - action: scene.turn_on
+        data: {}
+        target:
+          entity_id: scene.medium_solar_forecast
+      - alias: Change Inverter Solar Appliance Mode to Medium Solar
+        action: input_select.select_option
+        metadata: {}
+        data:
+          option: Medium Solar
+        target:
+          entity_id: input_select.inverter_solar_appliance_mode_helper
+      - action: notify.STD_Information
+        metadata: {}
+        data:
+          title: Inverter Control (Changes)
+          message: 'Inverter set to "{{states(''input_select.inverter_solar_appliance_mode_helper'')}}"
+            Appliance Mode (Appliances off | Battery First).
+
+            Inverter Solar Mode is "{{states(''input_select.inverter_solar_mode_helper'')}}"
+            |
+
+            Solar Hour: {{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh
+            | Today: {{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh
+            |
+
+            Load Shedding "{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}"
+            & Eskom Stage "{{states(''sensor.load_shedding_stage_eskom'')}}" |
+
+            Inverter load: {{states(''sensor.inverter_power'')}}W | Battery SOC: {{states(''sensor.inverter_battery_soc'')}}%
+            |
+
+            Solar power: {{states(''sensor.inverter_pv_power'')}}W | Grid feed: {{states(''sensor.inverter_grid_power'')}}W
+            |'
+          data:
+            actions:
+            - action: URI
+              title: Open Solar Inverter
+              uri: /dashboard-home/energy-control/
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_bot_5527
+        data:
+          title: Inverter Control (Changes)
+          message: 'Inverter set to *{{states(''input_select.inverter_solar_appliance_mode_helper'')}}*
+            Appliance Mode (Appliances off | Battery First).
+
+            Inverter Solar Mode is *{{states(''input_select.inverter_solar_mode_helper'')}}*
+            |
+
+            Solar Hour: {{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh
+            | Today: *{{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh*
+            |
+
+            Load Shedding *{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}*
+            & Eskom Stage *{{states(''sensor.load_shedding_stage_eskom'')}}* |
+
+            Inverter load: *{{states(''sensor.inverter_power'')}}W* | Battery SOC:
+            *{{states(''sensor.inverter_battery_soc'')}}%* |
+
+            Solar power: *{{states(''sensor.inverter_pv_power'')}}W* | Grid feed:
+            *{{states(''sensor.inverter_grid_power'')}}W* |'
+    - conditions:
+      - alias: If High SOC, High Solar Hour Forecast
+        condition: and
+        conditions:
+        - condition: numeric_state
+          entity_id: sensor.inverter_battery_soc
+          above: input_number.inverter_battery_soc_prog5_high_trigger
+        - condition: numeric_state
+          entity_id: sensor.solcast_pv_forecast_forecast_this_hour
+          above: input_number.this_hour_high_solar_forecast_trigger
+        - alias: If Inverter mode not already set to High Solar
+          condition: template
+          value_template: '{{states(''input_select.inverter_solar_appliance_mode_helper'')
+            not in [''High Solar''] }}'
+          enabled: true
+        - alias: If solar conditions are high for the day
+          condition: template
+          value_template: '{{states(''input_select.inverter_solar_mode_helper'') in
+            [''High Solar''] }}'
+          enabled: true
+      sequence:
+      - action: scene.turn_on
+        data: {}
+        target:
+          entity_id: scene.high_solar_inverter_mode
+      - alias: Change Inverter Solar Appliance Mode to High Solar
+        action: input_select.select_option
+        metadata: {}
+        data:
+          option: High Solar
+        target:
+          entity_id: input_select.inverter_solar_appliance_mode_helper
+      - action: notify.STD_Information
+        metadata: {}
+        data:
+          title: Inverter Control - Changes
+          message: 'Inverter set to "{{states(''input_select.inverter_solar_appliance_mode_helper'')}}"
+            Appliance Mode (No limits).
+
+            Inverter Solar Mode is "{{states(''input_select.inverter_solar_mode_helper'')}}"
+            |
+
+            Solar Hour: {{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh
+            | Today: {{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh
+            |
+
+            Load Shedding "{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}"
+            & Eskom Stage "{{states(''sensor.load_shedding_stage_eskom'')}}" |
+
+            Inverter load: {{states(''sensor.inverter_power'')}}W | Battery SOC: {{states(''sensor.inverter_battery_soc'')}}%
+            |
+
+            Solar power: {{states(''sensor.inverter_pv_power'')}}W | Grid feed: {{states(''sensor.inverter_grid_power'')}}W
+            |'
+          data:
+            actions:
+            - action: URI
+              title: Open Solar Inverter
+              uri: /dashboard-home/energy-control/
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_bot_5527
+        data:
+          title: Inverter Control (Changes)
+          message: 'Inverter set to *{{states(''input_select.inverter_solar_appliance_mode_helper'')}}*
+            Appliance Mode (No limits).
+
+            Inverter Solar Mode is *{{states(''input_select.inverter_solar_mode_helper'')}}*
+            |
+
+            Solar Hour: {{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh
+            | Today: *{{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh*
+            |
+
+            Load Shedding *{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}*
+            & Eskom Stage *{{states(''sensor.load_shedding_stage_eskom'')}}* |
+
+            Inverter load: *{{states(''sensor.inverter_power'')}}W* | Battery SOC:
+            *{{states(''sensor.inverter_battery_soc'')}}%* |
+
+            Solar power: *{{states(''sensor.inverter_pv_power'')}}W* | Grid feed:
+            *{{states(''sensor.inverter_grid_power'')}}W* |'
+    default:
+    - action: notify.STD_Information
+      metadata: {}
+      data:
+        title: Inverter Control (No Changes)
+        message: "Inverter remains \"{{states('input_select.inverter_solar_appliance_mode_helper')}}\"
+          Appliance Mode.\nInverter Solar Mode: \"{{states('input_select.inverter_solar_mode_helper')}}\"
+          | \nSolar Hour: {{states('sensor.solcast_pv_forecast_forecast_this_hour')}}Wh
+          | Today: {{states('sensor.solcast_pv_forecast_forecast_today')}}kWh |\nLoad
+          Shedding \"{{states('sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark')}}\"
+          & Eskom Stage \"{{states('sensor.load_shedding_stage_eskom')}}\" |\nInverter
+          load: {{states('sensor.inverter_power')}}W | Battery SOC: {{states('sensor.inverter_battery_soc')}}%
+          |\nSolar power: {{states('sensor.inverter_pv_power')}}W | Grid feed: {{states('sensor.inverter_grid_power')}}W
+          |"
+        data: {}
+    - action: notify.send_message
+      target:
+        entity_id: notify.telegram_bot_5527
+      data:
+        title: Inverter Control (No Changes)
+        message: 'Inverter remains *{{states(''input_select.inverter_solar_appliance_mode_helper'')}}*
+          Appliance Mode.
+
+          Inverter Solar Mode is *{{states(''input_select.inverter_solar_mode_helper'')}}*
+          |
+
+          Solar Hour: *{{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh*
+          | Today: *{{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh*
+          |
+
+          Load Shedding *{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}*
+          & Eskom Stage *{{states(''sensor.load_shedding_stage_eskom'')}}* |
+
+          Inverter load: *{{states(''sensor.inverter_power'')}}W* | Battery SOC: *{{states(''sensor.inverter_battery_soc'')}}%*
+          |
+
+          Solar power: *{{states(''sensor.inverter_pv_power'')}}W* | Grid feed: *{{states(''sensor.inverter_grid_power'')}}W*
+          |'
+  mode: single
+  max_exceeded: silent
+- id: '1741899615829'
+  alias: Solar Forecast Remaining Update Inverter Scenes 3-4pm
+  description: ''
+  triggers:
+  - alias: Time between 3:00pm & 4:00pm
+    trigger: template
+    value_template: '"{{ now().hour in [14] and now().minute % 5 == 0 }}"'
+    enabled: false
+  - trigger: time_pattern
+    minutes: /30
+  conditions:
+  - condition: time
+    after: '15:00:00'
+    before: '17:00:00'
+  actions:
+  - choose:
+    - conditions:
+      - condition: and
+        conditions:
+        - condition: numeric_state
+          entity_id: sensor.solcast_pv_forecast_forecast_remaining_today
+          below: input_number.remaining_solar_forecast_low_trigger
+        - condition: numeric_state
+          entity_id: sensor.inverter_battery_soc
+          below: input_number.inverter_battery_soc_prog5_warning_trigger
+        - condition: state
+          entity_id: input_select.inverter_solar_mode_helper
+          state: High Solar
+          enabled: false
+      sequence:
+      - action: select.select_option
+        metadata: {}
+        data:
+          option: Battery First
+        target:
+          entity_id: select.inverter_1_energy_pattern
+        enabled: false
+      - action: select.select_option
+        metadata: {}
+        data:
+          option: Battery First
+        target:
+          entity_id: select.inverter_2_energy_pattern
+        enabled: false
+      - action: scene.turn_on
+        target:
+          entity_id: scene.low_solar_quick_charge
+        data: {}
+        enabled: false
+      - action: notify.STD_Information
+        metadata: {}
+        data:
+          message: "Inverter set to prioritise Battery as SOC to low: {{states('sensor.inverter_battery_soc')}}%\nSolar
+            Forecast Remaining: {{states('sensor.solcast_pv_forecast_forecast_remaining_today')}}kWh
+            | \nInverter load: {{states('sensor.inverter_power')}}W |\nGrid feed:
+            {{states('sensor.inverter_grid_power')}}W |\nSolar power: {{states('sensor.inverter_pv_power')}}W"
+          title: Inverter Control
+          data:
+            actions:
+            - action: URI
+              title: Open Solar Inverter
+              uri: /dashboard-home/energy-control/
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_bot_5527
+        data:
+          title: Inverter Control
+          message: "Inverter set to prioritise Battery as SOC to low: {{states('sensor.inverter_battery_soc')}}%\nSolar
+            Forecast Remaining: {{states('sensor.solcast_pv_forecast_forecast_remaining_today')}}kWh
+            | \nInverter load: {{states('sensor.inverter_power')}}W |\nGrid feed:
+            {{states('sensor.inverter_grid_power')}}W |\nSolar power: {{states('sensor.inverter_pv_power')}}W"
+      alias: Low Solar Remaining & Low Battery SOC
+    - conditions:
+      - condition: and
+        conditions:
+        - condition: numeric_state
+          entity_id: sensor.solcast_pv_forecast_forecast_remaining_today
+          above: input_number.remaining_solar_forecast_low_trigger
+        - condition: numeric_state
+          entity_id: sensor.inverter_battery_soc
+          above: input_number.inverter_battery_soc_prog5_high_trigger
+        - condition: state
+          entity_id: input_select.inverter_solar_mode_helper
+          state: Low Solar
+          enabled: false
+      sequence:
+      - action: select.select_option
+        metadata: {}
+        data:
+          option: Load First
+        target:
+          entity_id: select.inverter_1_energy_pattern
+        enabled: false
+      - action: select.select_option
+        metadata: {}
+        data:
+          option: Load First
+        target:
+          entity_id: select.inverter_2_energy_pattern
+        enabled: false
+      - action: scene.turn_on
+        target:
+          entity_id: scene.high_solar_forecast
+        data: {}
+        enabled: false
+      - action: notify.STD_Information
+        metadata: {}
+        data:
+          title: Inverter Control
+          message: "Inverter set to prioritise Load as SOC is fine: {{states('sensor.inverter_battery_soc')}}%\nSolar
+            Forecast Remaining: {{states('sensor.solcast_pv_forecast_forecast_remaining_today')}}kWh
+            | \nInverter load: {{states('sensor.inverter_power')}}W |\nGrid feed:
+            {{states('sensor.inverter_grid_power')}}W |\nSolar power: {{states('sensor.inverter_pv_power')}}W"
+          data:
+            actions:
+            - action: URI
+              title: Open Solar Inverter
+              uri: /dashboard-home/energy-control/
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_bot_5527
+        data:
+          title: Inverter Control
+          message: "Inverter set to prioritise Load as SOC is fine: {{states('sensor.inverter_battery_soc')}}%\nSolar
+            Forecast Remaining: {{states('sensor.solcast_pv_forecast_forecast_remaining_today')}}kWh
+            | \nInverter load: {{states('sensor.inverter_power')}}W |\nGrid feed:
+            {{states('sensor.inverter_grid_power')}}W |\nSolar power: {{states('sensor.inverter_pv_power')}}W"
+      alias: Solar Remaining & Battery SOC fine
+    default:
+    - action: notify.send_message
+      target:
+        entity_id: notify.telegram_bot_5527
+      data:
+        title: Inverter Control No Changes
+        message: 'Inverter settings unchanged at {{states(''input_select.inverter_solar_mode_helper'')}}
+          Forecast Scene
+
+          Solar Forecast Remaining today: {{states(''sensor.solcast_pv_forecast_forecast_remaining_today'')}}kWh
+          |
+
+          Inverter load: {{states(''sensor.inverter_power'')}}W |
+
+          Grid feed: {{states(''sensor.inverter_grid_power'')}}W |
+
+          Solar power: {{states(''sensor.inverter_pv_power'')}}W |
+
+          Battery SOC: {{states(''sensor.inverter_battery_soc'')}}%'
+  mode: single
+- id: '1741900108775'
+  alias: Solar Forecast Remaining Update Inverter Scenes 4-5pm
+  description: ''
+  triggers:
+  - alias: Time between 4 & 5:00pm
+    trigger: template
+    value_template: '"{{ now().hour in [16] and now().minute % 30 == 0 }}"'
+  conditions: []
+  actions:
+  - choose:
+    - conditions:
+      - condition: and
+        conditions:
+        - condition: numeric_state
+          entity_id: sensor.solcast_pv_forecast_forecast_remaining_today
+          below: input_number.remaining_solar_forecast_low_trigger
+        - condition: numeric_state
+          entity_id: sensor.inverter_battery_soc
+          below: input_number.inverter_battery_soc_prog5_warning_trigger
+        - condition: state
+          entity_id: input_select.inverter_scene_state_helper
+          state: High Solar
+          enabled: false
+      sequence:
+      - action: scene.turn_on
+        data: {}
+        enabled: true
+        target:
+          entity_id: scene.low_solar_grid_quick_charge
+      - action: notify.STD_Information
+        metadata: {}
+        data:
+          message: "Inverter set to prioritise Battery & charge from grid as SOC to
+            low: {{states('sensor.inverter_battery_soc')}}%\nSolar Forecast Remaining:
+            {{states('sensor.solcast_pv_forecast_forecast_remaining_today')}}kWh |
+            \nInverter load: {{states('sensor.inverter_power')}}W |\nGrid feed: {{states('sensor.inverter_grid_power')}}W
+            |\nSolar power: {{states('sensor.inverter_pv_power')}}W"
+          title: Inverter Control
+          data:
+            actions:
+            - action: URI
+              title: Open Solar Inverter
+              uri: /dashboard-home/energy-control/
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_bot_5527
+        data:
+          title: Inverter Control
+          message: "Inverter set to prioritise Battery & charge from grid as SOC to
+            low: {{states('sensor.inverter_battery_soc')}}%\nSolar Forecast Remaining:
+            {{states('sensor.solcast_pv_forecast_forecast_remaining_today')}}kWh |
+            \nInverter load: {{states('sensor.inverter_power')}}W |\nGrid feed: {{states('sensor.inverter_grid_power')}}W
+            |\nSolar power: {{states('sensor.inverter_pv_power')}}W"
+      alias: Low Solar Remaining & Low Battery SOC
+    - conditions:
+      - condition: and
+        conditions:
+        - condition: numeric_state
+          entity_id: sensor.solcast_pv_forecast_forecast_remaining_today
+          above: input_number.remaining_solar_forecast_low_trigger
+        - condition: numeric_state
+          entity_id: sensor.inverter_battery_soc
+          above: input_number.inverter_battery_soc_prog5_high_trigger
+        - condition: state
+          entity_id: input_select.inverter_scene_state_helper
+          state: Low Solar
+          enabled: false
+      sequence:
+      - action: scene.turn_on
+        target:
+          entity_id: scene.high_solar_forecast
+        data: {}
+        enabled: true
+      - action: notify.STD_Information
+        metadata: {}
+        data:
+          title: Inverter Control
+          message: "Inverter set to prioritise Load as SOC is fine: {{states('sensor.inverter_battery_soc')}}%\nSolar
+            Forecast Remaining: {{states('sensor.solcast_pv_forecast_forecast_remaining_today')}}kWh
+            | \nInverter load: {{states('sensor.inverter_power')}}W |\nGrid feed:
+            {{states('sensor.inverter_grid_power')}}W |\nSolar power: {{states('sensor.inverter_pv_power')}}W"
+          data:
+            actions:
+            - action: URI
+              title: Open Solar Inverter
+              uri: /dashboard-home/energy-control/
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_bot_5527
+        data:
+          title: Inverter Control
+          message: "Inverter set to prioritise Load as SOC is fine: {{states('sensor.inverter_battery_soc')}}%\nSolar
+            Forecast Remaining: {{states('sensor.solcast_pv_forecast_forecast_remaining_today')}}kWh
+            | \nInverter load: {{states('sensor.inverter_power')}}W |\nGrid feed:
+            {{states('sensor.inverter_grid_power')}}W |\nSolar power: {{states('sensor.inverter_pv_power')}}W"
+          data: {}
+      alias: Solar Remaining & Battery SOC fine
+    default:
+    - action: notify.send_message
+      target:
+        entity_id: notify.telegram_bot_5527
+      data:
+        title: Inverter Control No Changes
+        message: 'Inverter settings unchanged at {{states(''input_select.inverter_scene_state_helper'')}}
+          Forecast Scene
+
+          Solar Forecast Remaining today: {{states(''sensor.solcast_pv_forecast_forecast_remaining_today'')}}kWh
+          |
+
+          Inverter load: {{states(''sensor.inverter_power'')}}W |
+
+          Grid feed: {{states(''sensor.inverter_grid_power'')}}W |
+
+          Solar power: {{states(''sensor.inverter_pv_power'')}}W |
+
+          Battery SOC: {{states(''sensor.inverter_battery_soc'')}}%'
+  mode: single
+- id: '1742122936369'
+  alias: Solar Forecast Check Update Appliances 8am-2pm
+  description: ''
+  triggers:
+  - trigger: time
+    at: 07:02:00
+  - trigger: time_pattern
+    minutes: '2'
+  conditions:
+  - condition: time
+    after: 07:59:00
+    before: '13:59:00'
+    weekday:
+    - mon
+    - tue
+    - wed
+    - thu
+    - fri
+    - sat
+    - sun
+  actions:
+  - choose:
+    - conditions:
+      - alias: If Low SOC, Low hour Solar Forecast
+        condition: and
+        conditions:
+        - condition: numeric_state
+          entity_id: sensor.inverter_battery_soc
+          below: input_number.inverter_battery_soc_prog3_low_trigger
+        - condition: numeric_state
+          entity_id: sensor.solcast_pv_forecast_forecast_this_hour
+          below: input_number.this_hour_low_solar_forecast_trigger
+        - alias: If solar conditions are not high for the day
+          condition: template
+          value_template: '{{states(''input_select.inverter_solar_mode_helper'') not
+            in [''High Solar''] }}'
+          enabled: true
+        - alias: If Inverter mode not already set to Low Solar
+          condition: template
+          value_template: '{{states(''input_select.inverter_solar_appliance_mode_helper'')
+            not in [''Low Solar''] }}'
+          enabled: true
+      sequence:
+      - action: scene.turn_on
+        data: {}
+        target:
+          entity_id: scene.low_solar_inverter_mode
+      - alias: Change Inverter Solar Appliance Mode to Low Solar
+        action: input_select.select_option
+        metadata: {}
+        data:
+          option: Low Solar
+        target:
+          entity_id: input_select.inverter_solar_appliance_mode_helper
+      - action: notify.STD_Information
+        metadata: {}
+        data:
+          title: Inverter Appl Control (Changes)
+          message: 'Inverter set to "{{states(''input_select.inverter_solar_appliance_mode_helper'')}}"
+            Appliance Mode (Appl off | Battery First | Grid Charge).
+
+            Inverter Solar Mode is "{{states(''input_select.inverter_solar_mode_helper'')}}"
+            |
+
+            Solar Hour: {{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh
+            | Today: {{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh
+            |
+
+            Load Shedding  "{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}"
+            & Eskom Stage "{{states(''sensor.load_shedding_stage_eskom'')}}" |
+
+            Inverter load: {{states(''sensor.inverter_power'')}}W | Battery SOC: {{states(''sensor.inverter_battery_soc'')}}%
+            |
+
+            Solar power: {{states(''sensor.inverter_pv_power'')}}W | Grid feed: {{states(''sensor.inverter_grid_power'')}}W
+            |'
+          data:
+            actions:
+            - action: URI
+              title: Open Solar Inverter
+              uri: /dashboard-home/energy-control/
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_bot_5527
+        data:
+          title: Inverter Appl Control (Changes)
+          message: 'Inverter set to *{{states(''input_select.inverter_solar_appliance_mode_helper'')}}*
+            Appliance Mode (Appl off | Battery First | Grid Charge).
+
+            Inverter Solar Mode is *{{states(''input_select.inverter_solar_mode_helper'')}}*
+            |
+
+            Solar Hour: *{{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh*
+            | Today: *{{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh*
+            |
+
+            Load Shedding *{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}*
+            & Eskom Stage *{{states(''sensor.load_shedding_stage_eskom'')}}* |
+
+            Inverter load: *{{states(''sensor.inverter_power'')}}W* | Battery SOC:
+            *{{states(''sensor.inverter_battery_soc'')}}%* |
+
+            Solar power: *{{states(''sensor.inverter_pv_power'')}}W* | Grid feed:
+            *{{states(''sensor.inverter_grid_power'')}}W* |'
+      alias: If Low SOC, Low Solar hr, Low Solar for day
+    - conditions:
+      - alias: If Medium SOC, Medium hour Solar Forecast
+        condition: and
+        conditions:
+        - condition: numeric_state
+          entity_id: sensor.inverter_battery_soc
+          above: input_number.inverter_battery_soc_prog3_low_trigger
+          below: input_number.inverter_battery_soc_prog3_high_trigger
+        - condition: numeric_state
+          entity_id: sensor.solcast_pv_forecast_forecast_this_hour
+          above: input_number.this_hour_low_solar_forecast_trigger
+        - alias: If Inverter mode not already set to Medium Solar
+          condition: template
+          value_template: '{{states(''input_select.inverter_solar_appliance_mode_helper'')
+            not in [''Medium Solar''] }}'
+          enabled: true
+      sequence:
+      - action: scene.turn_on
+        data: {}
+        target:
+          entity_id: scene.medium_solar_forecast
+      - alias: Change Inverter Solar Appliance Mode to Medium Solar
+        action: input_select.select_option
+        metadata: {}
+        data:
+          option: Medium Solar
+        target:
+          entity_id: input_select.inverter_solar_appliance_mode_helper
+      - action: notify.STD_Information
+        metadata: {}
+        data:
+          title: Inverter Appl Control (Changes)
+          message: 'Inverter set to "{{states(''input_select.inverter_solar_appliance_mode_helper'')}}"
+            Appliance Mode (Appl off | Battery First).
+
+            Inverter Solar Mode is "{{states(''input_select.inverter_solar_mode_helper'')}}"
+            |
+
+            Solar Hour: {{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh
+            | Today: {{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh
+            |
+
+            Load Shedding "{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}"
+            & Eskom Stage "{{states(''sensor.load_shedding_stage_eskom'')}}" |
+
+            Inverter load: {{states(''sensor.inverter_power'')}}W | Battery SOC: {{states(''sensor.inverter_battery_soc'')}}%
+            |
+
+            Solar power: {{states(''sensor.inverter_pv_power'')}}W | Grid feed: {{states(''sensor.inverter_grid_power'')}}W
+            |'
+          data:
+            actions:
+            - action: URI
+              title: Open Solar Inverter
+              uri: /dashboard-home/energy-control/
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_bot_5527
+        data:
+          title: Inverter Appl Control (Changes)
+          message: 'Inverter set to *{{states(''input_select.inverter_solar_appliance_mode_helper'')}}*
+            Appliance Mode (Appl off | Battery First).
+
+            Inverter Solar Mode is *{{states(''input_select.inverter_solar_mode_helper'')}}*
+            |
+
+            Solar Hour: *{{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh*
+            | Today: *{{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh*
+            |
+
+            Load Shedding *{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}*
+            & Eskom Stage *{{states(''sensor.load_shedding_stage_eskom'')}}* |
+
+            Inverter load: *{{states(''sensor.inverter_power'')}}W* | Battery SOC:
+            *{{states(''sensor.inverter_battery_soc'')}}%* |
+
+            Solar power: *{{states(''sensor.inverter_pv_power'')}}W* | Grid feed:
+            *{{states(''sensor.inverter_grid_power'')}}W* |'
+    - conditions:
+      - alias: If High SOC, High hour Solar Forecast
+        condition: and
+        conditions:
+        - condition: numeric_state
+          entity_id: sensor.inverter_battery_soc
+          above: input_number.inverter_battery_soc_prog3_high_trigger
+        - condition: numeric_state
+          entity_id: sensor.solcast_pv_forecast_forecast_this_hour
+          above: input_number.this_hour_high_solar_forecast_trigger
+        - alias: If solar conditions are high for the day
+          condition: template
+          value_template: '{{states(''input_select.inverter_solar_mode_helper'') in
+            [''High Solar''] }}'
+          enabled: true
+        - alias: If Inverter mode not already set to High Solar
+          condition: template
+          value_template: '{{states(''input_select.inverter_solar_appliance_mode_helper'')
+            not in [''High Solar''] }}'
+          enabled: true
+      sequence:
+      - action: scene.turn_on
+        data: {}
+        target:
+          entity_id: scene.high_solar_inverter_mode
+      - alias: Change Inverter Solar Appliance Mode to High Solar
+        action: input_select.select_option
+        metadata: {}
+        data:
+          option: High Solar
+        target:
+          entity_id: input_select.inverter_solar_appliance_mode_helper
+      - action: notify.STD_Information
+        metadata: {}
+        data:
+          title: Inverter Appl Control (Changes)
+          message: 'Inverter set to "{{states(''input_select.inverter_solar_appliance_mode_helper'')}}"
+            Appliance Mode (No limits).
+
+            Inverter Solar Mode is "{{states(''input_select.inverter_solar_mode_helper'')}}"
+            |
+
+            Solar Hour: {{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh
+            | Today: {{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh
+            |
+
+            Load Shedding State "{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}"
+            & Eskom Stage "{{states(''sensor.load_shedding_stage_eskom'')}}" |
+
+            Inverter load: {{states(''sensor.inverter_power'')}}W | Battery SOC: {{states(''sensor.inverter_battery_soc'')}}%
+            |
+
+            Solar power: {{states(''sensor.inverter_pv_power'')}}W | Grid feed: {{states(''sensor.inverter_grid_power'')}}W
+            |'
+          data:
+            actions:
+            - action: URI
+              title: Open Solar Inverter
+              uri: /dashboard-home/energy-control/
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_bot_5527
+        data:
+          title: Inverter Appl Control (Changes)
+          message: 'Inverter set to *{{states(''input_select.inverter_solar_appliance_mode_helper'')}}*
+            Appliance Mode (No limits).
+
+            Inverter Solar Mode is *{{states(''input_select.inverter_solar_mode_helper'')}}*
+            |
+
+            Solar Hour: *{{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh*
+            | Today: *{{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh*
+            |
+
+            Load Shedding *{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}*
+            & Eskom Stage *{{states(''sensor.load_shedding_stage_eskom'')}}* |
+
+            Inverter load: *{{states(''sensor.inverter_power'')}}W* | Battery SOC:
+            *{{states(''sensor.inverter_battery_soc'')}}%* |
+
+            Solar power: *{{states(''sensor.inverter_pv_power'')}}W* | Grid feed:
+            *{{states(''sensor.inverter_grid_power'')}}W* |'
+    default:
+    - action: notify.STD_Information
+      metadata: {}
+      data:
+        title: Inverter Appl Control (No Changes)
+        message: 'Inverter remains "{{states(''input_select.inverter_solar_appliance_mode_helper'')}}"
+          Appliance Mode.
+
+          Inverter Solar Mode is "{{states(''input_select.inverter_solar_mode_helper'')}}"
+          |
+
+          Solar Hour: {{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh
+          | Today: {{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh |
+
+          Load Shedding State "{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}"
+          & Eskom Stage "{{states(''sensor.load_shedding_stage_eskom'')}}" |
+
+          Inverter load: {{states(''sensor.inverter_power'')}}W | Battery SOC: {{states(''sensor.inverter_battery_soc'')}}%
+          |
+
+          Solar power: {{states(''sensor.inverter_pv_power'')}}W | Grid feed: {{states(''sensor.inverter_grid_power'')}}W
+          |'
+        data: {}
+    - action: notify.send_message
+      target:
+        entity_id: notify.telegram_bot_5527
+      data:
+        title: Inverter Appl Control (No Changes)
+        message: 'Inverter remains *{{states(''input_select.inverter_solar_appliance_mode_helper'')}}*
+          Appliance Mode.
+
+          Inverter Solar Mode is *{{states(''input_select.inverter_solar_mode_helper'')}}*
+          |
+
+          Solar Hour: *{{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh*
+          | Today: *{{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh*
+          |
+
+          Load Shedding *{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}*
+          & Eskom Stage *{{states(''sensor.load_shedding_stage_eskom'')}}* |
+
+          Inverter load: *{{states(''sensor.inverter_power'')}}W* | Battery SOC: *{{states(''sensor.inverter_battery_soc'')}}%*
+          |
+
+          Solar power: *{{states(''sensor.inverter_pv_power'')}}W* | Grid feed: *{{states(''sensor.inverter_grid_power'')}}W*
+          |'
+  mode: single
+  max_exceeded: silent
+- id: '1742224800650'
+  alias: Geyser Heat Pump Turn On AM | PM
+  description: Turn on Geyser heat pump for morning & evening sessions
+  triggers:
+  - trigger: time
+    at: 04:30:00
+  - trigger: time
+    at: 05:00:00
+  - trigger: time
+    at: 06:00:00
+    enabled: true
+  - trigger: time
+    at: 07:05:00
+    enabled: true
+  - trigger: time
+    at: 08:05:00
+    enabled: false
+  - trigger: time
+    at: '12:05:00'
+  - trigger: time
+    at: '13:05:00'
+  - trigger: time
+    at: '14:05:00'
+  - trigger: time
+    at: '15:05:00'
+    enabled: false
+  - trigger: time
+    at: '20:05:00'
+  - trigger: time
+    at: 08:05:00
+    enabled: false
+  - trigger: time_pattern
+    minutes: '5'
+    enabled: false
+  conditions: []
+  actions:
+  - choose:
+    - conditions:
+      - condition: and
+        conditions:
+        - condition: device
+          type: is_off
+          device_id: 04313162c9b0bb48347b8002235c725d
+          entity_id: d3f6bbcf69c1027581f5b4f97845ae32
+          domain: switch
+          alias: If Geyser is switched off
+        - condition: time
+          after: 04:00:00
+          before: 09:00:00
+          weekday:
+          - sun
+          - sat
+          - fri
+          - thu
+          - wed
+          - tue
+          - mon
+        - condition: state
+          entity_id: group.inverter_grid
+          state: 'on'
+        - alias: If Inverter Solar mode set to Medium | High
+          condition: template
+          value_template: '{{states(''input_select.inverter_solar_mode_helper'') in
+            [''Medium Solar'', ''High Solar''] }}'
+          enabled: false
+        - alias: Check current eskom load shedding < stage 4
+          condition: template
+          value_template: '{{states(''sensor.load_shedding_stage_eskom'') < ''Stage
+            4'' }}'
+          enabled: true
+      sequence:
+      - action: switch.turn_on
+        metadata: {}
+        data: {}
+        target:
+          device_id: 04313162c9b0bb48347b8002235c725d
+      - action: notify.STD_Information
+        metadata: {}
+        data:
+          title: Geyser Heat Pump Control (Changes)
+          message: 'Geyser Heat Pump turned on. (Morning Default Run)
+
+            Appliance state "{{states(''input_select.inverter_solar_appliance_mode_helper'')}}"
+            & Solar Mode "{{states(''input_select.inverter_solar_mode_helper'')}}"
+            |
+
+            Solar Hour: {{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh
+            | Today: {{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh
+            |
+
+            Load Shedding State "{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}"
+            & Eskom Stage "{{states(''sensor.load_shedding_stage_eskom'')}}" |
+
+            Inverter load: {{states(''sensor.inverter_power'')}}W | Grid feed: {{states(''sensor.inverter_grid_power'')}}W
+            |
+
+            Solar power: {{states(''sensor.inverter_pv_power'')}}W | Battery SOC:
+            {{states(''sensor.inverter_battery_soc'')}}% |'
+          data: {}
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_bot_5527
+        data:
+          title: Geyser Heat Pump Control (Changes)
+          message: 'Geyser Heat Pump turned *on*. (Morning Default Run)
+
+            Appliance Mode *{{states(''input_select.inverter_solar_appliance_mode_helper'')}}*
+            & Solar Mode *{{states(''input_select.inverter_solar_mode_helper'')}}*
+            |
+
+            Solar Hour: *{{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh*
+            | Today: *{{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh*
+            |
+
+            Load Shedding *{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}*
+            & Eskom Stage *{{states(''sensor.load_shedding_stage_eskom'')}}* |
+
+            Inverter load: *{{states(''sensor.inverter_power'')}}W* | Battery SOC:
+            *{{states(''sensor.inverter_battery_soc'')}}%* |
+
+            Solar power: *{{states(''sensor.inverter_pv_power'')}}W* | Grid feed:
+            *{{states(''sensor.inverter_grid_power'')}}W* |'
+      alias: If geyser off & grid connected (Morning Run)
+    - conditions:
+      - condition: and
+        conditions:
+        - condition: device
+          type: is_off
+          device_id: 04313162c9b0bb48347b8002235c725d
+          entity_id: d3f6bbcf69c1027581f5b4f97845ae32
+          domain: switch
+          alias: If Geyser is switched off
+        - condition: time
+          after: '12:00:00'
+          before: '15:00:00'
+          weekday:
+          - sun
+          - sat
+          - fri
+          - thu
+          - wed
+          - tue
+          - mon
+      sequence:
+      - action: switch.turn_on
+        metadata: {}
+        data: {}
+        target:
+          device_id: 04313162c9b0bb48347b8002235c725d
+      - action: notify.STD_Information
+        metadata: {}
+        data:
+          title: Geyser Heat Pump Control (Changes)
+          message: 'Geyser Heat Pump turned on. (Midday Default run)
+
+            Appliance state "{{states(''input_select.inverter_solar_appliance_mode_helper'')}}"
+            & Solar Mode "{{states(''input_select.inverter_solar_mode_helper'')}}"
+            |
+
+            Solar Hour: {{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh
+            | Today: {{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh
+            |
+
+            Load Shedding State "{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}"
+            & Eskom Stage "{{states(''sensor.load_shedding_stage_eskom'')}}" |
+
+            Inverter load: {{states(''sensor.inverter_power'')}}W | Grid feed: {{states(''sensor.inverter_grid_power'')}}W
+            |
+
+            Solar power: {{states(''sensor.inverter_pv_power'')}}W | Battery SOC:
+            {{states(''sensor.inverter_battery_soc'')}}% |'
+          data: {}
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_bot_5527
+        data:
+          title: Geyser Heat Pump Control (Changes)
+          message: 'Geyser Heat Pump turned *on*. (Midday Default run)
+
+            Appliance Mode *{{states(''input_select.inverter_solar_appliance_mode_helper'')}}*
+            & Solar Mode *{{states(''input_select.inverter_solar_mode_helper'')}}*
+            |
+
+            Solar Hour: *{{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh*
+            | Today: *{{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh*
+            |
+
+            Load Shedding *{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}*
+            & Eskom Stage *{{states(''sensor.load_shedding_stage_eskom'')}}* |
+
+            Inverter load: *{{states(''sensor.inverter_power'')}}W* | Battery SOC:
+            *{{states(''sensor.inverter_battery_soc'')}}%* |
+
+            Solar power: *{{states(''sensor.inverter_pv_power'')}}W* | Grid feed:
+            *{{states(''sensor.inverter_grid_power'')}}W* |'
+      alias: Turn on geyser for Midday run even if no grid
+    - conditions:
+      - condition: and
+        conditions:
+        - condition: device
+          type: is_off
+          device_id: 04313162c9b0bb48347b8002235c725d
+          entity_id: d3f6bbcf69c1027581f5b4f97845ae32
+          domain: switch
+          alias: If Geyser is switched off
+        - condition: time
+          after: '20:00:00'
+          before: '22:00:00'
+          weekday:
+          - sun
+          - sat
+          - fri
+          - thu
+          - wed
+          - tue
+          - mon
+        - condition: state
+          entity_id: group.inverter_grid
+          state: 'on'
+        - alias: If Inverter Solar mode set to Medium | High
+          condition: template
+          value_template: '{{states(''input_select.inverter_solar_mode_helper'') in
+            [''Medium Solar'', ''High Solar''] }}'
+          enabled: false
+        - alias: Check current eskom load shedding < stage 4
+          condition: template
+          value_template: '{{states(''sensor.load_shedding_stage_eskom'') < ''Stage
+            4'' }}'
+          enabled: true
+      sequence:
+      - action: switch.turn_on
+        metadata: {}
+        data: {}
+        target:
+          device_id: 04313162c9b0bb48347b8002235c725d
+      - action: notify.STD_Information
+        metadata: {}
+        data:
+          title: Geyser Heat Pump Control (Changes)
+          message: 'Geyser Heat Pump turned on. (Evening Default Run)
+
+            Appliance state "{{states(''input_select.inverter_solar_appliance_mode_helper'')}}"
+            & Solar Mode "{{states(''input_select.inverter_solar_mode_helper'')}}"
+            |
+
+            Solar Hour: {{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh
+            | Today: {{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh
+            |
+
+            Load Shedding State "{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}"
+            & Eskom Stage "{{states(''sensor.load_shedding_stage_eskom'')}}" |
+
+            Inverter load: {{states(''sensor.inverter_power'')}}W | Grid feed: {{states(''sensor.inverter_grid_power'')}}W
+            |
+
+            Solar power: {{states(''sensor.inverter_pv_power'')}}W | Battery SOC:
+            {{states(''sensor.inverter_battery_soc'')}}% |'
+          data: {}
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_bot_5527
+        data:
+          title: Geyser Heat Pump Control (Changes)
+          message: 'Geyser Heat Pump turned *on*. (Evening Default Run)
+
+            Appliance Mode *{{states(''input_select.inverter_solar_appliance_mode_helper'')}}*
+            & Solar Mode *{{states(''input_select.inverter_solar_mode_helper'')}}*
+            |
+
+            Solar Hour: *{{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh*
+            | Today: *{{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh*
+            |
+
+            Load Shedding *{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}*
+            & Eskom Stage *{{states(''sensor.load_shedding_stage_eskom'')}}* |
+
+            Inverter load: *{{states(''sensor.inverter_power'')}}W* | Battery SOC:
+            *{{states(''sensor.inverter_battery_soc'')}}%* |
+
+            Solar power: *{{states(''sensor.inverter_pv_power'')}}W* | Grid feed:
+            *{{states(''sensor.inverter_grid_power'')}}W* |'
+      alias: Turn on geyser for evening run if grid on & < stage 4
+    default:
+    - action: notify.STD_Information
+      metadata: {}
+      data:
+        title: Geyser Heat Pump Control (No Changes)
+        message: 'Geyser Heat Pump remains "{{states(''switch.geyser_heat_pump_switch'')}}".
+
+          Appliance state "{{states(''input_select.inverter_solar_appliance_mode_helper'')}}"
+          & Solar Mode "{{states(''input_select.inverter_solar_mode_helper'')}}" |
+
+          Solar Hour: {{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh
+          | Today: {{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh |
+
+          Load Shedding State "{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}"
+          & Eskom Stage "{{states(''sensor.load_shedding_stage_eskom'')}}" |
+
+          Inverter load: {{states(''sensor.inverter_power'')}}W | Grid feed: {{states(''sensor.inverter_grid_power'')}}W
+          |
+
+          Solar power: {{states(''sensor.inverter_pv_power'')}}W | Battery SOC: {{states(''sensor.inverter_battery_soc'')}}%
+          |'
+        data: {}
+    - action: notify.send_message
+      target:
+        entity_id: notify.telegram_bot_5527
+      data:
+        title: Geyser Heat Pump Control (No Changes)
+        message: 'Geyser Heat Pump remains *{{states(''switch.geyser_heat_pump_switch'')}}*.
+
+          Appliance Mode *{{states(''input_select.inverter_solar_appliance_mode_helper'')}}*
+          & Solar Mode *{{states(''input_select.inverter_solar_mode_helper'')}}* |
+
+          Solar Hour: *{{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh*
+          | Today: *{{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh*
+          |
+
+          Load Shedding *{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}*
+          & Eskom Stage *{{states(''sensor.load_shedding_stage_eskom'')}}* |
+
+          Inverter load: *{{states(''sensor.inverter_power'')}}W* | Battery SOC: *{{states(''sensor.inverter_battery_soc'')}}%*
+          |
+
+          Solar power: *{{states(''sensor.inverter_pv_power'')}}W* | Grid feed: *{{states(''sensor.inverter_grid_power'')}}W*
+          |'
+  mode: single
+- id: '1742385109757'
+  alias: Grid Usage Warning per day
+  description: Send notification when grid usage hits low, medium, high thresholds
+  triggers:
+  - trigger: state
+    entity_id:
+    - sensor.grid_energy_import_today
+    enabled: true
+  - trigger: time_pattern
+    minutes: /30
+    enabled: false
+  - trigger: state
+    entity_id:
+    - input_number.grid_usage_test_helper
+    enabled: false
+  conditions:
+  - condition: template
+    value_template: '{{ trigger.to_state.state | int(0) > trigger.from_state.state
+      | int(0) }}'
+    enabled: true
+    alias: 'Eskom usage is increasing '
+  actions:
+  - choose:
+    - conditions:
+      - condition: numeric_state
+        entity_id: sensor.grid_energy_import_today
+        above: input_number.grid_import_usage_low_warning_trigger
+        below: input_number.grid_import_usage_medium_warning_trigger
+      - condition: numeric_state
+        entity_id: input_number.grid_usage_test_helper
+        above: input_number.grid_import_usage_low_warning_trigger
+        below: input_number.grid_import_usage_medium_warning_trigger
+        enabled: false
+      sequence:
+      - action: notify.STD_Warning
+        metadata: {}
+        data:
+          title: Grid Usage Warning
+          message: "Grid usage is above *Low* warning threshold: {{states('sensor.grid_energy_import_today')}}kWh.\nAppliance
+            Mode \"{{states('input_select.inverter_solar_appliance_mode_helper')}}\"
+            | Solar Mode \"{{states('input_select.inverter_solar_mode_helper')}}\"
+            | \nSolar Today: {{states('sensor.solcast_pv_forecast_forecast_today')}}Wh
+            | Hours of sun: {{states('sensor.accuweather_hours_of_sun_day_0')}}hrs
+            |  \nInverter load: {{states('sensor.inverter_power')}}W | Battery SOC:
+            {{states('sensor.inverter_battery_soc')}}% |\nSolar power: {{states('sensor.inverter_pv_power')}}W
+            | Grid feed: {{states('sensor.inverter_grid_power')}}W |\nLoad Shedding
+            State \"{{states('sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark')}}\"
+            & Eskom Stage \"{{states('sensor.load_shedding_stage_eskom')}}\" |"
+          data:
+            actions:
+            - action: URI
+              title: Open Solar Inverter
+              uri: /dashboard-home/energy-control/
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_bot_5527
+        data:
+          title: Grid Usage Warning
+          message: 'Grid usage is above *Low* warning threshold: {{states(''sensor.grid_energy_import_today'')}}kWh.
+
+            Appliance Mode *{{states(''input_select.inverter_solar_appliance_mode_helper'')}}*
+            | Solar Mode *{{states(''input_select.inverter_solar_mode_helper'')}}*
+            |
+
+            Solar Hour: *{{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh*
+            | Today: *{{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh*
+            |
+
+            Inverter load: *{{states(''sensor.inverter_load_power'')}}W* | Battery
+            SOC: *{{states(''sensor.inverter_battery_soc'')}}%* |
+
+            Solar power: *{{states(''sensor.inverter_pv_power'')}}W* | Grid feed:
+            *{{states(''sensor.inverter_grid_power'')}}W* |
+
+            Load Shedding *{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}*
+            & Eskom Stage *{{states(''sensor.load_shedding_stage_eskom'')}}* |'
+      alias: Use above low level
+    - conditions:
+      - condition: numeric_state
+        entity_id: sensor.grid_energy_import_today
+        above: input_number.grid_import_usage_medium_warning_trigger
+        below: input_number.grid_import_usage_high_warning_trigger
+      - condition: numeric_state
+        entity_id: input_number.grid_usage_test_helper
+        above: input_number.grid_import_usage_medium_warning_trigger
+        below: input_number.grid_import_usage_high_warning_trigger
+        enabled: false
+      sequence:
+      - action: notify.STD_Warning
+        metadata: {}
+        data:
+          title: grid Usage Warning
+          message: "Grid usage is above *Medium* warning threshold: {{states('sensor.grid_energy_import_today')}}kWh.\nAppliance
+            Mode \"{{states('input_select.inverter_solar_appliance_mode_helper')}}\"
+            | Solar Mode \"{{states('input_select.inverter_solar_mode_helper')}}\"
+            | \nSolar Today: {{states('sensor.solcast_pv_forecast_forecast_today')}}Wh
+            | Hours of sun: {{states('sensor.accuweather_hours_of_sun_day_0')}}hrs
+            |  \nInverter load: {{states('sensor.inverter_power')}}W | Battery SOC:
+            {{states('sensor.inverter_battery_soc')}}% |\nSolar power: {{states('sensor.inverter_pv_power')}}W
+            | Grid feed: {{states('sensor.inverter_grid_power')}}W |\nLoad Shedding
+            State \"{{states('sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark')}}\"
+            & Eskom Stage \"{{states('sensor.load_shedding_stage_eskom')}}\" |"
+          data: {}
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_bot_5527
+        data:
+          title: Grid Usage Warning
+          message: 'Grid usage is above *Medium* warning threshold: {{states(''sensor.grid_energy_import_today'')}}kWh.
+
+            Appliance Mode *{{states(''input_select.inverter_solar_appliance_mode_helper'')}}*
+            | Solar Mode *{{states(''input_select.inverter_solar_mode_helper'')}}*
+            |
+
+            Solar Hour: *{{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh*
+            | Today: *{{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh*
+            |
+
+            Inverter load: *{{states(''sensor.inverter_load_power'')}}W* | Battery
+            SOC: *{{states(''sensor.inverter_battery_soc'')}}%* |
+
+            Solar power: *{{states(''sensor.inverter_pv_power'')}}W* | Grid feed:
+            *{{states(''sensor.inverter_grid_power'')}}W* |
+
+            Load Shedding *{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}*
+            & Eskom Stage *{{states(''sensor.load_shedding_stage_eskom'')}}* |'
+      alias: Use above medium level
+    - conditions:
+      - condition: numeric_state
+        entity_id: sensor.grid_energy_import_today
+        above: input_number.grid_import_usage_high_warning_trigger
+      - condition: numeric_state
+        entity_id: input_number.grid_usage_test_helper
+        above: input_number.grid_import_usage_high_warning_trigger
+        enabled: false
+      sequence:
+      - action: notify.STD_Warning
+        metadata: {}
+        data:
+          title: Grid Usage Warning
+          message: "Grid usage is above *High* warning threshold: {{states('sensor.grid_energy_import_today')}}kWh.\nAppliance
+            Mode \"{{states('input_select.inverter_solar_appliance_mode_helper')}}\"
+            | Solar Mode \"{{states('input_select.inverter_solar_mode_helper')}}\"
+            | \nSolar Today: {{states('sensor.solcast_pv_forecast_forecast_today')}}Wh
+            | Hours of sun: {{states('sensor.accuweather_hours_of_sun_day_0')}}hrs
+            |  \nInverter load: {{states('sensor.inverter_power')}}W | Battery SOC:
+            {{states('sensor.inverter_battery_soc')}}% |\nSolar power: {{states('sensor.inverter_pv_power')}}W
+            | Grid feed: {{states('sensor.inverter_grid_power')}}W |\nLoad Shedding
+            State \"{{states('sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark')}}\"
+            & Eskom Stage \"{{states('sensor.load_shedding_stage_eskom')}}\" |"
+          data: {}
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_bot_5527
+        data:
+          title: Grid Usage Warning
+          message: 'Grid usage is above *High* warning threshold: {{states(''sensor.grid_energy_import_today'')}}kWh.
+
+            Appliance Mode *{{states(''input_select.inverter_solar_appliance_mode_helper'')}}*
+            | Solar Mode *{{states(''input_select.inverter_solar_mode_helper'')}}*
+            |
+
+            Solar Hour: *{{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh*
+            | Today: *{{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh*
+            |
+
+            Inverter load: *{{states(''sensor.inverter_load_power'')}}W* | Battery
+            SOC: *{{states(''sensor.inverter_battery_soc'')}}%* |
+
+            Solar power: *{{states(''sensor.inverter_pv_power'')}}W* | Grid feed:
+            *{{states(''sensor.inverter_grid_power'')}}W* |
+
+            Load Shedding *{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}*
+            & Eskom Stage *{{states(''sensor.load_shedding_stage_eskom'')}}* |'
+      alias: Use above high level
+  mode: single
+# MIGRATED 2026-04-29: Alert Pond Pump Unscheduled Turn on (id: 1742999668407)
+# Migrated to packages/alerts/alerts_garden.yaml as canonical alert pipeline.
+# Fixes applied: broken wait_for_trigger-in-notify-data removed; proper mobile_app_notification_action
+#                automation added; notify.mobile_app_iphone16promax_ryan → script.notify_system_event;
+#                from: off guard was already present in original trigger.
+# Remove this comment after stable observation period.
+- id: '1744130174080'
+  alias: Geyser Heat Pump Turn Off PM
+  description: Turn off Geyser heat pump after evening run
+  triggers:
+  - trigger: time
+    at: 05:30:00
+  - trigger: time
+    at: 06:30:00
+  - trigger: time
+    at: 07:30:00
+  - trigger: time
+    at: 08:30:00
+  - trigger: time
+    at: '21:05:00'
+  conditions:
+  - condition: time
+    weekday:
+    - mon
+    - tue
+    - wed
+    - thu
+    - fri
+    - sat
+    - sun
+  actions:
+  - choose:
+    - conditions:
+      - alias: If after 9pm then turn off geyser
+        condition: and
+        conditions:
+        - condition: time
+          after: 05:00:00
+          weekday:
+          - mon
+          - tue
+          - wed
+          - thu
+          - fri
+          - sat
+          - sun
+          before: 08:00:00
+        - alias: If Geyser is switched on
+          condition: device
+          type: is_on
+          device_id: 04313162c9b0bb48347b8002235c725d
+          entity_id: d3f6bbcf69c1027581f5b4f97845ae32
+          domain: switch
+        - condition: state
+          entity_id: group.inverter_grid
+          state: 'off'
+          enabled: true
+        - condition: numeric_state
+          entity_id: sensor.inverter_battery_soc
+          below: number.inverter_1_program_2_soc
+          enabled: true
+        - alias: Check current load shedding
+          condition: template
+          value_template: '{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')
+            in [''on''] }}'
+          enabled: true
+      sequence:
+      - action: switch.turn_off
+        metadata: {}
+        data: {}
+        target:
+          device_id: 04313162c9b0bb48347b8002235c725d
+      - action: notify.STD_Information
+        metadata: {}
+        data:
+          title: Geyser Heat Pump Control (Changes)
+          message: "Geyser Heat Pump turned off early for power issues.\nAppliance
+            state \"{{states('input_select.inverter_solar_appliance_mode_helper')}}\"
+            & Solar Mode \"{{states('input_select.inverter_solar_mode_helper')}}\"
+            |\nSolar Hour: {{states('sensor.solcast_pv_forecast_forecast_this_hour')}}Wh
+            | Today: {{states('sensor.solcast_pv_forecast_forecast_today')}}kWh |
+            \nLoad Shedding \"{{states('sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark')}}\"
+            & Eskom Stage \"{{states('sensor.load_shedding_stage_eskom')}}\" |\nInverter
+            load: {{states('sensor.inverter_power')}}W | Grid feed: {{states('sensor.inverter_grid_power')}}W
+            |\nSolar power: {{states('sensor.inverter_pv_power')}}W | Battery SOC:
+            {{states('sensor.inverter_battery_soc')}}%"
+          data: {}
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_bot_5527
+        data:
+          title: Geyser Heat Pump Control (Changes)
+          message: 'Geyser Heat Pump turned *off* early for power issues.
+
+            Appliance state *{{states(''input_select.inverter_solar_appliance_mode_helper'')}}*
+            & Solar Mode *{{states(''input_select.inverter_solar_mode_helper'')}}*
+            |
+
+            Solar Hour: *{{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh*
+            | Today: *{{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh*
+            |
+
+            Load Shedding *{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}*
+            & Eskom Stage *{{states(''sensor.load_shedding_stage_eskom'')}}* |
+
+            Inverter load: *{{states(''sensor.inverter_power'')}}W* | Battery SOC:
+            *{{states(''sensor.inverter_battery_soc'')}}%* |
+
+            Solar power: *{{states(''sensor.inverter_pv_power'')}}W* | Grid feed:
+            *{{states(''sensor.inverter_grid_power'')}}W* |'
+      alias: Turn off in AM if low SOC, no grid or load shedding
+    - conditions:
+      - alias: If after 9pm then turn off geyser
+        condition: and
+        conditions:
+        - alias: If Geyser is switched on
+          condition: device
+          type: is_on
+          device_id: 04313162c9b0bb48347b8002235c725d
+          entity_id: d3f6bbcf69c1027581f5b4f97845ae32
+          domain: switch
+        - alias: If time is after 9pm
+          condition: time
+          after: '21:00:00'
+          weekday:
+          - mon
+          - tue
+          - wed
+          - thu
+          - fri
+          - sat
+          - sun
+      sequence:
+      - action: switch.turn_off
+        metadata: {}
+        data: {}
+        target:
+          device_id: 04313162c9b0bb48347b8002235c725d
+      - action: notify.STD_Information
+        metadata: {}
+        data:
+          title: Geyser Heat Pump Control (Changes)
+          message: "Geyser Heat Pump turned off for evening.\nAppliance state \"{{states('input_select.inverter_solar_appliance_mode_helper')}}\"
+            & Solar Mode \"{{states('input_select.inverter_solar_mode_helper')}}\"
+            |\nSolar Hour: {{states('sensor.solcast_pv_forecast_forecast_this_hour')}}Wh
+            | Today: {{states('sensor.solcast_pv_forecast_forecast_today')}}kWh |
+            \nLoad Shedding \"{{states('sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark')}}\"
+            & Eskom Stage \"{{states('sensor.load_shedding_stage_eskom')}}\" |\nInverter
+            load: {{states('sensor.inverter_power')}}W | Grid feed: {{states('sensor.inverter_grid_power')}}W
+            |\nSolar power: {{states('sensor.inverter_pv_power')}}W | Battery SOC:
+            {{states('sensor.inverter_battery_soc')}}%"
+          data: {}
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_bot_5527
+        data:
+          title: Geyser Heat Pump Control (Changes)
+          message: 'Geyser Heat Pump turned *off* for evening.
+
+            Appliance state *{{states(''input_select.inverter_solar_appliance_mode_helper'')}}*
+            & Solar Mode *{{states(''input_select.inverter_solar_mode_helper'')}}*
+            |
+
+            Solar Hour: *{{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh*
+            | Today: *{{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh*
+            |
+
+            Load Shedding *{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}*
+            & Eskom Stage *{{states(''sensor.load_shedding_stage_eskom'')}}* |
+
+            Inverter load: *{{states(''sensor.inverter_power'')}}W* | Battery SOC:
+            *{{states(''sensor.inverter_battery_soc'')}}%* |
+
+            Solar power: *{{states(''sensor.inverter_pv_power'')}}W* | Grid feed:
+            *{{states(''sensor.inverter_grid_power'')}}W* |'
+      alias: After 9pm turn off for evening
+    default:
+    - action: notify.STD_Information
+      metadata: {}
+      data:
+        title: Geyser Heat Pump Control (No Changes)
+        message: 'Geyser Heat Pump remains "{{states(''switch.geyser_heat_pump_switch'')}}".
+
+          Appliance Mode "{{states(''input_select.inverter_solar_appliance_mode_helper'')}}"
+          & Solar Mode "{{states(''input_select.inverter_solar_mode_helper'')}}" |
+
+          Solar Hour: {{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh
+          | Today: {{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh |
+
+          Load Shedding "{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}"
+          & Eskom Stage "{{states(''sensor.load_shedding_stage_eskom'')}}" |
+
+          Inverter load: {{states(''sensor.inverter_power'')}}W | Grid feed: {{states(''sensor.inverter_grid_power'')}}W
+          |
+
+          Solar power: {{states(''sensor.inverter_pv_power'')}}W | Battery SOC: {{states(''sensor.inverter_battery_soc'')}}%
+          |'
+        data: {}
+    - action: notify.send_message
+      target:
+        entity_id: notify.telegram_bot_5527
+      data:
+        title: Pool Pump Control (No Changes)
+        message: 'Pool Pump remains *{{states(''switch.geyser_heat_pump_switch'')}}*.
+
+          Appliance Mode *{{states(''input_select.inverter_solar_appliance_mode_helper'')}}*
+          & Solar Mode *{{states(''input_select.inverter_solar_mode_helper'')}}* |
+
+          Solar Hour: *{{states(''sensor.solcast_pv_forecast_forecast_this_hour'')}}Wh*
+          | Today: *{{states(''sensor.solcast_pv_forecast_forecast_today'')}}kWh*
+          |
+
+          Load Shedding *{{states(''sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark'')}}*
+          & Eskom Stage *{{states(''sensor.load_shedding_stage_eskom'')}}* |
+
+          Inverter load: *{{states(''sensor.inverter_power'')}}W* | Battery SOC: *{{states(''sensor.inverter_battery_soc'')}}%*
+          |
+
+          Solar power: *{{states(''sensor.inverter_pv_power'')}}W* | Grid feed: *{{states(''sensor.inverter_grid_power'')}}W*
+          |'
+  mode: single

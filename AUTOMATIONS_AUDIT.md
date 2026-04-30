@@ -102,7 +102,7 @@ Each active automation was read in full. The following flags are applied:
 
 **Flags:**
 - `⚠️ DEAD ENTITY` → `sensor.inverter_power` in message of Branch 2 (medium) and Branch 3 (high). Branch 1 already uses `sensor.inverter_load_power` correctly — copy that pattern.
-- `⚠️ DIRECT NOTIFY` → `notify.STD_Warning` (uppercase) in Branch 1; `notify.std_warning` (lowercase!) in Branches 2 and 3. Fix: `script.notify_power_event`.
+- `⚠️ DIRECT NOTIFY` → `notify.STD_Warning` (uppercase) in all 3 branches (casing normalized 2026-04-30; was lowercase in Branches 2 and 3). Full fix on migration: `script.notify_power_event`.
 - No `from:` guard needed — trigger is `numeric_state` (stateless threshold crossing).
 
 ---
