@@ -278,7 +278,7 @@ input_boolean.water_alert_notify   ← suppress water alert pipeline
 | 🔔 Notifications | Scripts correct | All C-series bypasses resolved. BUG-N02 counter entity correct. |
 | 🧭 Presence | Alert pipeline live | Unknown AP alert + occupancy anomaly implemented. Trust chain intact. |
 | 💡 Lighting | Stable | All L01–L10 fixed and verified 2026-04-29. BUG-L09 closed: lighting_entertainment.yaml + lighting_energy_saving.yaml both populated. M1/M2/M3 implemented. SOC-based energy saving trigger remains future work (power session). |
-| 🌐 Network | 3 bugs remain | BUG-NET01/02 (unavailable sensors), BUG-NET03 (packet loss formula wrong). APs migrated from ping → UniFi state sensors 2026-04-21. BUG-NET04 FIXED: unavailable AP sensors now surface correctly in alert summary. |
+| 🌐 Network | All bugs fixed | BUG-NET01 fixed 2026-04-28: unifi_cpu_5m_max availability → has_value(unifi_gateway_cpu_utilization). BUG-NET02 fixed 2026-04-28: unifi_memory_5m_max availability was self-referencing → has_value(unifi_gateway_memory_utilization). BUG-NET03 fixed 2026-04-28: packet loss removed from wan_health_score (ping_sum_5min is latency sum not pass count); score now uses latency + jitter only. BUG-NET04 fixed 2026-04-21. All verified live in network_helpers.yaml. |
 | 🏗️ Context | 3 arch issues | BUG-CTX01 (trust model in wrong package), BUG-CTX02 (stub file), BUG-CTX03 (reversed dependency) |
 | 🔧 Infra | 4 bugs found | BUG-CORE01 (fake EPS sensor), BUG-INF01 (printer binary_sensor broken), BUG-BKP01 (direct Telegram), BUG-WEA01 (stale alert no action) |
 
@@ -510,7 +510,7 @@ Rule: binary sensors / input_booleans → `from: "off"`. Template/state sensors 
 | `docs/domains/ALERTS_CONTRACT.md` | Alerts — pipeline audit | ✅ Authoritative |
 | `docs/domains/NOTIFICATIONS_CONTRACT.md` | Notifications — bypass audit | ✅ Authoritative |
 | `docs/domains/LIGHTING_CONTRACT.md` | Lighting — full audit, scenes, 9 open bugs | ✅ Authoritative (2026-04-16) |
-| `docs/domains/NETWORK_CONTRACT.md` | Network/WAN — entity ref, 3 bugs | ✅ Authoritative (2026-04-16) |
+| `docs/domains/NETWORK_CONTRACT.md` | Network/WAN — entity ref, all bugs fixed | ✅ Authoritative (2026-04-16, bugs verified 2026-04-30) |
 | `docs/domains/CONTEXT_CONTRACT.md` | Context — night mode, trust model, 3 arch issues | ✅ Authoritative (2026-04-16) |
 | `docs/domains/INFRA_CONTRACT.md` | Infra — core/backup/office/weather/integrations/HACS | ✅ Authoritative (2026-04-16) |
 
