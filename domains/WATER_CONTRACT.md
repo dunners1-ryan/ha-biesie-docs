@@ -685,6 +685,7 @@ Five protections listed in `WATER_CONTEXT.md`. Each audited independently.
 - **Bypass possible?** Via spike filter — upward spikes > 0.35m are rejected by validated sensor; a genuine depth of 1.96m would trigger correctly
 - **Issue:** No debounce (Issue 9) — single spike above 1.95m triggers false abort
 - **Verdict:** IMPLEMENTED but with false-abort risk from spike interaction. Threshold mismatch: `water_target_depth_full` = 1.85m but stop fires at 1.95m.
+- **2026-05-06:** `water_refill_aborted_due_to_safety` no longer set by this automation. Max depth = successful completion, not a fault. Lifecycle now shows "Completed (Full)" instead of "Aborted (Safety)". Notification changed to "Tank Full" title with clear success message.
 
 ### Protection 2: Dry Run Protection
 - **Spec:** Pump ON + power below threshold → Stop pump
