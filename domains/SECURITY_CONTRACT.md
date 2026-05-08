@@ -54,25 +54,120 @@ binary_sensor.security_{zone}_motion  ← zone aggregation: perimeter / grounds 
    → input_text.*
 ```
 
-### Hardware Summary
+### Hardware Summary — Camera Fleet (updated 2026-05-08)
 
-| Camera | Zone | Type |
-|--------|------|------|
-| cam01_street_driveway | Perimeter Front | Hikvision NVR (analog) |
-| cam03_rear_perimeter | Perimeter Rear | **DOES NOT EXIST** — planned |
-| cam04_car_port_front | Grounds Front | Hikvision NVR (analog) |
-| cam05_front_driveway | Grounds Front | Hikvision NVR (analog) |
-| cam06_front_entrance | Grounds Front | Hikvision NVR (analog) |
-| cam07_front_kitchen | Grounds Front | Hikvision NVR (analog) |
-| cam09_back_bedroom | Grounds Rear | Hikvision NVR (analog) |
-| cam10_pool_bar | Grounds Rear | Hikvision NVR (analog) |
-| cam12_back_pond | Grounds Rear | Hikvision NVR (analog) — NVR Cam12-Back-Pond. Entity IDs updated to cam12_back_pond 2026-04-29. |
-| cam14_lounge | Inside House | Hikvision NVR (analog) |
-| cam15_passage | Inside House | Hikvision NVR (analog) |
+#### Hikvision NVR (analog — DS-7116HGHI-F1)
 
-**NVR limitations:** Hikvision DS-7116HGHI-F1 analog DVR. No AI detection, no per-object
-classification. Motion signal is coarse. go2rtc timeout instability. Transitioning to
-Hikvision ColorVu/AcuSense IP cameras.
+No AI detection, no per-object classification. Motion signal is pixel-diff only.
+go2rtc timeout instability. Being progressively replaced by AcuSense IP cameras.
+
+| Camera | Zone | Status | Notes |
+|--------|------|--------|-------|
+| cam01_street_driveway | Perimeter Front | **DEPRECATED 2026-05-07** | Replaced by camip03/05. Entity kept for UI compatibility. |
+| cam04_car_port_front | Grounds Front | Active | Carport / front-left |
+| cam05_front_driveway | **Inside House** | Active — **MOVED 2026-05-07** | Physical camera moved inside garage. Entity ID unchanged. Gated by inside_cameras_armed. |
+| cam06_front_entrance | Grounds Front | **REMOVED 2026-05-08** | Physically uninstalled. Entity kept to avoid breaking UI. |
+| cam07_front_kitchen | Grounds Front | Active | Side entry / kitchen window |
+| cam09_back_bedroom | Grounds Rear | Active | Rear right |
+| cam10_pool_bar | Grounds Rear | **DEPRECATED 2026-05-07** | Replaced by ipcam02. Entity kept for UI compatibility. |
+| cam12_back_pond | Grounds Rear | Active | |
+| cam14_lounge | Inside House | Active | Armed by schedule / occupancy |
+| cam15_passage | Inside House | Active | Armed by schedule / occupancy |
+
+#### Hikvision AcuSense IP Cameras (new fleet — from 2026-05-07)
+
+Full AI detection: person/vehicle classification, region entrance/exit, line crossing, field intrusion.
+Entity prefix pattern: `ipcamXX` for CamIP01/02; `camipXX` for CamIP03/04/05 (derived from HA device name).
+
+| Camera | Entity prefix | Zone | Status | Location |
+|--------|---------------|------|--------|----------|
+| CamIP01_Driveway | `ipcam01_driveway` | Grounds Front | **Active** | Driveway inside gate. regionentrance/exiting switches ON. |
+| CamIP02_Pool_Bar | `ipcam02_pool_bar` | Grounds Rear | **Active** | Pool / bar area |
+| CamIP03_Street_Driveway_Down | `camip03_street_driveway_down` | Perimeter Front | **Active 2026-05-08** | Street level — lower approach. Limited sensors while initialising. |
+| CamIP04_Back_Boundary | `camip04_back_boundary` | Perimeter Rear | **Active 2026-05-08** | Rear boundary — first active rear perimeter sensor |
+| CamIP05_Street_Driveway_Up | `camip05_street_driveway_up` | Perimeter Front | **Active 2026-05-08** | Street level — upper approach. regionentrance switch ON. |
+
+**Available sensors per IP camera** (confirmed from entity registry):
+
+| Sensor type | Entity suffix pattern | ipcam01 | ipcam02 | camip03 | camip04 | camip05 |
+|-------------|----------------------|---------|---------|---------|---------|---------|
+| `motiondetection` | `binary_sensor.*_motiondetection` | ✅ active | ✅ active | ✅ active | ✅ active | ✅ active |
+| `regionentrance` | `binary_sensor.*_regionentrance` | ✅ switch ON | switch off | initialising | switch off | ✅ switch ON |
+| `regionexiting` | `binary_sensor.*_regionexiting` | ✅ switch ON | switch off | — | — | — |
+| `linedetection` | `binary_sensor.*_linedetection` | present | — | — | — | — |
+| `fielddetection` | `binary_sensor.*_fielddetection` | present | — | — | — | — |
+| `scenechangedetection` | `binary_sensor.*_scenechangedetection` | present | — | ✅ active | — | — |
+| `tamperdetection` | `binary_sensor.*_tamperdetection` | present | — | — | — | — |
+
+**Entrance/exit debounce sensors (wired in cameras_processing.yaml 2026-05-08):**
+- `binary_sensor.ipcam01_driveway_entrance_valid` — property entry confirmed (gate open, vehicle/person in driveway)
+- `binary_sensor.ipcam01_driveway_exit_valid` — departure from property
+- `binary_sensor.camip05_street_driveway_up_entrance_valid` — person/vehicle approaching gate from street (primary)
+- `binary_sensor.camip03_street_driveway_down_entrance_valid` — secondary street approach (may be inactive until camip03 initialises)
+
+### Visitor vs Arrival Logic (updated 2026-05-08)
+
+The gate is a closed structure — `ipcam01_driveway` can only detect motion AFTER the gate is opened.
+
+| Scenario | Sensor(s) active | Classification |
+|----------|-----------------|----------------|
+| Someone on street approaching gate | camip05/03 motion or entrance | **Visitor** (if gate closed) |
+| Gate opens + driveway activity | gate_sensor=on + ipcam01 entrance/motion | **Arrival** (family entering) |
+| ipcam01 fires with gate closed | ipcam01 motion, gate=off | Potential intruder (not a visitor) |
+| Vehicle on street, no driveway | camip05/03 only | Vehicle Approaching (perimeter) |
+| Vehicle in driveway | ipcam01 motion or entrance | Vehicle In Driveway (inside boundary) |
+
+---
+
+## AcuSense Optimisation Roadmap
+
+The new IP cameras (Hikvision AcuSense) provide far more reliable motion signals than the
+NVR analog cameras. Currently wired to use `motiondetection` for compatibility. The following
+improvements should be made as the new cameras bed in.
+
+### Phase 1 — Wired (done 2026-05-07)
+- `motiondetection` as primary trigger for debounce sensors
+- Full snapshot capture pipeline wired in
+- `ipcam01` and `ipcam02` active
+
+### Phase 2 — Entrance/exit debounce added (done 2026-05-08)
+Added `regionentrance`/`regionexiting` debounce sensors to `cameras_processing.yaml` for:
+- `ipcam01_driveway_entrance_valid` + `ipcam01_driveway_exit_valid` (switches confirmed ON)
+- `camip05_street_driveway_up_entrance_valid` (switch ON)
+- `camip03_street_driveway_down_entrance_valid` (stub — sensor may still be initialising)
+
+Visitor trigger now uses entrance_valid as primary; arrival uses ipcam01_entrance_valid for confirmation.
+Motiondetection kept as fallback on ipcam01 until entrance sensor is validated in production.
+
+Next step: once entrance sensors are confirmed reliable, remove motiondetection fallback from visitor/arrival conditions and from motion_valid debounce on AcuSense cameras.
+
+```yaml
+# Future (Phase 2 final):
+# Replace motiondetection with entrance only:
+state: "{{ is_state('binary_sensor.ipcam01_driveway_regionentrance','on') }}"
+```
+
+### Phase 3 — Wire camip03/04/05 (done 2026-05-08)
+CamIP03, CamIP04, CamIP05 wired in:
+1. Debounce sensors in `cameras_processing.yaml` with correct `camip` prefix
+2. Groups updated in `cameras_core.yaml`
+3. `security_zones.yaml` perimeter_front uses `camip03 OR camip05`; perimeter_rear uses `camip04`
+4. Confidence scoring and trigger camera priority updated in `security_logic.yaml`
+5. Helper stubs in `security_helpers.yaml` corrected from `ipcam03/04/05` → `camip03/04/05`
+
+### Phase 4 — Per-camera region configuration (Hikvision app)
+Configure regions/lines on each camera via Hikvision iVMS or web UI:
+- **CamIP01 (driveway)**: Region entrance covering driveway entry point
+- **CamIP02 (pool bar)**: Region entrance covering pool area gate/entry
+- **CamIP03/05 (street)**: Line detection on pavement (direction: towards gate)
+- **CamIP04 (rear boundary)**: Field detection covering rear wall/fence
+
+### Phase 5 — Confidence scoring rethink
+Once `regionentrance` is primary:
+- Any single AcuSense camera = minimum `medium` confidence (person/vehicle verified at hardware)
+- Multiple AcuSense cameras = `high` confidence
+- NVR-only camera alone = `low` confidence (retain for backward compat)
+- Allows removing the `nobody_home` dependency from intruder classification for AcuSense cameras
 
 ---
 
@@ -161,12 +256,12 @@ No security-domain helpers were found to be UI-created. All are YAML-defined in
 
 | Entity | Type | File | Sources | Note |
 |--------|------|------|---------|------|
-| `binary_sensor.security_perimeter_front_motion` | template BS | security_zones.yaml | cam01_motion_valid | |
-| `binary_sensor.security_perimeter_rear_motion` | template BS | security_zones.yaml | cam03_rear_perimeter_motion_valid | **ALWAYS OFF** — cam03 doesn't exist |
-| `binary_sensor.security_perimeter_motion` | template BS | security_zones.yaml | perimeter_front OR perimeter_rear | Effectively = cam01 only |
-| `binary_sensor.security_grounds_motion` | template BS | security_zones.yaml | expand(grounds_front + grounds_rear groups) | cam04/05/06/07/09/10/11 |
+| `binary_sensor.security_perimeter_front_motion` | template BS | security_zones.yaml | camip03 OR camip05 | Updated 2026-05-08 |
+| `binary_sensor.security_perimeter_rear_motion` | template BS | security_zones.yaml | camip04_back_boundary | **Fixed 2026-05-08** — was ALWAYS OFF (cam03 never existed) |
+| `binary_sensor.security_perimeter_motion` | template BS | security_zones.yaml | perimeter_front OR perimeter_rear | Now covers all 3 street/boundary cameras |
+| `binary_sensor.security_grounds_motion` | template BS | security_zones.yaml | expand(grounds_front + grounds_rear groups) | cam04/07/ipcam01/cam09/ipcam02/cam12/camip04 |
 | `binary_sensor.security_external_motion` | template BS | security_zones.yaml | perimeter OR grounds | |
-| `binary_sensor.security_inside_house_motion` | template BS | security_zones.yaml | expand(inside_house group) | cam14/15 |
+| `binary_sensor.security_inside_house_motion` | template BS | security_zones.yaml | expand(inside_house group) | cam14/cam15/cam05 (garage added 2026-05-07) |
 
 ### Per-Camera Timestamp Sensors
 
@@ -651,9 +746,9 @@ MISSING: input_datetime.low_trust_end
   Referenced in: packages/security/security_core.yaml:31
   Effect: same as above
 
-MISSING: binary_sensor.cam03_rear_perimeter_motion_valid
-  Referenced in: packages/security/security_zones.yaml:17
-  Effect: binary_sensor.security_perimeter_rear_motion always off
+✅ FIXED 2026-05-08: binary_sensor.security_perimeter_rear_motion
+  Was: referenced cam03_rear_perimeter_motion_valid (never existed) → always off
+  Now: references camip04_back_boundary_motion_valid — first active rear perimeter sensor
 
 MISSING: weather.home
   Referenced in: packages/security/security_core.yaml:76,82
@@ -868,5 +963,9 @@ not in the classification sensors, so new camera triggers flow through unchanged
 *Updated 2026-04-15: Sprint 1 bugs resolved (D1/D2/D3/D4/D5 — Issues 4/5/6/12 fixed)*  
 *Updated 2026-04-15: Classification audit — warning threshold 75%, 5-min cooldown,*
 *  cam04 carport added to movement path, event router fires on to:"on" only.*
-*  Architecture preserved for new AI camera integration.*
+*Updated 2026-05-07: cam01/cam10 deprecated; cam05 moved inside garage; ipcam01/02 wired in*  
+*Updated 2026-05-08: cam06 removed (uninstalled); camip03/04/05 wired in; perimeter_rear fixed;*
+*  elevated branch added to event_router (Root Cause 1); cam07 added to confidence front tier*
+*  (Root Cause 2); AcuSense entrance/exit debounce sensors added; visitor logic corrected*
+*  (street cameras only — ipcam01 = inside gate = arrival, not visitor)*  
 *Next review: Sprint 2 (snapshot deduplication) + Sprint 3 (triple-notification fix)*
