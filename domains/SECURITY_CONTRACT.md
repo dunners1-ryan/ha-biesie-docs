@@ -77,45 +77,45 @@ go2rtc timeout instability. Being progressively replaced by AcuSense IP cameras.
 #### Hikvision AcuSense IP Cameras (new fleet — from 2026-05-07)
 
 Full AI detection: person/vehicle classification, region entrance/exit, line crossing, field intrusion.
-Entity prefix pattern: `ipcamXX` for CamIP01/02; `camipXX` for CamIP03/04/05 (derived from HA device name).
+Entity prefix pattern: `ipcamXX` for all IP cameras (ipcam01–ipcam05) — standardised 2026-05-08.
 
 | Camera | Entity prefix | Zone | Status | Location |
 |--------|---------------|------|--------|----------|
-| CamIP01_Driveway | `ipcam01_driveway` | Grounds Front | **Active** | Driveway inside gate. regionentrance/exiting switches ON. |
-| CamIP02_Pool_Bar | `ipcam02_pool_bar` | Grounds Rear | **Active** | Pool / bar area |
-| CamIP03_Street_Driveway_Down | `camip03_street_driveway_down` | Perimeter Front | **Active 2026-05-08** | Street level — lower approach. Limited sensors while initialising. |
-| CamIP04_Back_Boundary | `camip04_back_boundary` | Perimeter Rear | **Active 2026-05-08** | Rear boundary — first active rear perimeter sensor |
-| CamIP05_Street_Driveway_Up | `camip05_street_driveway_up` | Perimeter Front | **Active 2026-05-08** | Street level — upper approach. regionentrance switch ON. |
+| IPCam03_Driveway | `ipcam03_driveway` | Grounds Front | **Active** | Driveway inside gate. regionentrance/exiting switches ON. |
+| IPCam04_Pool_Bar | `ipcam04_pool_bar` | Grounds Rear | **Active** | Pool / bar area |
+| IPCam02_Street_Driveway_Down | `ipcam02_street_driveway_down` | Perimeter Front | **Active 2026-05-08** | Street level — lower approach. Limited sensors while initialising. |
+| IPCam05_Back_Boundary | `ipcam05_back_boundary` | Perimeter Rear | **Active 2026-05-08** | Rear boundary — first active rear perimeter sensor |
+| IPCam01_Street_Driveway_Up | `ipcam01_street_driveway_up` | Perimeter Front | **Active 2026-05-08** | Street level — upper approach. regionentrance switch ON. |
 
 **Available sensors per IP camera** (confirmed from entity registry):
 
-| Sensor type | Entity suffix pattern | ipcam01 | ipcam02 | camip03 | camip04 | camip05 |
-|-------------|----------------------|---------|---------|---------|---------|---------|
+| Sensor type | Entity suffix pattern | ipcam01 (street up) | ipcam02 (street down) | ipcam03 (driveway) | ipcam04 (pool bar) | ipcam05 (rear boundary) |
+|-------------|----------------------|---------------------|----------------------|---------------------|---------------------|--------------------------|
 | `motiondetection` | `binary_sensor.*_motiondetection` | ✅ active | ✅ active | ✅ active | ✅ active | ✅ active |
-| `regionentrance` | `binary_sensor.*_regionentrance` | ✅ switch ON | switch off | initialising | switch off | ✅ switch ON |
-| `regionexiting` | `binary_sensor.*_regionexiting` | ✅ switch ON | switch off | — | — | — |
-| `linedetection` | `binary_sensor.*_linedetection` | present | — | — | — | — |
-| `fielddetection` | `binary_sensor.*_fielddetection` | present | — | — | — | — |
-| `scenechangedetection` | `binary_sensor.*_scenechangedetection` | present | — | ✅ active | — | — |
-| `tamperdetection` | `binary_sensor.*_tamperdetection` | present | — | — | — | — |
+| `regionentrance` | `binary_sensor.*_regionentrance` | ✅ switch ON | initialising | ✅ switch ON | switch off | switch off |
+| `regionexiting` | `binary_sensor.*_regionexiting` | — | — | ✅ switch ON | switch off | — |
+| `linedetection` | `binary_sensor.*_linedetection` | — | — | present | — | — |
+| `fielddetection` | `binary_sensor.*_fielddetection` | — | — | present | — | — |
+| `scenechangedetection` | `binary_sensor.*_scenechangedetection` | — | ✅ active | present | — | — |
+| `tamperdetection` | `binary_sensor.*_tamperdetection` | — | — | present | — | — |
 
 **Entrance/exit debounce sensors (wired in cameras_processing.yaml 2026-05-08):**
-- `binary_sensor.ipcam01_driveway_entrance_valid` — property entry confirmed (gate open, vehicle/person in driveway)
-- `binary_sensor.ipcam01_driveway_exit_valid` — departure from property
-- `binary_sensor.camip05_street_driveway_up_entrance_valid` — person/vehicle approaching gate from street (primary)
-- `binary_sensor.camip03_street_driveway_down_entrance_valid` — secondary street approach (may be inactive until camip03 initialises)
+- `binary_sensor.ipcam03_driveway_entrance_valid` — property entry confirmed (gate open, vehicle/person in driveway)
+- `binary_sensor.ipcam03_driveway_exit_valid` — departure from property
+- `binary_sensor.ipcam01_street_driveway_up_entrance_valid` — person/vehicle approaching gate from street (primary)
+- `binary_sensor.ipcam02_street_driveway_down_entrance_valid` — secondary street approach (may be inactive until ipcam02 initialises)
 
 ### Visitor vs Arrival Logic (updated 2026-05-08)
 
-The gate is a closed structure — `ipcam01_driveway` can only detect motion AFTER the gate is opened.
+The gate is a closed structure — `ipcam03_driveway` can only detect motion AFTER the gate is opened.
 
 | Scenario | Sensor(s) active | Classification |
 |----------|-----------------|----------------|
-| Someone on street approaching gate | camip05/03 motion or entrance | **Visitor** (if gate closed) |
-| Gate opens + driveway activity | gate_sensor=on + ipcam01 entrance/motion | **Arrival** (family entering) |
-| ipcam01 fires with gate closed | ipcam01 motion, gate=off | Potential intruder (not a visitor) |
-| Vehicle on street, no driveway | camip05/03 only | Vehicle Approaching (perimeter) |
-| Vehicle in driveway | ipcam01 motion or entrance | Vehicle In Driveway (inside boundary) |
+| Someone on street approaching gate | ipcam01/02 motion or entrance | **Visitor** (if gate closed) |
+| Gate opens + driveway activity | gate_sensor=on + ipcam03 entrance/motion | **Arrival** (family entering) |
+| ipcam03 fires with gate closed | ipcam03 motion, gate=off | Potential intruder (not a visitor) |
+| Vehicle on street, no driveway | ipcam01/02 only | Vehicle Approaching (perimeter) |
+| Vehicle in driveway | ipcam03 motion or entrance | Vehicle In Driveway (inside boundary) |
 
 ---
 
@@ -132,35 +132,35 @@ improvements should be made as the new cameras bed in.
 
 ### Phase 2 — Entrance/exit debounce added (done 2026-05-08)
 Added `regionentrance`/`regionexiting` debounce sensors to `cameras_processing.yaml` for:
-- `ipcam01_driveway_entrance_valid` + `ipcam01_driveway_exit_valid` (switches confirmed ON)
-- `camip05_street_driveway_up_entrance_valid` (switch ON)
-- `camip03_street_driveway_down_entrance_valid` (stub — sensor may still be initialising)
+- `ipcam03_driveway_entrance_valid` + `ipcam03_driveway_exit_valid` (switches confirmed ON)
+- `ipcam01_street_driveway_up_entrance_valid` (switch ON)
+- `ipcam02_street_driveway_down_entrance_valid` (stub — sensor may still be initialising)
 
-Visitor trigger now uses entrance_valid as primary; arrival uses ipcam01_entrance_valid for confirmation.
-Motiondetection kept as fallback on ipcam01 until entrance sensor is validated in production.
+Visitor trigger now uses entrance_valid as primary; arrival uses ipcam03_entrance_valid for confirmation.
+Motiondetection kept as fallback on ipcam03 until entrance sensor is validated in production.
 
 Next step: once entrance sensors are confirmed reliable, remove motiondetection fallback from visitor/arrival conditions and from motion_valid debounce on AcuSense cameras.
 
 ```yaml
 # Future (Phase 2 final):
 # Replace motiondetection with entrance only:
-state: "{{ is_state('binary_sensor.ipcam01_driveway_regionentrance','on') }}"
+state: "{{ is_state('binary_sensor.ipcam03_driveway_regionentrance','on') }}"
 ```
 
-### Phase 3 — Wire camip03/04/05 (done 2026-05-08)
-CamIP03, CamIP04, CamIP05 wired in:
-1. Debounce sensors in `cameras_processing.yaml` with correct `camip` prefix
+### Phase 3 — Wire ipcam01/ipcam02/ipcam05 (done 2026-05-08)
+IPCam01 (street up), IPCam02 (street down), IPCam05 (rear boundary) wired in:
+1. Debounce sensors in `cameras_processing.yaml` with `ipcam` prefix
 2. Groups updated in `cameras_core.yaml`
-3. `security_zones.yaml` perimeter_front uses `camip03 OR camip05`; perimeter_rear uses `camip04`
+3. `security_zones.yaml` perimeter_front uses `ipcam01 OR ipcam02`; perimeter_rear uses `ipcam05`
 4. Confidence scoring and trigger camera priority updated in `security_logic.yaml`
-5. Helper stubs in `security_helpers.yaml` corrected from `ipcam03/04/05` → `camip03/04/05`
+5. All entity names standardised to `ipcam01–ipcam05` prefix (renamed from mixed `camip`/`ipcam` 2026-05-08)
 
 ### Phase 4 — Per-camera region configuration (Hikvision app)
 Configure regions/lines on each camera via Hikvision iVMS or web UI:
-- **CamIP01 (driveway)**: Region entrance covering driveway entry point
-- **CamIP02 (pool bar)**: Region entrance covering pool area gate/entry
-- **CamIP03/05 (street)**: Line detection on pavement (direction: towards gate)
-- **CamIP04 (rear boundary)**: Field detection covering rear wall/fence
+- **IPCam03 (driveway)**: Region entrance covering driveway entry point
+- **IPCam04 (pool bar)**: Region entrance covering pool area gate/entry
+- **IPCam01/02 (street)**: Line detection on pavement (direction: towards gate)
+- **IPCam05 (rear boundary)**: Field detection covering rear wall/fence
 
 ### Phase 5 — Confidence scoring rethink
 Once `regionentrance` is primary:
@@ -256,12 +256,12 @@ No security-domain helpers were found to be UI-created. All are YAML-defined in
 
 | Entity | Type | File | Sources | Note |
 |--------|------|------|---------|------|
-| `binary_sensor.security_perimeter_front_motion` | template BS | security_zones.yaml | camip03 OR camip05 | Updated 2026-05-08 |
-| `binary_sensor.security_perimeter_rear_motion` | template BS | security_zones.yaml | camip04_back_boundary | **Fixed 2026-05-08** — was ALWAYS OFF (cam03 never existed) |
-| `binary_sensor.security_perimeter_motion` | template BS | security_zones.yaml | perimeter_front OR perimeter_rear | Now covers all 3 street/boundary cameras |
-| `binary_sensor.security_grounds_motion` | template BS | security_zones.yaml | expand(grounds_front + grounds_rear groups) | cam04/07/ipcam01/cam09/ipcam02/cam12/camip04 |
+| `binary_sensor.security_perimeter_front_motion` | template BS | security_zones.yaml | ipcam01 OR ipcam02 | Updated 2026-05-08 |
+| `binary_sensor.security_perimeter_rear_motion` | template BS | security_zones.yaml | ipcam05_back_boundary | **Fixed 2026-05-08** — was ALWAYS OFF (cam03 never existed) |
+| `binary_sensor.security_perimeter_motion` | template BS | security_zones.yaml | perimeter_front OR perimeter_rear | Covers all 3 street/boundary cameras |
+| `binary_sensor.security_grounds_motion` | template BS | security_zones.yaml | expand(grounds_front + grounds_rear groups) | cam04/07/ipcam03/cam09/ipcam04/cam12/ipcam05 |
 | `binary_sensor.security_external_motion` | template BS | security_zones.yaml | perimeter OR grounds | |
-| `binary_sensor.security_inside_house_motion` | template BS | security_zones.yaml | expand(inside_house group) | cam14/cam15/cam05 (garage added 2026-05-07) |
+| `binary_sensor.security_inside_house_motion` | template BS | security_zones.yaml | expand(inside_house group) | cam14/cam15 only (cam05 moved to grounds_front 2026-05-08 — garage ≠ living space) |
 
 ### Per-Camera Timestamp Sensors
 
@@ -748,7 +748,7 @@ MISSING: input_datetime.low_trust_end
 
 ✅ FIXED 2026-05-08: binary_sensor.security_perimeter_rear_motion
   Was: referenced cam03_rear_perimeter_motion_valid (never existed) → always off
-  Now: references camip04_back_boundary_motion_valid — first active rear perimeter sensor
+  Now: references ipcam05_back_boundary_motion_valid — first active rear perimeter sensor
 
 MISSING: weather.home
   Referenced in: packages/security/security_core.yaml:76,82
@@ -964,8 +964,11 @@ not in the classification sensors, so new camera triggers flow through unchanged
 *Updated 2026-04-15: Classification audit — warning threshold 75%, 5-min cooldown,*
 *  cam04 carport added to movement path, event router fires on to:"on" only.*
 *Updated 2026-05-07: cam01/cam10 deprecated; cam05 moved inside garage; ipcam01/02 wired in*  
-*Updated 2026-05-08: cam06 removed (uninstalled); camip03/04/05 wired in; perimeter_rear fixed;*
+*Updated 2026-05-08: cam06 removed (uninstalled); all 5 IP cameras wired and renamed to ipcam01–ipcam05*
+*  (was mixed camip/ipcam — single-pass rename across 7 config files); perimeter_rear fixed;*
 *  elevated branch added to event_router (Root Cause 1); cam07 added to confidence front tier*
 *  (Root Cause 2); AcuSense entrance/exit debounce sensors added; visitor logic corrected*
-*  (street cameras only — ipcam01 = inside gate = arrival, not visitor)*  
+*  (street cameras only — ipcam03 = driveway = inside gate = arrival, not visitor);*
+*  cam05 garage moved to grounds_front (garage ≠ living space — was causing false critical_intrusion);*
+*  notification spam fixed (event_router sole notifier); critical message now contextual.*
 *Next review: Sprint 2 (snapshot deduplication) + Sprint 3 (triple-notification fix)*
