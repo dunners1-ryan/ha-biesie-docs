@@ -91,13 +91,15 @@ Entity prefix pattern: `ipcamXX` for all IP cameras (ipcam01–ipcam05) — stan
 
 | Sensor type | Entity suffix pattern | ipcam01 (street up) | ipcam02 (street down) | ipcam03 (driveway) | ipcam04 (pool bar) | ipcam05 (rear boundary) |
 |-------------|----------------------|---------------------|----------------------|---------------------|---------------------|--------------------------|
-| `motiondetection` | `binary_sensor.*_motiondetection` | ✅ active | ✅ active | ✅ active | ✅ active | ✅ active |
-| `regionentrance` | `binary_sensor.*_regionentrance` | ✅ switch ON | initialising | ✅ switch ON | switch off | switch off |
+| `motiondetection` | `binary_sensor.*_motiondetection` | ⚠️ disabled¹ | ⚠️ disabled¹ | ⚠️ disabled¹ | ⚠️ disabled¹ | ⚠️ disabled¹ |
+| `regionentrance` | `binary_sensor.*_regionentrance` | ✅ switch ON | ✅ active | ✅ switch ON | switch off | switch off |
 | `regionexiting` | `binary_sensor.*_regionexiting` | — | — | ✅ switch ON | switch off | — |
-| `linedetection` | `binary_sensor.*_linedetection` | — | — | present | — | — |
-| `fielddetection` | `binary_sensor.*_fielddetection` | — | — | present | — | — |
+| `linedetection` | `binary_sensor.*_linedetection` | ✅ active | ✅ active | ✅ active | ✅ active | ✅ active |
+| `fielddetection` | `binary_sensor.*_fielddetection` | ✅ active | ✅ active | ✅ active | ✅ active | ✅ active |
 | `scenechangedetection` | `binary_sensor.*_scenechangedetection` | — | ✅ active | present | — | — |
 | `tamperdetection` | `binary_sensor.*_tamperdetection` | — | — | present | — | — |
+
+¹ `motiondetection` entity exists but "Notify Surveillance Center" is unchecked in camera UI — it will not fire. All cameras now use Smart Events (fielddetection + linedetection + regionentrance) as primary motion signal.
 
 **Entrance/exit debounce sensors (wired in cameras_processing.yaml 2026-05-08):**
 - `binary_sensor.ipcam03_driveway_entrance_valid` — property entry confirmed (gate open, vehicle/person in driveway)
@@ -122,11 +124,10 @@ The gate is a closed structure — `ipcam03_driveway` can only detect motion AFT
 ## AcuSense Optimisation Roadmap
 
 The new IP cameras (Hikvision AcuSense) provide far more reliable motion signals than the
-NVR analog cameras. Currently wired to use `motiondetection` for compatibility. The following
-improvements should be made as the new cameras bed in.
+NVR analog cameras. All 5 ipcams are now fully migrated to Smart Events.
 
 ### Phase 1 — Wired (done 2026-05-07)
-- `motiondetection` as primary trigger for debounce sensors
+- `motiondetection` as initial primary trigger for debounce sensors
 - Full snapshot capture pipeline wired in
 - `ipcam01` and `ipcam02` active
 
@@ -134,18 +135,9 @@ improvements should be made as the new cameras bed in.
 Added `regionentrance`/`regionexiting` debounce sensors to `cameras_processing.yaml` for:
 - `ipcam03_driveway_entrance_valid` + `ipcam03_driveway_exit_valid` (switches confirmed ON)
 - `ipcam01_street_driveway_up_entrance_valid` (switch ON)
-- `ipcam02_street_driveway_down_entrance_valid` (stub — sensor may still be initialising)
+- `ipcam02_street_driveway_down_entrance_valid` (active 2026-05-10)
 
-Visitor trigger now uses entrance_valid as primary; arrival uses ipcam03_entrance_valid for confirmation.
-Motiondetection kept as fallback on ipcam03 until entrance sensor is validated in production.
-
-Next step: once entrance sensors are confirmed reliable, remove motiondetection fallback from visitor/arrival conditions and from motion_valid debounce on AcuSense cameras.
-
-```yaml
-# Future (Phase 2 final):
-# Replace motiondetection with entrance only:
-state: "{{ is_state('binary_sensor.ipcam03_driveway_regionentrance','on') }}"
-```
+Visitor trigger uses entrance_valid as primary; arrival uses ipcam03_entrance_valid for confirmation.
 
 ### Phase 3 — Wire ipcam01/ipcam02/ipcam05 (done 2026-05-08)
 IPCam01 (street up), IPCam02 (street down), IPCam05 (rear boundary) wired in:
@@ -154,6 +146,17 @@ IPCam01 (street up), IPCam02 (street down), IPCam05 (rear boundary) wired in:
 3. `security_zones.yaml` perimeter_front uses `ipcam01 OR ipcam02`; perimeter_rear uses `ipcam05`
 4. Confidence scoring and trigger camera priority updated in `security_logic.yaml`
 5. All entity names standardised to `ipcam01–ipcam05` prefix (renamed from mixed `camip`/`ipcam` 2026-05-08)
+
+### Phase 3b — Smart Events migration (done 2026-05-10)
+All 5 ipcams migrated to Smart Events — `motiondetection` "Notify Surveillance Center" disabled
+in camera UI for each camera. `motion_valid` debounce sensors in `cameras_processing.yaml` now use:
+- `fielddetection` (Intrusion zone — AI-filtered person/vehicle, configurable dwell threshold)
+- `linedetection` (Line Crossing — directional trigger)
+- `regionentrance` (Region Entrance — where applicable)
+
+This eliminates false triggers from pixel-diff motion (rain, headlights, pool water, small animals).
+Each camera's Intrusion zone/Line Crossing was configured in iVMS before disabling motiondetection.
+Order of migration: ipcam05 → ipcam04 → ipcam03 → ipcam02 → ipcam01.
 
 ### Phase 4 — Per-camera region configuration (Hikvision app)
 Configure regions/lines on each camera via Hikvision iVMS or web UI:
@@ -971,4 +974,9 @@ not in the classification sensors, so new camera triggers flow through unchanged
 *  (street cameras only — ipcam03 = driveway = inside gate = arrival, not visitor);*
 *  cam05 garage moved to grounds_front (garage ≠ living space — was causing false critical_intrusion);*
 *  notification spam fixed (event_router sole notifier); critical message now contextual.*
+*Updated 2026-05-10: Warning branch in event_router made context-aware — title/message now distinguish*
+*  perimeter-only events ("⚠️ Perimeter Activity" / "outside boundary") from grounds events, and*
+*  check actual occupancy (nobody_home vs at_night) instead of hardcoded "nobody home" string.*
+*  Camera health alert extended to monitor ipcam01–05 availability — IP cameras have no videoloss*
+*  sensor so camera entity state is checked instead (unavailable = offline fault).*
 *Next review: Sprint 2 (snapshot deduplication) + Sprint 3 (triple-notification fix)*
