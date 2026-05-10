@@ -407,14 +407,24 @@ All multi-light actions use scenes. Never list individual switches in
 automation actions when a scene exists for that purpose. Add lights to
 scenes rather than adding them to automation action lists.
 
-### 9.6 — Kids bedtime controls: entrance + dining + security + pool
-`scene.scene_kids_bedtime` must turn off:
-  - switch.front_house_security_light
-  - switch.back_house_security_light
+### 9.6 — Kids bedtime controls: entrance + dining + front security + pool
+`scene.scene_kids_bedtime` turns off:
+  - switch.front_house_security_light   ← front only at kids bedtime
   - switch.pool_light_switch
-  - switch.entrance_down_lights     ← added 2026-04-16
-  - switch.dining_room_light         ← added 2026-04-16
+  - switch.entrance_down_lights
+  - switch.dining_room_light
+  back_house_security_light stays ON — parents still up. Goes off at full bedtime.
+`scene.scene_full_bedtime` turns off:
+  - switch.back_house_security_light    ← back goes off when parents go to bed
+  - switch.front_house_security_light   (already off from kids bedtime)
 With 30s mobile confirmation window before acting (cancel button available).
+
+### 9.7 (new) — Security lighting reset must not run at night
+`security_lighting_reset` (lighting_security.yaml) fires after threat = low for 3 min.
+It must be gated on `binary_sensor.security_lighting_required = off` (daytime only).
+Reason: boundary_security_on fires only on the rising edge of security_lighting_required
+(once at sunset). If reset turns off front/back security lights during the night,
+they stay dark — the boundary automation never re-fires until next sunset cycle.
 
 ### 9.7 — Once-per-day gates prevent duplicate routine firing
 `input_boolean.morning_routine_ran_today` and `evening_routine_ran_today`
