@@ -959,6 +959,26 @@ Visitor/arrival info events are also outside the cooldown.
 Architecture preserved for new AI camera integration — cooldown is in the router only,
 not in the classification sensors, so new camera triggers flow through unchanged.
 
+### 10.9 — Pool alarm tiered threat gate (UPDATED 2026-05-10)
+
+`security_pool_alarm_trigger` fires ipcam04's physical alarm output for rear property events.
+
+**Time window:** Arms from 20:00 (`security_night_mode` ON OR `now().hour >= 20`).
+Old behaviour was night_mode only (~22:30+) — missed the 20:00–22:30 early-evening window.
+
+**Threat logic (tiered):**
+| Threat | Family home | night_mode | Fires? |
+|--------|-------------|-----------|--------|
+| critical | any | any | ✅ always |
+| warning | away | any | ✅ nobody home |
+| warning | home | OFF (20:00–22:30) | ✅ early deterrent |
+| warning | home | ON (asleep) | ❌ suppressed |
+
+Rationale: critical always justifies waking the house; warning while asleep is likely dogs/wind
+on analog NVR (no AI) — alarm would cause unnecessary disturbance.
+
+Also gated by: `security_dogs_out` OFF + `guest_mode` OFF + 5-min cooldown on `last_intruder_event`.
+
 ---
 
 *Audit completed: 2026-04-13*  
@@ -979,4 +999,5 @@ not in the classification sensors, so new camera triggers flow through unchanged
 *  check actual occupancy (nobody_home vs at_night) instead of hardcoded "nobody home" string.*
 *  Camera health alert extended to monitor ipcam01–05 availability — IP cameras have no videoloss*
 *  sensor so camera entity state is checked instead (unavailable = offline fault).*
+*Updated 2026-05-10: security_pool_alarm_trigger tiered threat gate — arms from 20:00 (not waiting for night_mode); critical always fires; warning suppressed when family asleep (night_mode ON + home). Section 10.9 added.*
 *Next review: Sprint 2 (snapshot deduplication) + Sprint 3 (triple-notification fix)*
