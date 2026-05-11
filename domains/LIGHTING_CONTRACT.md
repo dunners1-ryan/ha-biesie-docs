@@ -454,11 +454,18 @@ OPEN
              implement energy_saving_mode (power domain owns SOC trigger).
              See GROUP M in PROJECT_STATE.md for full plan.
 
+DONE 2026-05-10/11
+[✅] BUG-L10: security_lighting_reset was turning off front/back security lights at night after
+              every security event — boundary lights stayed dark until next sunrise cycle.
+              Fixed: gated reset on security_lighting_required=off (daytime only).
+[✅] scene_kids_bedtime: removed back_house_security_light — stays on until full bedtime.
+              Kids bedtime = front security off. Full bedtime = back security off.
+[✅] Notification message updated: "front security" not "security" for clarity.
+
 HARDENING NEEDED
 [ ] Add continue_on_error: true to the script.notify_lighting_event calls in kids_bedtime_week
-    and kids_bedtime_weekend. Currently a notification failure (script unavailable, HA recovery
-    mode, Telegram down) stops the automation before the scene fires. Lights should turn off
-    regardless of whether the notification succeeded.
+    and kids_bedtime_weekend. Currently a notification failure stops the automation before the
+    scene fires. Lights should turn off regardless of notification success.
 ```
 
 ---

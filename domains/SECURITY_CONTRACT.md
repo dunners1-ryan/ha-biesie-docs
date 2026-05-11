@@ -875,6 +875,33 @@ SPRINT 5 — Optimisations (Section 8)
 [ ] Add missing cameras to security_last_active_camera sensor
 [ ] Add intruder_high handling in event router or threat score
 [ ] Resolve/remove sensor.security_intruder_level if unused
+
+SPRINT 6 — 2026-05-10/11 changes (done)
+[✅] Warning branch made zone-aware: perimeter-only events say "Perimeter Activity", not "Intruder on Property"
+[✅] Warning/critical messages check actual occupancy instead of hardcoding "nobody home"
+[✅] Camera health sensor made trigger-based (every 5 min) — fixes missed staleness alerts
+[✅] Camera health now monitors ipcam01–05 availability + staleness (last_seen_seconds)
+[✅] Camera health NVR indoor threshold: 86400 → 28800 (8h) for cam14/cam15
+[✅] Smart Events migration Phase 3b complete: all ipcams motiondetection disabled, using fielddetection/linedetection/regionentrance
+[✅] inside_cameras_armed split: lounge (cam14+cam05) vs passage (cam15) — separate booleans
+[✅] inside_cameras_passage_armed: arms only when nobody home; passage is secure zone at night
+[✅] Inside camera arming: 23:00 trigger + all_family_in_bedrooms (all 4 family) for 5min
+[✅] binary_sensor.all_family_in_bedrooms: checks ALL group.family_ap_locations in "Bedroom Zone"
+[✅] security_inside_house_motion zone gated on arming booleans (prevents false critical from family movement)
+[✅] input_boolean.security_event_lights: suppress event-triggered lights (notifications still fire)
+[✅] security_lighting_reset gated on security_lighting_required=off — boundary lights no longer killed at night
+[✅] scene_kids_bedtime: back_house_security removed (stays on until full bedtime)
+[✅] Confidence tiers: NVR front cameras (cam04/cam07) demoted to low when alone; AcuSense ai_front = medium alone
+[✅] cam04 delay_on: 1s → 4s; cam07 delay_on: 2s → 6s (filters washing line / leaf flickers)
+[✅] NVR front cameras restored to medium confidence after delay_on filtering
+[✅] security_capture_best_snapshot: mode restart → mode single (was spinning Pi CPU to 91%)
+[✅] Recorder: 30 new exclusions for security/camera transient sensors
+[✅] last_seen_seconds trigger: every 1 min → every 5 min
+[✅] zone_label derived from security_trigger_camera (not stale security_last_path)
+[✅] zone_label substring bug fixed: ipcam before cam in elif chain (ipcam04 was matching cam04)
+[✅] Duplicate "Camera:" line removed from messages (notify script already adds from source)
+[✅] Visitor/arrival staleness filter: 10s → 30s (Pi CPU load caused queue delay > 10s)
+[✅] Arrival detection: wait_for_trigger ipcam03 up to 60s after gate opens (was checking before person entered)
 ```
 
 ---
@@ -959,7 +986,28 @@ Visitor/arrival info events are also outside the cooldown.
 Architecture preserved for new AI camera integration — cooldown is in the router only,
 not in the classification sensors, so new camera triggers flow through unchanged.
 
-### 10.9 — Pool alarm tiered threat gate (UPDATED 2026-05-10)
+### 10.9 (new) — ipcam02 Smart Event incompatibility with hikvision_next
+
+**Camera:** IPCam02-Street-Driveway-Down, model DS-2CD2047G3-LI2UY, firmware V5.8.13 branch B-R-H13U-0  
+**Compared to ipcam01:** DS-2CD2087G2H-LI, firmware V5.7.19 branch B-R-G5-0
+
+**Symptom:** hikvision_next only discovers `scenechangedetection` for ipcam02.
+`fielddetection`, `linedetection`, `regionentrance`, `regionexiting` are never created
+even after full device delete + re-add + HA restart.
+
+**Root cause:** Firmware branch H13U (V5.8.13) presents Smart Events via a different
+ISAPI structure than branch G5 (V5.7.19). hikvision_next's ISAPI query finds Smart Events
+for the G5 branch but not H13U. All other cameras are G5 firmware; ipcam02 is H13U.
+
+**Current workaround:** Enable motiondetection "Notify Surveillance Center" + ensure
+`Remote: Notify Surveillance Center` permission is ticked on the admin user in ipcam02's
+User Management (this permission was missing — may have been blocking all alarm server pushes).
+Update `ipcam02_street_driveway_down_motion_valid` sensor to include `motiondetection` as fallback.
+
+**To fix properly:** Update hikvision_next to support H13U firmware ISAPI paths, OR
+downgrade ipcam02 firmware to V5.7.19 G5 branch if available.
+
+### 10.10 — Pool alarm tiered threat gate (UPDATED 2026-05-10)
 
 `security_pool_alarm_trigger` fires ipcam04's physical alarm output for rear property events.
 
@@ -999,5 +1047,12 @@ Also gated by: `security_dogs_out` OFF + `guest_mode` OFF + 5-min cooldown on `l
 *  check actual occupancy (nobody_home vs at_night) instead of hardcoded "nobody home" string.*
 *  Camera health alert extended to monitor ipcam01–05 availability — IP cameras have no videoloss*
 *  sensor so camera entity state is checked instead (unavailable = offline fault).*
-*Updated 2026-05-10: security_pool_alarm_trigger tiered threat gate — arms from 20:00 (not waiting for night_mode); critical always fires; warning suppressed when family asleep (night_mode ON + home). Section 10.9 added.*
-*Next review: Sprint 2 (snapshot deduplication) + Sprint 3 (triple-notification fix)*
+*Updated 2026-05-10: security_pool_alarm_trigger tiered threat gate — arms from 20:00. Section 10.9 added.*
+*Updated 2026-05-10/11: Sprint 6 complete — see checklist. Key changes: warning branch zone-aware;*
+*  camera health trigger-based + ipcam staleness; inside cam arming split (lounge/passage);*
+*  all_family_in_bedrooms sensor; security_event_lights toggle; lighting reset night guard;*
+*  kids bedtime front-only; NVR confidence tiers + delay_on; capture mode:single; recorder exclusions;*
+*  arrival wait_for_trigger; staleness filter 30s; zone_label from trigger cam; substring bug fixed.*
+*  ipcam02: DS-2CD2047G3-LI2UY firmware V5.8.13 H13U branch incompatible with hikvision_next Smart Events.*
+*  Remote:Notify permission missing on admin user — fix pending; motiondetection fallback TBD.*
+*Next: ipcam02 motiondetection fallback; Sprint 2 (snapshot dedup); Sprint 3 (triple-notif fix)*
