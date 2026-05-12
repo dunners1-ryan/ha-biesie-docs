@@ -999,13 +999,26 @@ even after full device delete + re-add + HA restart.
 ISAPI structure than branch G5 (V5.7.19). hikvision_next's ISAPI query finds Smart Events
 for the G5 branch but not H13U. All other cameras are G5 firmware; ipcam02 is H13U.
 
-**Current workaround:** Enable motiondetection "Notify Surveillance Center" + ensure
-`Remote: Notify Surveillance Center` permission is ticked on the admin user in ipcam02's
-User Management (this permission was missing — may have been blocking all alarm server pushes).
-Update `ipcam02_street_driveway_down_motion_valid` sensor to include `motiondetection` as fallback.
+**Troubleshooting attempted (2026-05-11):**
+- Smart Event rules configured (Intrusion, Line Crossing, Region Entrance, Region Exiting) ✅
+- Notify Surveillance Center ticked on all rules ✅
+- Alarm server: 10.10.1.5:8123/api/hikvision — alarm server TEST passes ✅
+- Full device delete + HA restart + re-add → still only scenechangedetection discovered ✅
+- Admin user "Remote: Notify Surveillance Center" permission ticked → no change ✅
+- New user created with Notify Surveillance Center permission → still no events reach HA ✅
+- Physical walk-in-front test → zero snapshot files created, zero entity state changes ✅
+- Bonjour enabled on ipcam02 → no change ✅
 
-**To fix properly:** Update hikvision_next to support H13U firmware ISAPI paths, OR
-downgrade ipcam02 firmware to V5.7.19 G5 branch if available.
+**Conclusion:** Not a permissions or config issue. Firmware branch H13U (V5.8.13) fundamentally
+incompatible with this version of hikvision_next. Installer contacted for assistance 2026-05-11.
+
+**Current HA state:** `ipcam02_street_driveway_down_motion_valid` always reads `off` (references
+fielddetection/linedetection/regionentrance — none exist). Camera entity shows idle/connected.
+ipcam02 contributes ZERO signal to the security system until resolved.
+
+**Pending installer:** May need firmware rollback to V5.7.19 G5 branch, factory reset + re-provision,
+or replacement camera. Do not waste further time on HA-side config changes until installer confirms
+what's different between ipcam01 and ipcam02 at hardware/firmware level.
 
 ### 10.10 — Pool alarm tiered threat gate (UPDATED 2026-05-10)
 
@@ -1055,4 +1068,4 @@ Also gated by: `security_dogs_out` OFF + `guest_mode` OFF + 5-min cooldown on `l
 *  arrival wait_for_trigger; staleness filter 30s; zone_label from trigger cam; substring bug fixed.*
 *  ipcam02: DS-2CD2047G3-LI2UY firmware V5.8.13 H13U branch incompatible with hikvision_next Smart Events.*
 *  Remote:Notify permission missing on admin user — fix pending; motiondetection fallback TBD.*
-*Next: ipcam02 motiondetection fallback; Sprint 2 (snapshot dedup); Sprint 3 (triple-notif fix)*
+*Next: ipcam02 — awaiting installer (firmware/hardware issue, not HA config); Sprint 2 (snapshot dedup); Sprint 3 (triple-notif fix)*
