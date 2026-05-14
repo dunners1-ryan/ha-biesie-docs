@@ -876,7 +876,7 @@ SPRINT 5 — Optimisations (Section 8)
 [ ] Add intruder_high handling in event router or threat score
 [ ] Resolve/remove sensor.security_intruder_level if unused
 
-SPRINT 6 — 2026-05-10/11 changes (done)
+SPRINT 6 — 2026-05-10/11/12/14 changes (done)
 [✅] Warning branch made zone-aware: perimeter-only events say "Perimeter Activity", not "Intruder on Property"
 [✅] Warning/critical messages check actual occupancy instead of hardcoding "nobody home"
 [✅] Camera health sensor made trigger-based (every 5 min) — fixes missed staleness alerts
@@ -902,6 +902,10 @@ SPRINT 6 — 2026-05-10/11 changes (done)
 [✅] Duplicate "Camera:" line removed from messages (notify script already adds from source)
 [✅] Visitor/arrival staleness filter: 10s → 30s (Pi CPU load caused queue delay > 10s)
 [✅] Arrival detection: wait_for_trigger ipcam03 up to 60s after gate opens (was checking before person entered)
+[✅] Arrival image: 3s delay after wait_for_trigger so snapshot pipeline completes before notification fires
+[✅] Threat rule 3: perimeter + confirmed_human + evening now requires nobody_home for CRITICAL
+      — family arriving home no longer triggers CRITICAL (falls to WARNING via rule 6 instead)
+[✅] Visitor/arrival staleness filter: 10s → 30s (Pi queue delay was causing missed notifications)
 ```
 
 ---
@@ -1068,4 +1072,90 @@ Also gated by: `security_dogs_out` OFF + `guest_mode` OFF + 5-min cooldown on `l
 *  arrival wait_for_trigger; staleness filter 30s; zone_label from trigger cam; substring bug fixed.*
 *  ipcam02: DS-2CD2047G3-LI2UY firmware V5.8.13 H13U branch incompatible with hikvision_next Smart Events.*
 *  Remote:Notify permission missing on admin user — fix pending; motiondetection fallback TBD.*
-*Next: ipcam02 — awaiting installer (firmware/hardware issue, not HA config); Sprint 2 (snapshot dedup); Sprint 3 (triple-notif fix)*
+*Updated 2026-05-12/14: Perimeter threat rule 3 — added `nobody` gate: critical only fires when*
+*  house is empty (was firing critical for family arriving home at their own gate). Family home +*
+*  perimeter + confirmed_human now falls to warning (rule 6). Arrival notification image: added 3s*
+*  delay after wait_for_trigger so ipcam03 snapshot pipeline completes before security_last_motion_image*
+*  is read (was showing previous camera's image). Zone_label substring bug fix committed.*
+*DESIGN PENDING: Arrival/exit/visitor flow redesign — see Section 11 below.*
+*Next: Arrival/visitor redesign (Section 11); ipcam02 installer; Sprint 2 (snapshot dedup)*
+
+---
+
+## Section 11: Pending Design — Arrival / Exit / Visitor Flow Redesign
+
+> **Status:** Design phase. Not yet implemented. Plan in Claude chat, then implement here.
+> **Triggered by:** Repeated false CRITICAL alerts for family arriving home; missed arrivals;
+> no departure detection; presence not integrated into threat classification.
+
+### Problem Statement
+
+The current system treats all gate/street activity as a security event first, presence second.
+A family member pulling up to their own gate at 19:00 triggers CRITICAL INTRUDER because:
+- ipcam01 fires regionentrance (→ confirmed_human = true)
+- evening = true, nobody_home = true (family just arrived, not yet home)
+- Rule 3: perim + evening + confirmed_human + nobody → CRITICAL
+
+The correct classification should be: gate + AP approaching = ARRIVAL, not INTRUDER.
+
+### Desired Classification Table
+
+| Scenario | Key Signals | Target Classification | Notification |
+|---|---|---|---|
+| Family arriving | Gate opens + ipcam03 fires + AP connects ≤5min | **Arrival** | 🏠 info, no alert |
+| Family departing | Gate opens + family AP disconnecting | **Departure** | 👋 info, no alert |
+| Known visitor | Street cam + gate closed + no family AP | **Visitor** | 👤 warning + gate button |
+| Delivery/service | Street cam + no AP + daytime | **Visitor** | 👤 info + gate button |
+| Intruder grounds | Grounds motion + no AP + no gate + night | **Threat** | 🚨 critical/warning |
+| Intruder perimeter | Street cam + no AP + no gate + confirmed_human + nobody_home | **Perimeter Threat** | ⚠️ warning |
+
+### Design Principles
+
+1. **Presence-first:** check `anyone_connected_home` and `group.family_ap_locations` BEFORE
+   classifying gate/perimeter events as threats.
+2. **Gate = trusted action:** if the family opened the gate (AP within range), treat as
+   arrival/departure, not a security event.
+3. **Visitor vs intruder:** street cam without gate open = visitor (offer gate control).
+   Only escalate if grounds penetration confirmed without gate event.
+4. **Departure detection:** gate opens + AP signal weakening/disconnecting = departure;
+   useful for presence engine and for not firing arrival false positives on the way out.
+
+### Entities Available for Redesign
+
+```
+binary_sensor.anyone_connected_home         ← anyone on home AP
+group.family_ap_locations                    ← per-person AP zone (Home/Away/Bedroom Zone/etc)
+binary_sensor.main_gate_sensor              ← gate open/closed
+binary_sensor.ipcam01_street_driveway_up_*  ← street upper approach
+binary_sensor.ipcam02_street_driveway_down_* ← street lower (currently non-functional)
+binary_sensor.ipcam03_driveway_entrance_valid ← confirmed inside gate (AI-filtered)
+binary_sensor.ipcam03_driveway_exit_valid    ← confirmed departure from gate
+sensor.security_threat_level               ← current threat state
+input_datetime.last_visitor_event          ← cooldown reference
+input_datetime.last_security_event         ← cooldown reference
+```
+
+### Known Edge Cases to Resolve in Design
+
+- Family member arrives home while others already home (anyone_connected_home = on throughout)
+- Gate opens but nobody enters (opened remotely for a delivery, ipcam03 may not fire)
+- Guest/visitor arrives when family is home (gate_sensor + no AP = visitor, not arrival)
+- Staff/domestic arrives (low_trust_present flow — should NOT trigger arrival)
+- False gate open (sensor bounce, wind) with no camera corroboration
+- Multiple back-to-back arrivals within cooldown window
+- Departure immediately followed by arrival (school run — out and back within minutes)
+
+### Current Partial Fixes in Place (2026-05-14)
+
+- Threat rule 3: perimeter critical now requires `nobody_home` ← reduces false CRITICALs
+- Arrival: `wait_for_trigger` ipcam03 up to 60s after gate ← catches most arrivals
+- Visitor: ipcam01/02 + gate closed → visitor notification + gate button
+- Visitor staleness filter: 30s ← handles loaded Pi queue delay
+
+### Next Steps
+
+1. Design full state machine in Claude chat (use this section as the brief)
+2. Agree on edge case handling
+3. Implement in: `security_logic.yaml` (threat level), `security_automations.yaml`
+   (visitor/arrival/departure automations), `security_core.yaml` (new sensors if needed)
+4. Test with controlled gate open/close scenarios before enabling at night
