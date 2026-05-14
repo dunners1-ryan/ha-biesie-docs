@@ -1072,13 +1072,13 @@ Also gated by: `security_dogs_out` OFF + `guest_mode` OFF + 5-min cooldown on `l
 *  arrival wait_for_trigger; staleness filter 30s; zone_label from trigger cam; substring bug fixed.*
 *  ipcam02: DS-2CD2047G3-LI2UY firmware V5.8.13 H13U branch incompatible with hikvision_next Smart Events.*
 *  Remote:Notify permission missing on admin user — fix pending; motiondetection fallback TBD.*
-*Updated 2026-05-12/14: Perimeter threat rule 3 — added `nobody` gate: critical only fires when*
-*  house is empty (was firing critical for family arriving home at their own gate). Family home +*
-*  perimeter + confirmed_human now falls to warning (rule 6). Arrival notification image: added 3s*
-*  delay after wait_for_trigger so ipcam03 snapshot pipeline completes before security_last_motion_image*
-*  is read (was showing previous camera's image). Zone_label substring bug fix committed.*
+*Updated 2026-05-12/14: Perimeter threat rule 3 — nobody gate added. Arrival image 3s delay.*
+*  cam_label removed from variables; logbook.log elevated branch updated to use cam.split('.')[-1].*
+*  Overview dashboard Firefox crash: html-template-card (load shedding 48 timeslots) + power-flow-card-plus*
+*  + pulseCritical infinite CSS animation combined to freeze Firefox render thread. Fixed: animations*
+*  changed to 3-cycle (was infinite); html-template-card and power-flow disabled pending investigation.*
 *DESIGN PENDING: Arrival/exit/visitor flow redesign — see Section 11 below.*
-*Next: Arrival/visitor redesign (Section 11); ipcam02 installer; Sprint 2 (snapshot dedup)*
+*Next: Arrival/visitor redesign (Section 11); restore disabled overview cards; ipcam02 installer*
 
 ---
 
