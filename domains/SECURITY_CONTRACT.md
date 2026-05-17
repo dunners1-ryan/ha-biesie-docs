@@ -622,7 +622,8 @@ Affected automations:
 ---
 
 ### ISSUE 8 — Trust model disabled — security runs blind
-**Priority: MEDIUM | Risk to fix: MEDIUM**
+**Priority: MEDIUM | Risk to fix: MEDIUM**  
+**Status:** 🔧 Deferred to S2/S3 — NOT a simple uncomment. See note below.
 
 **Symptom:** Security notifications fire even when maid, gardener, or contractor is on
 site — no suppression occurs.
@@ -636,18 +637,17 @@ re-enabled.
 `service_person` classification, but only if the event router fires on that classification
 path. The individual motion automations bypass the event router.
 
-**Fix:**
-1. Re-enable commented conditions in the three intruder automations:
-   ```yaml
-   - condition: state
-     entity_id: binary_sensor.low_trust_present
-     state: "off"
-   - condition: state
-     entity_id: input_boolean.guest_mode
-     state: "off"
-   ```
-2. First fix Issue 2 (triple notifications) so there's a clean single automation to add
-   conditions to.
+**S1 session note (2026-05-17):** Uncommenting the old conditions is NOT the fix.
+The commented code references `input_boolean.staff_on_site` (now a deprecated
+display-only helper). The proper fix is the S2/S3 classifier rebuild: trust filtering
+moves into `sensor.security_correlation` and `security_event_router`, so individual
+motion automations become thin triggers only. Uncommenting old code would restore
+a broken trust path and is explicitly out of scope for S1.
+
+**Fix (S2/S3):**
+Trust filtering to be handled structurally via classifier rebuild — individual
+motion automations become thin triggers; `security_event_router` applies trust
+gate using `binary_sensor.low_trust_present` before dispatching notifications.
 
 ---
 

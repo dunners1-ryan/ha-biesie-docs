@@ -402,7 +402,7 @@ it should be removed.
 ### BUG-P01 — `input_boolean.low_trust_present` never automatically set
 **Severity:** Critical  
 **File:** `context/context_presence.yaml`  
-**Impact:** Security trust model silently broken for all scheduled staff visits
+**Status:** ✅ FIXED — verified already applied 2026-05-17 (S1 session pre-flight). All security/lighting consumers read `binary_sensor.low_trust_present`. No reads of `input_boolean.low_trust_present` exist in any automation or template.
 
 The maid/gardener schedule automations were originally written to set
 `input_boolean.low_trust_present`. That code is now commented out:
@@ -435,7 +435,8 @@ Then remove the commented-out lines from schedule automations (not needed).
 
 ### BUG-P02 — `input_boolean.staff_on_site` legacy manual toggle pollutes trust model
 **Severity:** High  
-**File:** `security/security_core.yaml`
+**File:** `security/security_core.yaml`  
+**Status:** ✅ FIXED — verified already applied 2026-05-17 (S1 session pre-flight). All consumers read `binary_sensor.staff_on_site`. `input_boolean.staff_on_site` kept as manual debug aid only.
 
 `sensor.security_trust_mode` produces "detected_staff" when
 `input_boolean.staff_on_site = on`. This boolean is defined in
@@ -463,19 +464,7 @@ sensor. The derived `binary_sensor.staff_on_site` already covers this case.
 ### BUG-P03 — `binary_sensor.boundary_permissive_window` always `false`
 **Severity:** High  
 **File:** `security/security_core.yaml`  
-**Impact:** Gate-open-too-long alert is silently disabled
-
-```yaml
-# security_core.yaml — boundary_permissive_window
-{% set start = states('input_datetime.low_trust_start') %}
-{% set end = states('input_datetime.low_trust_end') %}
-…
-{% if start not in ['unknown','unavailable',''] and … %}
-  …
-{% else %}
-  false          ← always taken
-{% endif %}
-```
+**Status:** ✅ FIXED 2026-05-17 (S1.3). Rebuilt to use `binary_sensor.low_trust_present OR guest_mode OR boundary_permissive_override`. Old maid-Monday-only logic removed.
 
 `input_datetime.low_trust_start` and `input_datetime.low_trust_end` were
 commented out in `context_presence.yaml`. They appear in the entity registry
@@ -549,7 +538,7 @@ or add logic inside the existing automations to elevate severity when
 ### BUG-P06 — `input_boolean.arrival_detected` never set by boundary resolver
 **Severity:** Medium  
 **File:** `presence/presence_helpers.yaml` (defined), `presence/presence_boundary.yaml` (not referenced)  
-**Impact:** Any automation depending on `arrival_detected` never fires
+**Status:** ✅ FIXED 2026-05-17 (S1.4). Both Pass 1 and Pass 2 arrival branches in `presence_boundary_resolver` now set `input_boolean.arrival_detected`. Auto-clear automation `presence_clear_arrival_flag` resets it after 5 minutes (mode: restart). Arrival lighting (`lighting_arrival_night.yaml`) and `security_arrival_detected` now fire on real gate arrivals.
 
 `arrival_detected` is defined in helpers and documented in PRESENCE_CONTEXT.md
 as the canonical arrival flag. The boundary resolver sets only
@@ -629,7 +618,8 @@ Copy-paste bug. Logbook entry says "entry" for a departure event.
 
 ### BUG-P10 — Duplicate `staff` variable in `sensor.security_correlation`
 **Severity:** Low  
-**File:** `security/security_logic.yaml:155,158`
+**File:** `security/security_logic.yaml:155,158`  
+**Status:** ✅ CLOSED — Not applicable. Verified 2026-05-17: the two `{% set staff %}` lines exist in *different* sensors (`Security Correlation` at line 185 uses `binary_sensor.low_trust_present`; `Security Threat Level` at line 364 uses `binary_sensor.staff_on_site`). Both correctly read derived binary sensors. No duplicate within a single sensor exists. The original bug description was based on stale code showing `input_boolean` reads, which were already corrected.
 
 ```jinja
 {% set staff = is_state('input_boolean.low_trust_present','on') %}
@@ -646,7 +636,8 @@ Second assignment is redundant. No functional impact.
 
 ### BUG-P11 — Package architecture violation: trust model in `context/`
 **Severity:** Low  
-**File:** `context/context_presence.yaml`
+**File:** `context/context_presence.yaml`  
+**Status:** ✅ FIXED 2026-04-30. `context_presence.yaml` migrated to `packages/presence/presence_trust.yaml`. `context_presence.yaml` deleted. Entity IDs unchanged (BUG-CTX01 fix).
 
 All trust model helpers (`maid_on_site`, `gardener_on_site`, `staff_on_site`,
 `low_trust_present`, schedule automations) live in `context/context_presence.yaml`.
@@ -654,6 +645,21 @@ Per the architecture rules they belong in `packages/presence/presence_helpers.ya
 (helpers) and a `presence_automations.yaml` file (schedule automations).
 
 This is a technical debt item, not a functional bug. Low urgency.
+
+---
+
+### BUG-P12 — Startup sync gap: gardener not restored on HA restart
+**Severity:** Low  
+**File:** `presence/presence_trust.yaml`  
+**Status:** ✅ FIXED 2026-05-17 (S1.6). Gardener restore block added to `sync_staff_state_on_startup`. Contractor excluded: manual-only boolean, no schedule, persists via HA state restore — no startup sync needed.
+
+`sync_staff_state_on_startup` only restores `maid_on_site`. If HA restarts
+during gardener hours, `gardener_on_site` comes up `off` and the trust chain
+reports "nobody here" while the gardener is present.
+
+**Fix:** Extend startup sync to check `gardener_start`/`gardener_end` window
+and restore `input_boolean.gardener_on_site` if inside window and
+`low_trust_enabled` is on.
 
 ---
 
@@ -798,27 +804,28 @@ brief hallway trips at night. This is well-calibrated for the use case.
 
 ## Section 13: Summary of Issues
 
-| ID | Severity | Description | File |
-|---|---|---|---|
-| BUG-P01 | **Critical** | `input_boolean.low_trust_present` never auto-set — trust model broken for all staff visits | context_presence.yaml |
-| BUG-P02 | **High** | `input_boolean.staff_on_site` legacy toggle pollutes trust sensors | security_core.yaml |
-| BUG-P03 | **High** | `boundary_permissive_window` always false — gate-open-too-long alert permanently disabled | security_core.yaml |
-| BUG-P04 | **High** | All 4 intruder automation trust conditions commented out "for testing" | security_automations.yaml |
-| BUG-P05 | **High** | `holiday_mode` produces `intruder_high` state but no automation handles it | security_logic.yaml |
-| BUG-P06 | **Medium** | `input_boolean.arrival_detected` never set by boundary resolver | presence_boundary.yaml |
-| BUG-P07 | **Medium** | `presence_test_arrival` test automation in production, race-conditions real resolver | presence_boundary.yaml |
-| BUG-P08 | **Medium** | Unknown AP sensors use `device_tracker.*_iphone` vs `*_iphone_tracker` inconsistency | presence_validation.yaml |
-| BUG-P09 | **Low** | `house_departure_event` logbook message says "entry" not "departure" | presence_boundary.yaml |
-| BUG-P10 | **Low** | Duplicate `staff` variable in `sensor.security_correlation` | security_logic.yaml |
-| BUG-P11 | **Low** | Trust model lives in `context/` not `presence/` (architecture violation) | context_presence.yaml |
+| ID | Severity | Status | Description | File |
+|---|---|---|---|---|
+| BUG-P01 | **Critical** | ✅ Fixed | `input_boolean.low_trust_present` never auto-set — trust model broken for all staff visits | presence_trust.yaml |
+| BUG-P02 | **High** | ✅ Fixed | `input_boolean.staff_on_site` legacy toggle pollutes trust sensors | security_core.yaml |
+| BUG-P03 | **High** | ✅ Fixed 2026-05-17 | `boundary_permissive_window` always false — gate-open-too-long alert permanently disabled | security_core.yaml |
+| BUG-P04 | **High** | 🔧 S2/S3 | All 4 intruder automation trust conditions commented out "for testing" | security_automations.yaml |
+| BUG-P05 | **High** | Open | `holiday_mode` produces `intruder_high` state but no automation handles it | security_logic.yaml |
+| BUG-P06 | **Medium** | ✅ Fixed 2026-05-17 | `input_boolean.arrival_detected` never set by boundary resolver | presence_boundary.yaml |
+| BUG-P07 | **Medium** | Open | `presence_test_arrival` test automation in production, race-conditions real resolver | presence_boundary.yaml |
+| BUG-P08 | **Medium** | Open | Unknown AP sensors use `device_tracker.*_iphone` vs `*_iphone_tracker` inconsistency | presence_validation.yaml |
+| BUG-P09 | **Low** | Open | `house_departure_event` logbook message says "entry" not "departure" | presence_boundary.yaml |
+| BUG-P10 | **Low** | ✅ N/A | Duplicate `staff` variable — both lines are in different sensors; both correct | security_logic.yaml |
+| BUG-P11 | **Low** | ✅ Fixed 2026-04-30 | Trust model lives in `context/` not `presence/` (architecture violation) | presence_trust.yaml |
+| BUG-P12 | **Low** | ✅ Fixed 2026-05-17 | Startup sync gap: gardener not restored on HA restart | presence_trust.yaml |
 
-**Total: 11 issues — 1 critical, 4 high, 3 medium, 3 low**
+**Open: 4 issues — 0 critical, 2 high, 2 medium, 0 low**  
+**Fixed/closed: 8 issues (S1 session closed P01/P02/P03/P06/P10/P11/P12; P04 deferred to S2/S3 classifier rebuild)**
 
-The critical and high severity issues are all in the trust model chain.
-Fixing BUG-P01 (replacing `input_boolean.low_trust_present` with
-`binary_sensor.low_trust_present` everywhere) resolves BUG-P01 and BUG-P02
-simultaneously and immediately activates the maid/gardener schedule for
-security suppression.
+The trust model chain is now structurally sound. BUG-P04 (commented-out
+trust conditions) will be addressed in the S2/S3 classifier rebuild — not by
+uncommenting the old code, which referenced `input_boolean.staff_on_site`
+(now deprecated).
 
 ---
 
