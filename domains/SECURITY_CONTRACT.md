@@ -262,22 +262,22 @@ No security-domain helpers were found to be UI-created. All are YAML-defined in
 | `sensor.security_mode` | template sensor | security_core.yaml | away, night, home | notify_security_events.yaml |
 | `sensor.security_trust_mode` | template sensor | security_core.yaml | scheduled_staff, detected_staff, normal | UI only |
 | `sensor.security_lighting_intent` | template sensor | security_core.yaml | ignore, full, area, perimeter | lighting_security.yaml |
-| `sensor.security_last_active_camera` | template sensor | cameras_processing.yaml | cam01, cam05, cam06, cam07, cam11 | UI |
+| `sensor.security_last_active_camera` | template sensor | cameras_processing.yaml | ipcam02_street_down, ipcam01_street_up, ipcam03_driveway, ipcam04_pool_bar, ipcam05_rear_boundary, cam04_carport, cam05_garage, cam07_kitchen, cam12_pond | UI |
 
 ### Debounce Motion Sensors (per-camera)
 
 | Entity | Type | File | Delay Off | Note |
 |--------|------|------|-----------|------|
-| `binary_sensor.cam01_street_driveway_motion_valid` | template BS | cameras_processing.yaml | 20s | |
 | `binary_sensor.cam04_car_port_front_motion_valid` | template BS | cameras_processing.yaml | 20s | |
-| `binary_sensor.cam05_front_driveway_motion_valid` | template BS | cameras_processing.yaml | 20s | |
-| `binary_sensor.cam06_front_entrance_motion_valid` | template BS | cameras_processing.yaml | 20s | |
+| `binary_sensor.cam05_inside_garage_motion_valid` | template BS | cameras_processing.yaml | 25s | Renamed 2026-05-17 from cam05_front_driveway_motion_valid |
 | `binary_sensor.cam07_front_kitchen_motion_valid` | template BS | cameras_processing.yaml | 25s | |
 | `binary_sensor.cam09_back_bedroom_motion_valid` | template BS | cameras_processing.yaml | 25s | |
-| `binary_sensor.cam10_pool_bar_motion_valid` | template BS | cameras_processing.yaml | 25s | |
-| `binary_sensor.cam11_back_pond_motion_valid` | template BS | cameras_processing.yaml | 30s | |
+| `binary_sensor.cam12_back_pond_motion_valid` | template BS | cameras_processing.yaml | 30s | |
 | `binary_sensor.cam14_lounge_motion_valid` | template BS | cameras_processing.yaml | 15s | |
 | `binary_sensor.cam15_passage_motion_valid` | template BS | cameras_processing.yaml | 15s | |
+| `binary_sensor.cam01_street_driveway_motion_valid` | ~~template BS~~ | cameras_processing.yaml | — | **DEPRECATED 2026-05-07 — commented out; entity registry orphan** |
+| `binary_sensor.cam06_front_entrance_motion_valid` | ~~template BS~~ | cameras_processing.yaml | — | **DEPRECATED 2026-05-08 — commented out; entity registry orphan** |
+| `binary_sensor.cam10_pool_bar_motion_valid` | ~~template BS~~ | cameras_processing.yaml | — | **DEPRECATED 2026-05-07 — commented out; entity registry orphan** |
 
 ### Zone Aggregation Sensors
 
@@ -300,14 +300,14 @@ No security-domain helpers were found to be UI-created. All are YAML-defined in
 
 | Entity | Unique ID | Note |
 |--------|-----------|------|
-| `sensor.cam01_street_last_event` | cam01_last_event | Timestamp device_class |
 | `sensor.cam04_carport_last_event` | cam04_last_event | Timestamp device_class |
-| `sensor.cam05_driveway_last_event` | cam05_last_event | Timestamp device_class |
-| `sensor.cam06_entrance_last_event` | cam06_last_event | **BUG: reads cam09 not cam06** |
-| `sensor.cam07_kitchen_side_last_event` | cam07_last_event | |
-| `sensor.cam09_rear_bedroom_last_event` | cam09_last_event | |
-| `sensor.cam10_pool_bar_last_event` | cam10_last_event | |
-| `sensor.cam11_back_pond_last_event` | cam11_last_event | |
+| `sensor.cam05_garage_last_event` | cam05_last_event | Timestamp device_class |
+| `sensor.cam07_kitchen_side_last_event` | cam07_last_event | Timestamp device_class |
+| `sensor.cam09_rear_bedroom_last_event` | cam09_last_event | Timestamp device_class |
+| `sensor.cam12_back_pond_last_event` | cam12_last_event | Timestamp device_class |
+| `sensor.cam01_street_last_event` | cam01_last_event | **ORPHAN** — cam01 deprecated; entity registry only |
+| `sensor.cam06_entrance_last_event` | cam06_last_event | **ORPHAN** — cam06 removed 2026-05-08 |
+| `sensor.cam10_pool_bar_last_event` | cam10_last_event | **ORPHAN** — cam10 deprecated |
 
 **Note: No cam14, cam15 last event sensors defined.**
 
@@ -315,16 +315,16 @@ No security-domain helpers were found to be UI-created. All are YAML-defined in
 
 | Entity | Note |
 |--------|------|
-| `sensor.cam01_last_seen_seconds` | Watchman reports missing in dashboard — possible load issue |
 | `sensor.cam04_last_seen_seconds` | |
-| `sensor.cam05_last_seen_seconds` | Watchman: missing |
-| `sensor.cam06_last_seen_seconds` | Watchman: missing |
+| `sensor.cam05_last_seen_seconds` | |
 | `sensor.cam07_last_seen_seconds` | |
 | `sensor.cam09_last_seen_seconds` | |
-| `sensor.cam10_last_seen_seconds` | |
-| `sensor.cam11_last_seen_seconds` | |
+| `sensor.cam12_last_seen_seconds` | |
 | `sensor.cam14_last_seen_seconds` | |
 | `sensor.cam15_last_seen_seconds` | |
+| `sensor.cam01_last_seen_seconds` | **ORPHAN** — cam01 deprecated; entity registry only |
+| `sensor.cam06_last_seen_seconds` | **ORPHAN** — cam06 removed |
+| `sensor.cam10_last_seen_seconds` | **ORPHAN** — cam10 deprecated |
 
 ### Input Helpers (security_helpers.yaml)
 
@@ -350,26 +350,27 @@ No security-domain helpers were found to be UI-created. All are YAML-defined in
 | `input_text.security_event_images` | text | 255 | Image buffer, 3 entries max |
 | `input_text.security_event_active_id` | text | 50 | Active event timestamp ID |
 | `input_text.security_event_session` | text | 255 | Pipe-delimited session (overflows) |
-| `input_text.cam01_street_driveway_images` | text | 255 | Per-cam image buffer |
 | `input_text.cam04_car_port_front_images` | text | 255 | Per-cam image buffer |
-| `input_text.cam05_front_driveway_images` | text | 255 | Per-cam image buffer |
-| `input_text.cam06_front_entrance_images` | text | 255 | Per-cam image buffer |
+| `input_text.cam05_inside_garage_images` | text | 255 | Per-cam image buffer (renamed 2026-05-17 from cam05_front_driveway_images) |
 | `input_text.cam07_front_kitchen_images` | text | 255 | Per-cam image buffer |
 | `input_text.cam09_back_bedroom_images` | text | 255 | Per-cam image buffer |
-| `input_text.cam10_pool_bar_motion_images` | text | 255 | Per-cam image buffer — **naming has extra `_motion_`** |
-| `input_text.cam11_back_pond_images` | text | 255 | Per-cam image buffer |
+| `input_text.cam12_back_pond_images` | text | 255 | Per-cam image buffer |
 | `input_text.cam14_lounge_images` | text | 255 | Per-cam image buffer |
 | `input_text.cam15_passage_images` | text | 255 | Per-cam image buffer |
-| `input_text.cam01_street_driveway_history` | text | 255 | Per-cam snapshot history |
+| `input_text.ipcam01_street_driveway_up_images` | text | 255 | Per-cam image buffer |
+| `input_text.ipcam02_street_driveway_down_images` | text | 255 | Per-cam image buffer |
+| `input_text.ipcam03_driveway_images` | text | 255 | Per-cam image buffer |
+| `input_text.ipcam04_pool_bar_images` | text | 255 | Per-cam image buffer |
+| `input_text.ipcam05_back_boundary_images` | text | 255 | Per-cam image buffer |
 | `input_text.cam04_car_port_front_history` | text | 255 | Per-cam snapshot history |
-| `input_text.cam05_front_driveway_history` | text | 255 | Per-cam snapshot history |
-| `input_text.cam06_front_entrance_history` | text | 255 | Per-cam snapshot history |
+| `input_text.cam05_inside_garage_history` | text | 255 | Per-cam snapshot history (renamed 2026-05-17 from cam05_front_driveway_history) |
 | `input_text.cam07_front_kitchen_history` | text | 255 | Per-cam snapshot history |
 | `input_text.cam09_back_bedroom_history` | text | 255 | Per-cam snapshot history |
-| `input_text.cam10_pool_bar_motion_history` | text | 255 | Per-cam snapshot history — **naming has extra `_motion_`** |
-| `input_text.cam11_back_pond_history` | text | 255 | Per-cam snapshot history |
+| `input_text.cam12_back_pond_history` | text | 255 | Per-cam snapshot history |
 | `input_text.cam14_lounge_history` | text | 255 | Per-cam snapshot history |
 | `input_text.cam15_passage_history` | text | 255 | Per-cam snapshot history |
+| `input_text.ipcam01_street_driveway_up_history` | text | 255 | Per-cam snapshot history |
+| `input_text.ipcam02_street_driveway_down_history` | text | 255 | Per-cam snapshot history |
 
 ### Condition / Context Sensors (security_core.yaml)
 
