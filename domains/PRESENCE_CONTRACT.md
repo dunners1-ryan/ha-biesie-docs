@@ -663,6 +663,20 @@ and restore `input_boolean.gardener_on_site` if inside window and
 
 ---
 
+### BUG-P13 — `all_family_home` sensor missing: classifier can't distinguish visitor from family arrival
+**Severity:** Medium  
+**File:** `presence/presence_confidence.yaml` (missing)  
+**Status:** ✅ FIXED 2026-05-17 (S2.4). `binary_sensor.all_family_home` added alongside `binary_sensor.family_arriving` and `binary_sensor.family_departing`.
+
+If all family members are home and a street camera fires, the old classifier had no way
+to distinguish this from an arrival (everyone is already home, gate triggered by a visitor).
+`all_family_home` is the universal-quantifier counterpart to `anyone_connected_home`.
+
+**Fix:** Add `binary_sensor.all_family_home` (ON when every family member is in a home AP
+zone). Feed into classifier: `perim + not gate + allhome = visitor`, not arrival.
+
+---
+
 ## Section 11: Trust Model Design
 
 ### Intended Architecture (Three-Entity Chain)
@@ -818,9 +832,10 @@ brief hallway trips at night. This is well-calibrated for the use case.
 | BUG-P10 | **Low** | ✅ N/A | Duplicate `staff` variable — both lines are in different sensors; both correct | security_logic.yaml |
 | BUG-P11 | **Low** | ✅ Fixed 2026-04-30 | Trust model lives in `context/` not `presence/` (architecture violation) | presence_trust.yaml |
 | BUG-P12 | **Low** | ✅ Fixed 2026-05-17 | Startup sync gap: gardener not restored on HA restart | presence_trust.yaml |
+| BUG-P13 | **Medium** | ✅ Fixed 2026-05-17 | `all_family_home` missing — classifier can't distinguish visitor from family arrival | presence_confidence.yaml |
 
 **Open: 4 issues — 0 critical, 2 high, 2 medium, 0 low**  
-**Fixed/closed: 8 issues (S1 session closed P01/P02/P03/P06/P10/P11/P12; P04 deferred to S2/S3 classifier rebuild)**
+**Fixed/closed: 9 issues (S1 closed P01/P02/P03/P06/P10/P11/P12; S2 closed P13; P04 deferred to S2/S3 router)**
 
 The trust model chain is now structurally sound. BUG-P04 (commented-out
 trust conditions) will be addressed in the S2/S3 classifier rebuild — not by

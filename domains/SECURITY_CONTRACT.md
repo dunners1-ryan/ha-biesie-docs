@@ -228,7 +228,16 @@ No security-domain helpers were found to be UI-created. All are YAML-defined in
 | Entity | Type | File | Output States | Consumers |
 |--------|------|------|---------------|-----------|
 | `sensor.security_trigger_camera` | template sensor | security_logic.yaml | `camera.camXX_...` or `none` | security_automations.yaml, notify script |
-| `sensor.security_event_classification` | template sensor | security_logic.yaml | critical_intrusion, intruder, service_person, arrival, family_movement, none | security_event_router automation |
+| `sensor.security_event_classification` | template sensor | security_logic.yaml | idle, arrival, departure, family_movement, service_person, visitor, perimeter_threat, intruder, critical_intrusion | security_event_router automation (S3) |
+| `binary_sensor.security_inside_garage_motion` | template sensor | security_zones.yaml | on/off | security_event_classification |
+| `binary_sensor.security_inside_main_motion` | template sensor | security_zones.yaml | on/off | security_event_classification |
+| `binary_sensor.security_inside_bedrooms_motion` | template sensor | security_zones.yaml | on/off | security_event_classification |
+| `binary_sensor.inside_garage_armed` | template sensor | security_zones.yaml | on/off | security_event_classification |
+| `binary_sensor.inside_main_armed` | template sensor | security_zones.yaml | on/off | security_event_classification |
+| `binary_sensor.inside_bedrooms_armed` | template sensor | security_zones.yaml | on/off | security_event_classification |
+| `binary_sensor.family_arriving` | template sensor | presence_confidence.yaml | on/off | security_event_classification |
+| `binary_sensor.family_departing` | template sensor | presence_confidence.yaml | on/off | security_event_classification |
+| `binary_sensor.all_family_home` | template sensor | presence_confidence.yaml | on/off | security_event_classification |
 | `sensor.security_threat_level` | template sensor | security_logic.yaml | low, elevated, warning, critical | security_event_router, lighting reset, security_event_end |
 | `sensor.security_threat_score` | template sensor | security_logic.yaml | 0–100 | security_threat_level |
 | `sensor.security_movement_confidence` | template sensor | security_logic.yaml | none, low, medium, high | security_grounds_motion condition, security_correlation |
@@ -732,6 +741,44 @@ is on (change threat scoring to add bonus points).
 
 ---
 
+### BUG-S14 — No presence-first logic in classifier (new events classified as threats)
+**Priority: HIGH | Status: ✅ FIXED 2026-05-17 (S2)**
+
+Family arriving at their own gate classified as intruder because presence-check happened
+after threat-check. Rebuilt `sensor.security_event_classification` as a 9-rung
+presence-first ladder. Gate + AP arrival = `arrival` before any threat rung is reached.
+
+---
+
+### BUG-S15 — No two-stage arrival model (AP transition not used for arrival detection)
+**Priority: HIGH | Status: 🔧 Partially fixed S2 / S3 completes**
+
+`family_arriving` binary sensor now feeds the classifier. Full two-stage model (gate
+event + AP transition + ipcam03 entrance confirmation) wired in S3 router.
+
+---
+
+### BUG-S16 — `security_inside_house_motion` has no zone split (bedroom/main/garage)
+**Priority: MEDIUM | Status: ✅ FIXED 2026-05-17 (S2)**
+
+Three zone sensors added: `security_inside_garage_motion`, `security_inside_main_motion`,
+`security_inside_bedrooms_motion`. Zone arming gates: `binary_sensor.inside_*_armed`
+backed by `input_boolean.inside_*_armed_manual`. Bedrooms armed in away only (bathroom
+trips suppressed at night stay). `security_inside_house_motion` updated to be a backward-
+compatible raw union of the three.
+
+---
+
+### BUG-S17 — Garage camera not in an inside zone (cam05 classified as grounds)
+**Priority: MEDIUM | Status: ✅ FIXED 2026-05-17 (S2)**
+
+cam05 physically inside garage since 2026-05-07 but classified as `grounds_front`.
+`security_inside_garage_motion` now also reads `cam05_front_driveway_motion_valid`.
+cam05 remains in `grounds_front` group for backward compatibility; classifier zones
+disambiguate via the arming gate.
+
+---
+
 ## Section 7: Active Log Errors
 
 **Note:** `home-assistant.log` is not available in the local git repository (it lives only
@@ -1082,9 +1129,9 @@ Also gated by: `security_dogs_out` OFF + `guest_mode` OFF + 5-min cooldown on `l
 
 ---
 
-## Section 11: Pending Design — Arrival / Exit / Visitor Flow Redesign
+## Section 11: Arrival / Exit / Visitor Flow — Presence-First Classifier
 
-> **Status:** Design phase. Not yet implemented. Plan in Claude chat, then implement here.
+> **Status:** ✅ IMPLEMENTED 2026-05-17 (S2). Core classifier rebuilt. Router wiring (S3 pending).
 > **Triggered by:** Repeated false CRITICAL alerts for family arriving home; missed arrivals;
 > no departure detection; presence not integrated into threat classification.
 
