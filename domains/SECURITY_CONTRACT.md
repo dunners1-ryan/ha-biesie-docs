@@ -71,7 +71,7 @@ go2rtc timeout instability. Being progressively replaced by AcuSense IP cameras.
 | `cam14_lounge` | Lounge (TV Room) | **inside_main** |
 | `cam15_passage` | Bedroom passage | **inside_bedrooms** |
 
-**NVR placeholder slots (DO NOT PURGE):** The 16-channel DVR has 9 channels in use. Unused slots appear in HA as devices with NO VIDEO — `cam02-future`, `cam03-future`, `cam11-future`, `cam13-future`, `cam16-future`. These are intentional placeholders for future cameras.
+**NVR placeholder slots — removed 2026-05-17:** The 16-channel DVR previously had unused channels appearing in HA as `cam02-future`, `cam03-future`, `cam11-future`, `cam13-future`, `cam16-future` (NO VIDEO devices). These were removed 2026-05-17. NVR roadmap: the NVR itself will eventually be retired in favor of an all-IP camera fleet. No additional analog cameras will be added to this NVR — any new cameras going forward will be IP (ipcam06+).
 
 **Deprecated / removed (DO NOT reintroduce):**
 

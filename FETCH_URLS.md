@@ -4,6 +4,7 @@ Paste this file at the start of any Claude chat session to seed URL access.
 ## Core docs
 https://github.com/dunners1-ryan/ha-biesie-docs/blob/main/PROJECT_STATE.md
 https://github.com/dunners1-ryan/ha-biesie-docs/blob/main/CODING_STANDARDS.md
+https://github.com/dunners1-ryan/ha-biesie-docs/blob/main/SESSION_CHECKLIST.md
 https://github.com/dunners1-ryan/ha-biesie-docs/blob/main/SESSION_STARTERS.md
 https://github.com/dunners1-ryan/ha-biesie-docs/blob/main/SYSTEM_CONTRACT.md
 https://github.com/dunners1-ryan/ha-biesie-docs/blob/main/AUDIT_PROMPTS.md

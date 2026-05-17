@@ -471,6 +471,62 @@ group.set(object_id="real_power_loads", entities=real)
 
 ---
 
+## 📝 Session Documentation Rules
+
+### Rule 7 — Documentation MUST update with code in the SAME session
+
+This rule is **blocking, not advisory.** A session that ships code changes without corresponding doc updates is **INCOMPLETE.** Never silently leave drift between live config and contracts.
+
+Three doc-drift reconciliations happened in 2026-05 alone (trust chain, zone arming, camera fleet). Each cost a full session. The root cause: code shipped faster than docs were updated. This rule is the engineering defense.
+
+#### What counts as a "code change" (any of these requires a doc update)
+
+- Adding, renaming, or removing an entity (sensor, binary_sensor, input_boolean, automation, script, etc.)
+- Changing the source-data list of a template sensor or zone aggregation
+- Changing trigger / condition / action on an automation
+- Closing or opening a bug
+- Deprecating, removing, or replacing hardware (cameras, sensors, alarm zones)
+- Any change that affects observable behaviour from the dashboard or another package
+
+#### Required doc updates per change type
+
+| If you changed... | Update this |
+|-------------------|-------------|
+| Security domain entity | SECURITY_CONTRACT.md |
+| Presence domain entity | PRESENCE_CONTRACT.md |
+| Lighting | LIGHTING_CONTRACT.md |
+| Power | POWER_CONTRACT.md |
+| Notifications | NOTIFICATIONS_CONTRACT.md |
+| Water | WATER_CONTRACT.md |
+| Context (trust, night, schedules) | CONTEXT_CONTRACT.md |
+| Closed a bug | The contract that listed it — mark CLOSED with date |
+| Opened a bug | The relevant contract — add BUG-XXX entry |
+| Renamed/added/removed an entity | PROJECT_STATE.md "Locked Entity Names" |
+| Removed hardware | PROJECT_STATE.md + relevant contract |
+| Any functional change | PROJECT_STATE.md session log entry |
+
+#### Session-close checklist
+
+See `SESSION_CHECKLIST.md` (repo root) for the full version. Required before any session is marked complete:
+
+```
+[ ] ha core check passes
+[ ] Required reloads done and functional checks run
+[ ] ./gitupdate.sh committed in /config/
+[ ] PROJECT_STATE.md session log entry added
+[ ] PROJECT_STATE.md Locked Entity Names updated (if entities changed)
+[ ] Relevant domain contract(s) updated (entity tables + bug list)
+[ ] Both repos committed with paired commit messages
+```
+
+#### When a session ends with checklist items unsatisfied
+
+Flag it explicitly: **"SESSION INCOMPLETE — the following doc updates are still owed: [list]."** Do not silently move on.
+
+If time pressure prevents finishing: commit with `WIP: docs incomplete` in the message AND add a resume note at the top of `PROJECT_STATE.md` so the next session resumes there before doing anything new.
+
+---
+
 ## ✅ Pre-Commit Checklist
 
 Before saving and applying any change:
