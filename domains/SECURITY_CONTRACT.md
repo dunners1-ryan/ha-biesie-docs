@@ -435,12 +435,21 @@ Motion event → zone aggregation → security_correlation sensor
               → notify.STD_Information / STD_Warning / STD_Critical
               → notify.telegram_bot_5527
 
-OR via:
-  security_event_router (trigger: zone sensors + gate)
-    → classifies by threat level + classification
+SOLE PATH after S3 (2026-05-17):
+  security_event_router (trigger: sensor.security_event_classification state change)
+    → dispatches by classifier output (arrival/departure/service_person/visitor/
+      perimeter_threat/intruder/critical_intrusion)
     → script.notify_security_event
+    → severity: 'information'/'warning'/'critical' (NOT 'info')
 
-BOTH PATHS CAN FIRE FOR SAME EVENT → duplicate notifications possible.
+Two-stage arrival/departure:
+  security_arrival_stage1_vehicle → fires on ipcam03_driveway_entrance_valid
+  security_arrival_stage2_confirm → 3.5min delay, AP confirmation
+  security_departure_stage1_vehicle → fires on ipcam03_driveway_exit_valid
+  security_departure_stage2_confirm → 3.5min delay, AP confirmation
+
+Deleted in S3: security_grounds_motion, security_rear_grounds_motion,
+security_house_motion, security_visitor, security_arrival_detected.
 ```
 
 ### Event Lifecycle
@@ -550,25 +559,25 @@ Current 1,871 files will grow without bound.
 ---
 
 ### ISSUE 2 — Triple notification on `sensor.security_correlation == "intruder"`
-**Priority: HIGH | Risk to fix: MEDIUM**
+**Priority: HIGH | Status: ✅ RESOLVED 2026-05-17 (S3)**
 
 **Symptom:** When grounds motion fires with `correlation = intruder`, three automations
-fire simultaneously: `security_grounds_motion`, `security_rear_grounds_motion`, and
-`security_house_motion`. All three send separate notifications for the same event.
+fired simultaneously: `security_grounds_motion`, `security_rear_grounds_motion`, and
+`security_house_motion`. All three sent separate notifications for the same event.
 
-**Root cause:** All three automations trigger on `sensor.security_correlation to: "intruder"`.
-The intruder state doesn't distinguish between grounds and house. There are no
-conditions in `security_grounds_motion` or `security_rear_grounds_motion` to separate their
-coverage from each other.
+**Root cause:** All three automations triggered on `sensor.security_correlation to: "intruder"`.
 
-**Fix:** Change triggers:
-- `security_grounds_motion` → trigger on `binary_sensor.security_grounds_motion`
-- `security_rear_grounds_motion` → trigger on `binary_sensor.security_perimeter_rear_motion` (currently always off — deferred)
-- `security_house_motion` → trigger on `binary_sensor.security_inside_house_motion`
+**Band-Aid applied 2026-04-16:** Dedup gate via `binary_sensor.security_intruder_active`
+(`delay_off: 30s`) + zone conditions on each automation. This eliminated the simultaneous
+triple-fire but the three automations were still parallel notification paths.
 
-Alternatively: keep `security_event_router` as the sole notification path (it already
-distinguishes by threat level and classification) and remove the redundant individual
-automations, or convert them to non-notification actions.
+**Architectural fix applied 2026-05-17 (S3):** All three automations deleted. Notification
+now solely through `security_event_router` which reads `sensor.security_event_classification`
+(S2 presence-first classifier). Two-stage arrival/departure automations replace
+`security_arrival_detected`. Visitor branch absorbed into router.
+
+*Automations deleted: security_grounds_motion, security_rear_grounds_motion,
+security_house_motion, security_visitor, security_arrival_detected.*
 
 ---
 
@@ -633,22 +642,12 @@ in `security_helpers.yaml` (D3 — Group D).
 ---
 
 ### ISSUE 7 — No `from:` constraints on motion triggers
-**Priority: MEDIUM | Risk to fix: LOW**
+**Priority: MEDIUM | Status: Partially resolved 2026-05-17 (S3)**
 
-**Symptom:** Automations trigger on `unavailable → on` transitions (e.g., after HA
-restart, NVR reconnect), causing spurious snapshots and notifications.
-
-**Root cause:** None of the motion-trigger automations in `security_automations.yaml`
-specify `from: "off"` on their state triggers, violating `CODING_STANDARDS.md Rule 3`.
-
-Affected automations:
-- `security_capture_each_camera_motion`
-- `security_track_movement_path`
-- `security_visitor`
-- `security_arrival_detected`
-- `security_event_start`
-
-**Fix:** Add `from: "off"` to all motion sensor triggers in these automations.
+`security_visitor` and `security_arrival_detected` deleted in S3 — no longer applicable.
+`security_arrival_stage1_vehicle` and `_departure_stage1_vehicle` use `from: "off"` ✓.
+Remaining open: `security_capture_each_camera_motion`, `security_track_movement_path`,
+`security_event_start` — low risk, deferred to S4.
 
 ---
 
