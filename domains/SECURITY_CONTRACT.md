@@ -65,14 +65,22 @@ go2rtc timeout instability. Being progressively replaced by AcuSense IP cameras.
 |--------|------|--------|-------|
 | cam01_street_driveway | Perimeter Front | **DEPRECATED 2026-05-07** | Replaced by camip03/05. Entity kept for UI compatibility. |
 | cam04_car_port_front | Grounds Front | Active | Carport / front-left |
-| cam05_front_driveway | **Inside House** | Active — **MOVED 2026-05-07** | Physical camera moved inside garage. Entity ID unchanged. Gated by inside_cameras_armed. |
+| cam05_front_driveway | **Grounds Front** (driveway approach) | Active — **MOVED 2026-05-07** | Physical camera moved inside garage 2026-05-07, but continues to watch the driveway approach — not the garage interior. Entity ID unchanged. Feeds `security_grounds_front_cameras` group AND `security_inside_garage_motion`. See "Garage: camera vs zone" note below. |
 | cam06_front_entrance | Grounds Front | **REMOVED 2026-05-08** | Physically uninstalled. Entity kept to avoid breaking UI. |
 | cam07_front_kitchen | Grounds Front | Active | Side entry / kitchen window |
 | cam09_back_bedroom | Grounds Rear | Active | Rear right |
 | cam10_pool_bar | Grounds Rear | **DEPRECATED 2026-05-07** | Replaced by ipcam02. Entity kept for UI compatibility. |
 | cam12_back_pond | Grounds Rear | Active | |
 | cam14_lounge | Inside House | Active | Armed by schedule / occupancy |
-| cam15_passage | Inside House | Active | Armed by schedule / occupancy |
+| cam15_passage | Inside House (Bedrooms zone) | Active | Passage corridor — bedroom zone sensor (S2) |
+
+#### Garage: Camera vs Zone (design decision 2026-05-07)
+
+**Important distinction** — cam05 and the `inside_garage` zone are separate concepts:
+
+- **cam05 (garage approach camera)** watches the driveway approach to the garage interior. It is classified as `grounds_front` by design — it fires on driveway motion, not on someone moving inside the garage. Added to `security_inside_garage_motion` in S2 because it's the only camera physically in the garage at this time.
+- **`binary_sensor.security_inside_garage_motion` (inside_garage zone)** is designed to detect motion *inside* the garage structure. Once DSC alarm integration is live (S6+), the garage DSC zone sensor becomes the primary signal; cam05 becomes backup. If a dedicated interior-facing camera is added later, it replaces cam05 in this zone.
+- **The dual-zone membership is intentional:** cam05 fires in both `security_grounds_motion` (via the `grounds_front` group) AND `security_inside_garage_motion`. The classifier zones and arming gates disambiguate the two signals.
 
 #### Hikvision AcuSense IP Cameras (new fleet — from 2026-05-07)
 
@@ -271,9 +279,15 @@ No security-domain helpers were found to be UI-created. All are YAML-defined in
 | `binary_sensor.security_perimeter_front_motion` | template BS | security_zones.yaml | ipcam01 OR ipcam02 | Updated 2026-05-08 |
 | `binary_sensor.security_perimeter_rear_motion` | template BS | security_zones.yaml | ipcam05_back_boundary | **Fixed 2026-05-08** — was ALWAYS OFF (cam03 never existed) |
 | `binary_sensor.security_perimeter_motion` | template BS | security_zones.yaml | perimeter_front OR perimeter_rear | Covers all 3 street/boundary cameras |
-| `binary_sensor.security_grounds_motion` | template BS | security_zones.yaml | expand(grounds_front + grounds_rear groups) | cam04/07/ipcam03/cam09/ipcam04/cam12/ipcam05 |
+| `binary_sensor.security_grounds_motion` | template BS | security_zones.yaml | expand(grounds_front + grounds_rear groups) | cam04/07/ipcam03/cam09/ipcam04/cam12/ipcam05 (cam05 also in grounds_front) |
 | `binary_sensor.security_external_motion` | template BS | security_zones.yaml | perimeter OR grounds | |
-| `binary_sensor.security_inside_house_motion` | template BS | security_zones.yaml | expand(inside_house group) | cam14/cam15 only (cam05 moved to grounds_front 2026-05-08 — garage ≠ living space) |
+| `binary_sensor.security_inside_garage_motion` | template BS | security_zones.yaml | cam05_front_driveway_motion_valid | **Added S2 2026-05-17.** Raw (no arming gate). DSC garage zone sensor hooks in S6+. |
+| `binary_sensor.security_inside_main_motion` | template BS | security_zones.yaml | cam14_lounge_motion_valid | **Added S2 2026-05-17.** Raw. DSC: lounge/entrance/sunroom/kitchen zone sensors. |
+| `binary_sensor.security_inside_bedrooms_motion` | template BS | security_zones.yaml | cam15_passage_motion_valid | **Added S2 2026-05-17.** Raw. DSC: bedroom zone sensors. |
+| `binary_sensor.security_inside_house_motion` | template BS | security_zones.yaml | garage OR main OR bedrooms | **Updated S2:** now raw union of three zone sensors. Backward-compatible. Arming gate moved out to classifier. `inside_cameras_armed` / `_passage_armed` booleans remain for snapshot automation logic only. |
+| `binary_sensor.inside_garage_armed` | template BS | security_zones.yaml | `inside_garage_armed_manual` | **Added S2.** DSC-ready stub. |
+| `binary_sensor.inside_main_armed` | template BS | security_zones.yaml | `inside_main_armed_manual` | **Added S2.** DSC-ready stub. |
+| `binary_sensor.inside_bedrooms_armed` | template BS | security_zones.yaml | `inside_bedrooms_armed_manual` | **Added S2. DESIGNED OFF in stay-mode** — bathroom trips suppressed at night. |
 
 ### Per-Camera Timestamp Sensors
 

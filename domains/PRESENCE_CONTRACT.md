@@ -35,28 +35,29 @@ correlation, threat scoring) silently ignore staff presence.
 
 ## Section 2: File Inventory
 
-### packages/presence/ (5 files)
+### packages/presence/ (6 files)
 
 | File | Lines | Purpose |
 |---|---|---|
 | `presence_helpers.yaml` | 84 | Arrival/departure booleans, last-event timestamps |
 | `presence_core.yaml` | 245 | AP→room map, per-person location, RAW occupancy, groups |
-| `presence_confidence.yaml` | 192 | Confidence scoring + binary occupied (per room) |
-| `presence_boundary.yaml` | 609 | Boundary resolver (gate-based arrival/departure) |
+| `presence_confidence.yaml` | ~270 | Confidence scoring + binary occupied (per room) + `family_arriving`, `family_departing`, `all_family_home` (added S2 2026-05-17) |
+| `presence_boundary.yaml` | ~620 | Boundary resolver (gate-based arrival/departure), `presence_clear_arrival_flag` auto-clear (added S1.4 2026-05-17) |
 | `presence_validation.yaml` | 114 | Unknown AP detection, AP sanity sensors |
+| `presence_trust.yaml` | ~220 | Trust model: all trust input_booleans, derived binary sensors, maid/gardener schedule automations, **startup state sync** (`sync_staff_state_on_startup` — restores maid + gardener booleans on HA restart). Migrated from `context/context_presence.yaml` 2026-04-30 (BUG-CTX01/P11 fix). |
+
+**Startup sync owner:** `presence_trust.yaml` — `sync_staff_state_on_startup` automation. Do NOT look in `presence_boundary.yaml` for trust-state restoration logic.
 
 **Note:** PRESENCE_CONTEXT.md documents `presence_templates.yaml`,
 `presence_state.yaml`, and `presence_automations.yaml` — none of these exist.
 The domain was reorganised; the context document is out of date.
 
-### Context package (trust model lives here — architectural violation)
-
-| File | Lines | Trust entities |
-|---|---|---|
-| `context/context_presence.yaml` | 249 | All trust booleans + derived binary sensors + maid/gardener schedules |
-
-Trust model helpers/automations belong in `packages/presence/` per the
-architecture rules. They currently live in `packages/context/`.
+**Orphan helpers (harmless, future cleanup):**
+`input_boolean.low_trust_present` and `input_boolean.staff_on_site` are defined
+as input_boolean helpers but are neither read nor written by any automation.
+`binary_sensor.low_trust_present` and `binary_sensor.staff_on_site` are the
+correct consumers. The orphan booleans exist in `.storage/core.entity_registry`
+and can be safely deleted in a future cleanup sprint — they cause no functional issue.
 
 ---
 
@@ -87,6 +88,16 @@ unmapped MACs — they produce 'Away'.
 Two parallel home-detection mechanisms exist: AP-based
 (`anyone_connected_home`) and Mobile App-based (`anyone_home`). Security
 uses `anyone_connected_home`. The two are not reconciled.
+
+### Security Classifier Presence Signals (added S2 — 2026-05-17)
+
+| Entity | File | Purpose | Logic |
+|---|---|---|---|
+| `binary_sensor.family_arriving` | presence_confidence.yaml | ON when any family member's AP location changed to a home zone ≤10 min ago | 600s recency window; covers walk from gate + WiFi lag |
+| `binary_sensor.family_departing` | presence_confidence.yaml | ON when any family member's AP location changed to Away/Disconnected ≤10 min ago | 600s recency window |
+| `binary_sensor.all_family_home` | presence_confidence.yaml | ON when every family member is in a home AP zone | Universal quantifier; used to distinguish visitor from arrival when gate fires while all are home |
+
+Room names (`home_zones`): `'Bar'`, `'Office'`, `'Garage'`, `'Lounge'`, `'Bedroom Zone'`, `'Kitchen'` — must match `sensor.unifi_ap_room_map` exactly (case-sensitive).
 
 ### Room Occupancy Pipeline
 
@@ -461,25 +472,27 @@ sensor. The derived `binary_sensor.staff_on_site` already covers this case.
 
 ---
 
-### BUG-P03 — `binary_sensor.boundary_permissive_window` always `false`
+### BUG-P03 — `binary_sensor.boundary_permissive_window` under-triggering
 **Severity:** High  
 **File:** `security/security_core.yaml`  
-**Status:** ✅ FIXED 2026-05-17 (S1.3). Rebuilt to use `binary_sensor.low_trust_present OR guest_mode OR boundary_permissive_override`. Old maid-Monday-only logic removed.
+**Status:** ✅ FIXED 2026-05-17 (S1.3). Rebuilt to use `binary_sensor.low_trust_present OR guest_mode OR boundary_permissive_override`. Covers all staff/contractor/guest scenarios.
 
-`input_datetime.low_trust_start` and `input_datetime.low_trust_end` were
-commented out in `context_presence.yaml`. They appear in the entity registry
-as **orphaned** (timestamp `1774875346`) and return 'unknown'.
+**Correction note:** The original bug description referenced `input_datetime.low_trust_start/end`
+as the cause. That was stale — those entities were already removed prior to 2026-04-15.
+The actual pre-S1.3 state (a half-fix from 2026-04-15) was:
 
-`gate_open_too_long_permissive` checks:
 ```yaml
-condition:
-  - entity_id: binary_sensor.boundary_permissive_window
-    state: "on"     ← always off → automation never fires
+# security_core.yaml — pre-S1.3 state
+{% set maid_monday = is_state('input_boolean.maid_on_site','on') and now().weekday() == 0 %}
+{% set manual_override = is_state('input_boolean.boundary_permissive_override','on') %}
+{{ maid_monday or manual_override }}
 ```
 
-**Fix:** Rebuild `boundary_permissive_window` to use
-`binary_sensor.low_trust_present OR input_boolean.guest_mode` directly,
-removing the dependency on the deprecated datetime entities.
+This only fired on Monday maid days, not for gardener (Saturdays), contractor, or
+guest_mode. `gate_open_too_long_permissive` would fire correctly on Monday maid days
+but NOT on any other trust scenario.
+
+**Fix:** Rebuilt to: `low_trust_present OR guest_mode OR boundary_permissive_override`.
 
 ---
 

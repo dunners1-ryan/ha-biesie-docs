@@ -34,6 +34,7 @@
 4. **Diagnostic sensors excluded from recorder** — maintain for all new diagnostic entities
 5. **Trusted proxy** `172.30.0.0/16` for Docker reverse proxy HTTPS
 6. **All notifications through central scripts** — never call `notify.*` directly
+7. **Zone arming separates from zone motion** — aggregation sensors emit raw zone motion (ground truth). Arming gates are separate template sensors. Consumers (classifier, alerts, dashboard) read both. Do not merge motion + arming into a single "armed-and-firing" sensor (that collapses ground truth).
 
 ---
 
@@ -237,6 +238,27 @@ input_boolean.load_control_borehole_enabled  ← OFF turns off + blocks borehole
 Devices: switch.geyser_heat_pump_switch, switch.pool_pump_switch, switch.borehole_pump
 # Renamed 2026-04-22: _switch_1 → _switch for both geyser and pool pump (HA entity registry + all YAML + dashboards)
 ✅ DONE 2026-04-29: load_control_borehole_enabled added to binary_sensor.water_refill_allowed state condition (water_templates.yaml:299)
+
+### Three-Zone Inside Arming (added S2 — 2026-05-17)
+```
+binary_sensor.security_inside_garage_motion   ← raw garage zone motion (cam05 + DSC hook)
+binary_sensor.security_inside_main_motion     ← raw main-house zone motion (cam14 + DSC hook)
+binary_sensor.security_inside_bedrooms_motion ← raw bedroom passage zone motion (cam15 + DSC hook)
+binary_sensor.security_inside_house_motion    ← backward-compat union of the three (updated S2)
+binary_sensor.inside_garage_armed             ← arming gate (manual now, DSC in S6+)
+binary_sensor.inside_main_armed               ← arming gate (manual now, DSC in S6+)
+binary_sensor.inside_bedrooms_armed           ← arming gate — DESIGNED OFF in stay-mode
+input_boolean.inside_garage_armed_manual      ← dashboard control
+input_boolean.inside_main_armed_manual        ← dashboard control
+input_boolean.inside_bedrooms_armed_manual    ← dashboard control
+```
+
+### Security Classifier Presence Signals (added S2 — 2026-05-17)
+```
+binary_sensor.family_arriving    ← any family AP transitioned to home zone ≤10 min ago
+binary_sensor.family_departing   ← any family AP transitioned Away/Disconnected ≤10 min ago
+binary_sensor.all_family_home    ← ALL family APs in home zones (visitor disambiguation — BUG-P13)
+```
 
 ### UI-Managed Utility Meters (DO NOT recreate in YAML)
 ```
@@ -555,6 +577,7 @@ Rule: binary sensors / input_booleans → `from: "off"`. Template/state sensors 
 *2026-04-30 session: BUG-CTX01 fixed — context_presence.yaml content moved to packages/presence/presence_trust.yaml; context_presence.yaml deleted. Entity IDs unchanged. BUG-CTX03 fixed — sensor.home_context in context_global.yaml no longer imports sensor.security_mode or sensor.security_trust_mode from security/; now derives from binary_sensor.security_nobody_home (self-contained in context_global) + binary_sensor.night_confirmed; trust attribute simplified to low_trust/normal via binary_sensor.low_trust_present. ha core check passed. context/ package: 4→2 files. presence/ package: 5→6 files. All three context bugs confirmed closed.*
 *2026-04-30 session: Telegram backslash escape fix — all 6 notify scripts had 18-character MarkdownV2 escape chains applied (BUG-N09 fix 2026-04-13), but the Telegram bot integration config has `options.parse_mode: markdown` (old Markdown, not MarkdownV2). Old Markdown does not recognise backslash escapes for `.`, `(`, `)`, `+`, `|` etc., so they appeared literally in all messages. Reduced escape chain to 4 characters in all 6 scripts: `\\`, `\*`, `\_`, `` \` `` (only characters special in old Markdown). NOTIFICATIONS_CONTRACT.md BUG-N09 updated with revised history. Rule: do NOT expand escape chains beyond these 4 unless the Telegram integration is switched to parse_mode: markdownv2.*
 *2026-04-30 session: WAN outage 04:30–05:00 caused cascade of Telegram ConnectTimeout errors (geyser AM/PM at 04:30, bar via presence at 04:45, git push at 05:00). Root issue: `continue_on_error: true` was on the Telegram send INSIDE notify scripts but NOT on the calling `script.notify_lighting_event` action — ConnectTimeout propagates as "Unexpected error" which bypasses the inner guard. Fixed: 23 call sites across 7 lighting files (lighting_bar_presence +6, lighting_evening +3, lighting_morning +4, lighting_arrival_night +3, lighting_boundary +2, lighting_garage +2, lighting_office_presence +3). gitupdate.sh hardened: now skips commit+push if `git diff --cached --quiet` (nothing staged) → exits 0 cleanly instead of propagating git's exit 128 when there's nothing to push. github.yaml backup failure message: added `| default('no stderr')` guard on backup_result['stderr'] (was None, causing Jinja2 error in the failure notification). Prepaid Repairs error (notify.std_warning in automations.yaml legacy automation) — confirmed already documented in session notes; fix via HA UI only (DO NOT TOUCH automations.yaml rule).*
+*2026-05-17 session (inter-sprint doc reconciliation — S1+S2): P01/P02 confirmed already fixed 2026-04-15 (PROJECT_STATE was accurate; PRESENCE_CONTRACT bug list was stale). P10 was N/A — two staff vars in different sensors, not duplicates. Startup sync confirmed in presence_trust.yaml not presence_boundary.yaml. BUG-P03 body corrected — actual pre-fix state was maid-Monday-only logic (not the deprecated input_datetime situation described). Section 2 file inventory updated: presence_trust.yaml documented as startup sync owner; orphan helpers (input_boolean.low_trust_present / staff_on_site) noted as harmless. cam05 table entry corrected: grounds_front by design (driveway approach, not garage interior). zone aggregation table updated. Architecture Rule 7 added (zone arming separates from zone motion). Locked entity names added for all S2 entities.*
 *2026-05-17 session (S2 — Presence-First Classifier + Three-Zone Inside Split): New sensors added: binary_sensor.security_inside_garage_motion (cam05), security_inside_main_motion (cam14), security_inside_bedrooms_motion (cam15), inside_garage_armed / _main_armed / _bedrooms_armed (DSC-ready stubs backed by input_boolean.*_armed_manual), binary_sensor.family_arriving / family_departing / all_family_home (AP-location recency, 600s window, room names from unifi_ap_room_map). sensor.security_event_classification replaced: 5-state simple → 9-rung presence-first ladder (idle/arrival/departure/family_movement/service_person/visitor/perimeter_threat/intruder/critical_intrusion) with reason + zone_label attributes. security_inside_house_motion updated to raw union of three zone sensors (arming gate moved to classifier). SECURITY_CONTRACT Section 11 status: Design → Implemented. BUG-S14/S15/S16/S17 and BUG-P13 closed. ha core check passed. Reload: template entities + helpers.*
 *2026-05-17 session (S1 — Trust Layer Rewire + Startup Sync): Pre-flight verified trust chain swap (P01/P02) already applied — zero reads of input_boolean trust entities in code. S1.3: boundary_permissive_window rebuilt (security_core.yaml) — old maid-Monday-only logic replaced with binary_sensor.low_trust_present OR guest_mode OR boundary_permissive_override; gate_open_too_long_permissive now fires for all staff/contractor/guest scenarios. S1.4: arrival_detected wired — both Pass 1 and Pass 2 arrival branches in presence_boundary_resolver now set input_boolean.arrival_detected; presence_clear_arrival_flag auto-clear automation added (5 min, mode: restart); lighting_arrival_night and security_arrival_detected now fire on real arrivals. S1.6: startup sync extended — gardener_on_site now restored on HA restart if inside gardener window and low_trust_enabled; contractor excluded (manual-only, HA state restore sufficient). BUG-P10 confirmed N/A — two staff vars are in separate sensors, both correct. GROUP A correction: A2 was only partially fixed 2026-04-15; fully corrected today. PRESENCE_CONTRACT updated: P01/P02/P03/P06/P10/P11/P12 all closed. Reload: template entities + automations.*
 *2026-04-15 session (Group A audit): A1 confirmed superseded — low_trust_start/end never needed; complete trust chain runs through maid_start/end + gardener_start/end datetimes → schedule automations → maid_on_site/gardener_on_site booleans → binary_sensor.staff_on_site → binary_sensor.low_trust_present. A2 confirmed done — boundary_permissive_window reads maid_on_site + weekday()==0 + override, no longer always false. Group A fully complete.*
