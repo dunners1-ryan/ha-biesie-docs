@@ -939,7 +939,7 @@ SPRINT 4 — Session State Machine (Issue 9)
 [ ] Update dashboard cards that render the session timeline
 
 SPRINT 5 — Optimisations (Section 8)
-[ ] Add cam14/cam15 to security_trigger_camera priority list (top)
+[✅] Add cam14/cam15 to security_trigger_camera priority list (top) — DONE 2026-05-18
 [ ] Add missing cameras to security_last_active_camera sensor
 [ ] Add intruder_high handling in event router or threat score
 [ ] Resolve/remove sensor.security_intruder_level if unused
@@ -974,6 +974,46 @@ SPRINT 6 — 2026-05-10/11/12/14 changes (done)
 [✅] Threat rule 3: perimeter + confirmed_human + evening now requires nobody_home for CRITICAL
       — family arriving home no longer triggers CRITICAL (falls to WARNING via rule 6 instead)
 [✅] Visitor/arrival staleness filter: 10s → 30s (Pi queue delay was causing missed notifications)
+```
+
+SPRINT 7 — Notification spam + false intruder fixes (2026-05-18)
+```
+[✅] BUG-S18: False CRITICAL INTRUDER — INSIDE when family home at night
+      Root cause: RUNG 3 excluded `inside_armed_active`, so cam14 firing after 23:00
+      (lounge armed, family in bedrooms) bypassed family_movement and hit RUNG 8.
+      NVR cam14 has no AI — headlights through kitchen window trigger cam04+cam14
+      simultaneously, producing false critical_intrusion with `home=all`.
+      Fix: RUNG 3 removes `not inside_armed_active` — when `anyhome=true`, ALL
+      inside/grounds motion → family_movement regardless of arming state.
+      RUNG 4 extended to cover `inside_any` for staff (maid legitimately inside).
+      RUNG 8 now requires `not anyhome AND not staff`.
+      Tradeoff: armed lounge camera while family sleeps no longer escalates to
+      critical_intrusion. Accept until AcuSense inside cameras replace NVR.
+
+[✅] BUG-S19: Staff on site spam — cam09 firing continuously with no cooldown
+      Root cause: service_person branch in security_event_router had no cooldown.
+      Every cam09 debounce cycle (25s) during maid work → separate notification.
+      Fix: 10-minute cooldown added using last_visitor_event datetime.
+      On fire: sets last_visitor_event. Next service_person skipped until 600s elapsed.
+
+[✅] BUG-S20: Arrival spam — 3-5 "Family arriving home" notifications per arrival
+      Root cause: security_event_router fired for each camera trigger during an
+      arrival event (idle→arrival transition per camera). Stage1/stage2 already
+      handle arrival notifications more accurately.
+      Fix: arrival and departure branches in event_router now log-only (no notify).
+      Stage1 fires "vehicle entering" on ipcam03_entrance_valid.
+      Stage2 confirms who arrived 3.5min later via AP location.
+      Router still fires habiesie_arrival_detected event via stage1.
+
+[✅] OPT-8.4: cam14/cam15 added to security_trigger_camera priority list at top.
+      Fixes trig=none when only inside cameras fire (RUNG 8 critical_intrusion
+      notification had no image). Inside cameras are highest priority — if they
+      fire, that IS the event of interest.
+
+[✅] FMT-01: reason attribute reformatted — equals → colons, flat string → 3 lines.
+      Old: `zones=PG--- gate=open home=some arriving=yes departing=no staff=yes conf=medium trig=camera.ipcam01...`
+      New: `zones: PG--- | gate: open | home: some\narriving: yes | departing: no | staff: yes\nconf: medium | cam: ipcam01_street_driveway_up`
+      iOS/Android notification renders as 3 separate lines.
 ```
 
 ---

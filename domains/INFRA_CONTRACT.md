@@ -250,6 +250,7 @@ via HACS and must be updated manually or via HACS UI.
 | `localtuya` | 5.2.3 | LocalTuya devices (water tank depth) | UI-only (no YAML config) |
 | `load_shedding` | 1.5.2 | Eskom load shedding schedule | `packages/power/load_shedding.yaml` |
 | `pyscript` | 1.7.0 | Python scripting in HA | `pyscript/sync_power_groups.py` |
+| `alarmo` | 1.10.18 | Software alarm panel (DSC/zone interface target) | ⚠️ UI-only — no package YAML; `alarm_control_panel.dsc_partition_1` stub referenced in `security_automations.yaml` |
 | `ids_hyyp` | 1.9.0 | IDS alarm system (hawkMod fork) | ⚠️ UI-only — NO package file |
 | `hacs` | 2.0.5 | HACS integration manager | UI-only |
 | `watchman` | 0.8.4 | Missing entity/service detection | `alerts/alerts_system_health.yaml` |
@@ -271,6 +272,8 @@ Bug should be filed upstream at maciej-or/hikvision_next.
 is a Tuya device managed by LocalTuya. All device config is UI-only (stored in
 `.storage/localtuya`). A false reconnect event can trigger a spurious tank-full
 abort — see `input_boolean.water_refill_aborted_due_to_safety` in WATER_CONTRACT.md.
+
+**`alarmo`** — Software alarm panel (by nielsfaber). Installed and updated to 1.10.18 (2026-05-17). No active automations wired — referenced as comment stubs only in `security_automations.yaml` (`alarm_control_panel.dsc_partition_1` hook target for DSC physical alarm). Config is UI-only. No package YAML exists. Future use: DSC/IDS integration bridge when S6+ alarm wiring is done.
 
 **`ids_hyyp`** — IDS alarm system integration. **No package file exists.**
 Alarm states, zones, and arming automations are presumably in the legacy
