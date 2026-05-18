@@ -435,11 +435,15 @@ Motion event → zone aggregation → security_correlation sensor
               → notify.STD_Information / STD_Warning / STD_Critical
               → notify.telegram_bot_5527
 
-SOLE PATH after S3 (2026-05-17):
+SOLE PATH after S3 (2026-05-17) + S7 arrival/departure fix (2026-05-18):
   security_event_router (trigger: sensor.security_event_classification state change)
-    → dispatches by classifier output (arrival/departure/service_person/visitor/
-      perimeter_threat/intruder/critical_intrusion)
-    → script.notify_security_event
+    → dispatches by classifier output:
+        arrival/departure     → logbook only (stage1/stage2 own notifications)
+        service_person        → script.notify_security_event (10-min cooldown via last_visitor_event)
+        visitor               → script.notify_security_event (critical)
+        perimeter_threat      → script.notify_security_event (warning)
+        intruder              → script.notify_security_event (critical)
+        critical_intrusion    → script.notify_security_event (critical)
     → severity: 'information'/'warning'/'critical' (NOT 'info')
 
 Two-stage arrival/departure:
@@ -1003,7 +1007,7 @@ SPRINT 7 — Notification spam + false intruder fixes (2026-05-18)
       Fix: arrival and departure branches in event_router now log-only (no notify).
       Stage1 fires "vehicle entering" on ipcam03_entrance_valid.
       Stage2 confirms who arrived 3.5min later via AP location.
-      Router still fires habiesie_arrival_detected event via stage1.
+      habiesie_arrival_detected still fired by security_arrival_stage1_vehicle (not router).
 
 [✅] OPT-8.4: cam14/cam15 added to security_trigger_camera priority list at top.
       Fixes trig=none when only inside cameras fire (RUNG 8 critical_intrusion
@@ -1185,14 +1189,14 @@ Also gated by: `security_dogs_out` OFF + `guest_mode` OFF + 5-min cooldown on `l
 *  Overview dashboard Firefox crash: html-template-card (load shedding 48 timeslots) + power-flow-card-plus*
 *  + pulseCritical infinite CSS animation combined to freeze Firefox render thread. Fixed: animations*
 *  changed to 3-cycle (was infinite); html-template-card and power-flow disabled pending investigation.*
-*DESIGN PENDING: Arrival/exit/visitor flow redesign — see Section 11 below.*
+*Arrival/exit/visitor flow redesign — see Section 11 (IMPLEMENTED S2/S3 2026-05-17, classifier hardened S7 2026-05-18).*
 *Next: Arrival/visitor redesign (Section 11); restore disabled overview cards; ipcam02 installer*
 
 ---
 
 ## Section 11: Arrival / Exit / Visitor Flow — Presence-First Classifier
 
-> **Status:** ✅ IMPLEMENTED 2026-05-17 (S2). Core classifier rebuilt. Router wiring (S3 pending).
+> **Status:** ✅ IMPLEMENTED 2026-05-17 (S2 + S3). Core classifier rebuilt. Router wiring complete (S3 2026-05-17). Classifier hardened 2026-05-18 (S7 — RUNG 3/4/8 false-intruder fix).
 > **Triggered by:** Repeated false CRITICAL alerts for family arriving home; missed arrivals;
 > no departure detection; presence not integrated into threat classification.
 
