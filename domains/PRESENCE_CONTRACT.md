@@ -41,8 +41,8 @@ correlation, threat scoring) silently ignore staff presence.
 |---|---|---|
 | `presence_helpers.yaml` | 84 | Arrival/departure booleans, last-event timestamps |
 | `presence_core.yaml` | 245 | AP→room map, per-person location, RAW occupancy, groups |
-| `presence_confidence.yaml` | ~270 | Confidence scoring + binary occupied (per room) + `family_arriving`, `family_departing`, `all_family_home` (added S2 2026-05-17) |
-| `presence_boundary.yaml` | ~620 | Boundary resolver (gate-based arrival/departure), `presence_clear_arrival_flag` auto-clear (added S1.4 2026-05-17) |
+| `presence_confidence.yaml` | ~280 | Confidence scoring + binary occupied (per room) + `family_arriving`, `family_departing`, `all_family_home` (added S2 2026-05-17; `family_arriving`/`departing` logic updated S8 2026-05-19 — snapshot-delta replaces recency-only) |
+| `presence_boundary.yaml` | ~660 | Boundary resolver (gate-based arrival/departure), `presence_clear_arrival_flag` auto-clear (added S1.4 2026-05-17), `presence_snapshot_who_home` rolling snapshot (added S8 2026-05-19) |
 | `presence_validation.yaml` | 114 | Unknown AP detection, AP sanity sensors |
 | `presence_trust.yaml` | ~220 | Trust model: all trust input_booleans, derived binary sensors, maid/gardener schedule automations, **startup state sync** (`sync_staff_state_on_startup` — restores maid + gardener booleans on HA restart). Migrated from `context/context_presence.yaml` 2026-04-30 (BUG-CTX01/P11 fix). |
 
@@ -89,13 +89,21 @@ Two parallel home-detection mechanisms exist: AP-based
 (`anyone_connected_home`) and Mobile App-based (`anyone_home`). Security
 uses `anyone_connected_home`. The two are not reconciled.
 
-### Security Classifier Presence Signals (added S2 — 2026-05-17)
+### Security Classifier Presence Signals (S2 2026-05-17; S8 logic updated 2026-05-19)
 
 | Entity | File | Purpose | Logic |
 |---|---|---|---|
-| `binary_sensor.family_arriving` | presence_confidence.yaml | ON when any family member's AP location changed to a home zone ≤10 min ago | 600s recency window; covers walk from gate + WiFi lag |
-| `binary_sensor.family_departing` | presence_confidence.yaml | ON when any family member's AP location changed to Away/Disconnected ≤10 min ago | 600s recency window |
+| `binary_sensor.family_arriving` | presence_confidence.yaml | ON when any family member is in a home zone AND was NOT in the 60s rolling snapshot | **S8 BUG-S26 fix:** snapshot-delta (was: recency-only ≤600s). Intra-home AP roaming no longer triggers this. |
+| `binary_sensor.family_departing` | presence_confidence.yaml | ON when any family member is Away AND WAS in the 60s rolling snapshot | **S8 BUG-S26 fix:** snapshot-delta. |
 | `binary_sensor.all_family_home` | presence_confidence.yaml | ON when every family member is in a home AP zone | Universal quantifier; used to distinguish visitor from arrival when gate fires while all are home |
+
+### Presence Snapshot Helpers (added S8 — 2026-05-19)
+
+| Entity | File | Purpose |
+|---|---|---|
+| `input_text.who_was_home_snapshot` | presence_helpers.yaml | Rolling 60s snapshot of current home occupants (comma-joined names). Written by `presence_snapshot_who_home` automation. Read by `family_arriving` and `family_departing`. |
+| `input_text.arrival_who_was_home` | presence_helpers.yaml | Point-in-time snapshot written by Stage 1 arrival BEFORE the gate event. Stage 2 reads 3.5 min later to compute delta (who newly arrived). Kept separate from rolling snapshot. |
+| `input_text.departure_who_was_home` | presence_helpers.yaml | Point-in-time snapshot written by Stage 1 departure. Stage 2 computes who newly left. |
 
 Room names (`home_zones`): `'Bar'`, `'Office'`, `'Garage'`, `'Lounge'`, `'Bedroom Zone'`, `'Kitchen'` — must match `sensor.unifi_ap_room_map` exactly (case-sensitive).
 
@@ -401,6 +409,7 @@ right MAC. The discrepancy should be verified.
 | `presence_test_arrival` | `main_gate_sensor → on` | None | **⚠️ TEST AUTOMATION** |
 | `presence_debug_logger` | multiple state changes | None | Low (logging only) |
 | `presence_marker_reset` | `input_text.* state` | None | Low |
+| `presence_snapshot_who_home` | `time_pattern /1` + `homeassistant: start` | N/A | ✅ **Added S8 2026-05-19** — low risk, idempotent write |
 
 No critical `from:` violations for binary safety triggers. However
 `presence_test_arrival` lacks any conditions and runs on every gate event —

@@ -371,12 +371,19 @@ No security-domain helpers were found to be UI-created. All are YAML-defined in
 | `input_text.cam15_passage_history` | text | 255 | Per-cam snapshot history |
 | `input_text.ipcam01_street_driveway_up_history` | text | 255 | Per-cam snapshot history |
 | `input_text.ipcam02_street_driveway_down_history` | text | 255 | Per-cam snapshot history |
+| `input_text.security_image_perimeter_front` | text | 255 | **Added S8 2026-05-19.** Last snapshot from ipcam01/02 — router reads this for visitor/perimeter_threat events |
+| `input_text.security_image_perimeter_rear` | text | 255 | **Added S8 2026-05-19.** Last snapshot from ipcam05 (rear boundary) |
+| `input_text.security_image_grounds_front` | text | 255 | **Added S8 2026-05-19.** Last snapshot from ipcam03/cam04/cam07 — router reads for arrival/departure events |
+| `input_text.security_image_grounds_rear` | text | 255 | **Added S8 2026-05-19.** Last snapshot from ipcam04/cam09/cam12 |
+| `input_text.security_image_inside_garage` | text | 255 | **Added S8 2026-05-19.** Last snapshot from cam05 (garage interior) |
+| `input_text.security_image_inside_main` | text | 255 | **Added S8 2026-05-19.** Last snapshot from cam14 (lounge) |
+| `input_text.security_image_inside_bedrooms` | text | 255 | **Added S8 2026-05-19.** Last snapshot from cam15 (passage) |
 
 ### Condition / Context Sensors (security_core.yaml)
 
 | Entity | Purpose | Note |
 |--------|---------|------|
-| `binary_sensor.boundary_permissive_window` | True during maid/guest window | **BROKEN** — depends on missing input_datetime.low_trust_start/end |
+| `binary_sensor.boundary_permissive_window` | True during maid/guest window | ✅ Fixed S1.3 2026-05-17 — now uses `low_trust_present OR guest_mode OR boundary_permissive_override` |
 | `binary_sensor.security_visibility_poor` | Weather poor visibility | |
 | `binary_sensor.security_weather_low_light` | Weather low light | |
 | `binary_sensor.security_lighting_required` | Lighting should be on | |
@@ -435,16 +442,25 @@ Motion event → zone aggregation → security_correlation sensor
               → notify.STD_Information / STD_Warning / STD_Critical
               → notify.telegram_bot_5527
 
-SOLE PATH after S3 (2026-05-17) + S7 arrival/departure fix (2026-05-18):
+SOLE PATH after S3 (2026-05-17) + S7 (2026-05-18) + S8 (2026-05-19):
   security_event_router (trigger: sensor.security_event_classification state change)
     → dispatches by classifier output:
         arrival/departure     → logbook only (stage1/stage2 own notifications)
         service_person        → script.notify_security_event (10-min cooldown via last_visitor_event)
-        visitor               → script.notify_security_event (critical)
+        visitor               → script.notify_security_event (critical, 60s cooldown — BUG-S27 fix)
         perimeter_threat      → script.notify_security_event (warning)
         intruder              → script.notify_security_event (critical)
         critical_intrusion    → script.notify_security_event (critical)
     → severity: 'information'/'warning'/'critical' (NOT 'info')
+    → image: zone-aware lookup via zone_label attribute (S8 BUG-S22/S23 fix):
+        'perimeter front' → input_text.security_image_perimeter_front
+        'perimeter rear'  → input_text.security_image_perimeter_rear
+        'grounds'         → input_text.security_image_grounds_front
+        'gate'            → input_text.security_image_grounds_front
+        'garage'          → input_text.security_image_inside_garage
+        'main house'      → input_text.security_image_inside_main
+        'bedroom passage' → input_text.security_image_inside_bedrooms
+        fallback          → input_text.security_last_motion_image (global)
 
 Two-stage arrival/departure:
   security_arrival_stage1_vehicle → fires on ipcam03_driveway_entrance_valid
@@ -804,6 +820,131 @@ disambiguate via the arming gate.
 
 ---
 
+### BUG-S18 — False CRITICAL INTRUDER when family home at night
+**Priority: HIGH | Status: ✅ FIXED 2026-05-18 (S7)**  
+See Sprint 7 in Section 9.
+
+---
+
+### BUG-S19 — Staff on site spam (cam09 — no cooldown)
+**Priority: HIGH | Status: ✅ FIXED 2026-05-18 (S7)**  
+See Sprint 7 in Section 9.
+
+---
+
+### BUG-S20 — Arrival spam (3-5 duplicate "Family arriving" notifications)
+**Priority: HIGH | Status: ✅ FIXED 2026-05-18 (S7)**  
+See Sprint 7 in Section 9.
+
+---
+
+### BUG-S21 — ipcam05 (rear boundary) triggers VISITOR classification
+**Priority: HIGH | Status: ✅ FIXED 2026-05-19 (S8)**
+
+**Symptom:** When ipcam05 (back boundary wall, outside property) detected motion at night,
+the classifier returned `visitor` and sent a critical "Visitor at gate" alert. ipcam05 is
+outside the rear wall — there is no gate there. It is never visitor territory.
+
+**Root cause:** RUNG 5 (visitor) used `perim` (combined perimeter_front OR perimeter_rear).
+Any perimeter camera firing = visitor if gate closed and not arriving. ipcam05 feeds
+`security_perimeter_rear_motion`, which feeds `perim`.
+
+**Fix:** Split `perim` into `perim_front` (ipcam01/02) and `perim_rear` (ipcam05) in the
+classifier. RUNG 5 now only fires on `perim_front`. `perim_rear` falls through to RUNG 6
+(perimeter_threat). `zone_label` attribute updated to return `'perimeter front'` or
+`'perimeter rear'` separately.
+
+---
+
+### BUG-S22 / BUG-S23 — Wrong-camera image in security notifications
+**Priority: HIGH | Status: ✅ FIXED 2026-05-19 (S8)**
+
+**Symptom:** "Visitor at gate" alert showed carport image. "Intruder on property" alert
+showed an unrelated camera's image from a few seconds earlier.
+
+**Root cause:** Single global `input_text.security_last_motion_image` overwritten by
+`security_capture_best_snapshot` whenever any camera fires at medium/high confidence.
+Router reads this at action-start time — if another camera fired between classifier
+evaluation and router execution, the image is stale/wrong-zone.
+
+**Fix:** 7 per-zone `input_text.security_image_*` helpers added. `security_capture_best_snapshot`
+writes the zone-appropriate slot (based on `sensor.security_trigger_camera` entity_id).
+Router `img` variable does a zone-map lookup on `zone_label` attribute, falling back to
+global `security_last_motion_image` if the zone slot is empty.
+
+---
+
+### BUG-S24 / BUG-S25 — Stage 2 "who" is a snapshot not a delta
+**Priority: HIGH | Status: ✅ FIXED 2026-05-19 (S8)**
+
+**Symptom:** "Arrival confirmed — Ryan, Vicky, Luke" when only Luke arrived (Ryan and Vicky
+were already home). Stage 2 departure showed people who had been Away all day, not who
+just left.
+
+**Root cause:** Stage 2 `who` template iterated all 4 people and collected everyone
+currently in a home zone. No before/after comparison — no delta logic.
+
+**Fix:** Stage 1 arrival now writes `input_text.arrival_who_was_home` (comma-joined names
+of everyone home at Stage 1 fire time). Stage 1 departure writes `input_text.departure_who_was_home`.
+Stage 2 computes the delta: arrival = home_now AND NOT in before-snapshot; departure =
+away_now AND WAS in before-snapshot. These helpers live in `presence_helpers.yaml` and
+are kept separate from the rolling `who_was_home_snapshot` so the 60s automation doesn't
+overwrite the Stage 1 snapshot during the 3.5-minute Stage 2 delay.
+
+---
+
+### BUG-S26 — family_arriving fires on intra-home AP roaming
+**Priority: HIGH | Status: ✅ FIXED 2026-05-19 (S8)**
+
+**Symptom:** Ryan walks from Lounge to Kitchen. `sensor.ryan_ap_location` `last_changed`
+updates. `binary_sensor.family_arriving = ON` for 600 seconds. During that window, any
+gate opening (delivery, dog walk) classifies as `arrival` not `visitor`.
+
+**Root cause:** `family_arriving` logic: `st in home_zones AND changed <= 600s`. This fires
+for any home-zone AP change, not just transitions from Away → home.
+
+**Fix:** `family_arriving` rewritten to snapshot-delta: ON only if person is in a home zone
+AND their label is NOT in `input_text.who_was_home_snapshot`. The snapshot is updated every
+60 seconds by `presence_snapshot_who_home` automation. Once the person is in the snapshot
+(after 60s), `family_arriving` turns OFF. `family_departing` updated same way.
+
+---
+
+### BUG-S27 — Visitor branch has no cooldown (duplicate notifications)
+**Priority: MEDIUM | Status: ✅ FIXED 2026-05-19 (S8)**
+
+**Symptom:** Sustained presence at the gate (person standing at intercom for 2+ min) produces
+3-4 visitor notifications as the ipcam01 debounce cycle (30s delay_off) pulses the
+classifier `idle → visitor → idle → visitor`.
+
+**Root cause:** Router visitor branch had no cooldown check — fired on every classifier
+transition to `visitor`.
+
+**Fix:** 60-second cooldown added using `input_datetime.last_visitor_event`. Short enough
+for a genuine second visitor within the hour; long enough to suppress the debounce pulse.
+
+---
+
+### BUG-S28 — ipcam02 dead signal (firmware incompatibility)
+**Priority: MEDIUM | Status: OPEN — awaiting installer**
+
+**Symptom:** `ipcam02_street_driveway_down_motion_valid` always OFF. `security_perimeter_front_motion`
+effectively ipcam01-only. All ipcam02 fielddetection/linedetection/regionentrance entities
+do not exist in HA.
+
+**Root cause:** ipcam02 firmware V5.8.13 branch H13U incompatible with hikvision_next Smart
+Event ISAPI discovery. Only `scenechangedetection` is discovered. See Section 10.9 for full
+troubleshooting history.
+
+**Impact:** Perimeter front has only one camera (ipcam01 street_up). ipcam02 (street_down)
+contributes zero signal. No code fix possible — requires firmware rollback to V5.7.19 G5 or
+camera replacement. Installer contact initiated 2026-05-11.
+
+**Mitigation:** OR in the perimeter_front zone sensor is harmless (always-off sensor has no
+effect). No code change needed until ipcam02 is repaired.
+
+---
+
 ## Section 7: Active Log Errors
 
 **Note:** `home-assistant.log` is not available in the local git repository (it lives only
@@ -978,6 +1119,48 @@ SPRINT 6 — 2026-05-10/11/12/14 changes (done)
 [✅] Threat rule 3: perimeter + confirmed_human + evening now requires nobody_home for CRITICAL
       — family arriving home no longer triggers CRITICAL (falls to WARNING via rule 6 instead)
 [✅] Visitor/arrival staleness filter: 10s → 30s (Pi queue delay was causing missed notifications)
+```
+
+SPRINT 8 — BUG-S21–S27 structural fixes (2026-05-19)
+```
+[✅] BUG-S21: ipcam05 (rear boundary) firing as VISITOR — RUNG 5 now restricted to
+      perim_front only. perim variable split into perim_front + perim_rear in
+      security_event_classification. ipcam05 only feeds perim_rear; RUNG 6
+      (perimeter_threat) handles rear boundary activity instead. BUG-S28 documented:
+      ipcam02 dead — firmware V5.8.13 H13U incompatible with hikvision_next
+      Smart Event discovery; perimeter_front = ipcam01 only until firmware fix.
+
+[✅] BUG-S22/S23: Wrong-camera image in visitor/intruder alerts — global
+      security_last_motion_image overwritten by any camera, not zone-specific.
+      Fix: 7 per-zone input_text helpers added (security_image_perimeter_front etc.).
+      security_capture_best_snapshot now writes the zone-appropriate slot in addition
+      to the global security_latest.jpg. security_event_router reads zone-matched slot
+      based on classifier zone_label attribute; fallback to global if slot empty.
+
+[✅] BUG-S24/S25: Stage 2 "who" logic was a snapshot, not a delta — listed everyone
+      currently home/away, not the people who newly arrived/departed.
+      Fix: Stage 1 arrival writes input_text.arrival_who_was_home before-snapshot.
+      Stage 1 departure writes input_text.departure_who_was_home before-snapshot.
+      Stage 2 arrival computes: home_now AND NOT in arrival_who_was_home = new arrivals.
+      Stage 2 departure computes: away_now AND WAS in departure_who_was_home = who left.
+
+[✅] BUG-S26: family_arriving fired on intra-home AP roaming (Lounge→Kitchen triggers
+      AP location last_changed → family_arriving=ON for 600s). Poisoned RUNG 1 with
+      false arrival signals. Fix: family_arriving rewritten to snapshot-delta logic
+      (compares current home set vs input_text.who_was_home_snapshot updated every 60s).
+      Also: family_departing updated with same approach. Rolling snapshot automation
+      presence_snapshot_who_home added to presence_boundary.yaml (1-min time_pattern +
+      homeassistant:start trigger).
+
+[✅] BUG-S27: Router visitor branch had no cooldown — fired on every classifier state
+      change to visitor during a sustained gate approach (ipcam01 30s debounce cycle
+      caused idle→visitor pulses). Fix: 60s cooldown added using last_visitor_event.
+
+[✅] Stage 1 arrival/departure: now pass image: security_image_grounds_front (ipcam03
+      driveway) instead of global security_last_motion_image. Same for Stage 2.
+
+[✅] zone_label attribute updated: now returns 'perimeter front' vs 'perimeter rear'
+      instead of generic 'perimeter'. Router zone_map updated to match new label strings.
 ```
 
 SPRINT 7 — Notification spam + false intruder fixes (2026-05-18)
