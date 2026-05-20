@@ -1226,6 +1226,27 @@ SPRINT 6 — 2026-05-10/11/12/14 changes (done)
 [✅] Visitor/arrival staleness filter: 10s → 30s (Pi queue delay was causing missed notifications)
 ```
 
+SPRINT 9d — reload filter + inside-only fallback rung (2026-05-20)
+```
+[✅] BUG-S33: cam15 (passage, inside_bedrooms) classified as perimeter_threat on
+      template reload when nobody home and zone not armed.
+      Root: classifier final else→perimeter_threat was reached because:
+      inside_any=True, anyhome=False, inside_bedrooms_armed=False → RUNG 8 fails
+      (zone not armed) → fell to else: perimeter_threat.
+      Fix 1: RUNG 8d added — inside_any + nobody home + not armed →
+      family_movement (silent) unless IP cam or high confidence → intruder.
+      Passage camera is NVR, low conf → family_movement. No notification fired.
+      Fix 2: Router condition filters unknown→X transitions on reload/restart.
+      classifier goes unknown→X every time template entities reload. Adding
+      `trigger.from_state.state not in ['unknown','unavailable']` prevents the
+      router from firing on the initial state population after a reload.
+
+[✅] BUG-S34: Double visitor notification — cooldown check ran before last_visitor_event
+      was set, allowing two simultaneous visitor events both to pass the 60s gate.
+      Fix: last_visitor_event now set at START of visitor sequence (before the 45s delay),
+      not at the end. Second visitor within 60s is now blocked at condition check time.
+```
+
 SPRINT 9c — gate-only idle rung, arrival snapshot fix, visitor grace 45s (2026-05-20)
 ```
 [✅] BUG-S30: Gate-open-alone classified as perimeter_threat.
