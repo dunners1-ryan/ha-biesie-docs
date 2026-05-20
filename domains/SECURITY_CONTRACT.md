@@ -1226,6 +1226,32 @@ SPRINT 6 — 2026-05-10/11/12/14 changes (done)
 [✅] Visitor/arrival staleness filter: 10s → 30s (Pi queue delay was causing missed notifications)
 ```
 
+SPRINT 9e — stay-mode lounge intrusion + cam14/15 health alert fix (2026-05-20)
+```
+[✅] RUNG 2.5 added — stay-mode lounge intrusion:
+      When: im=on (lounge fires) AND anyhome=on (family home, stay mode) AND night
+            AND all_family_in_bedrooms=on (everyone settled in beds, AP-confirmed)
+            AND inside_cameras_armed=on (auto-arming active at 23:00+).
+      Result: critical_intrusion → critical push notification + Telegram.
+      Placed BEFORE RUNG 3 so family_movement doesn't swallow this case.
+      Trade-off: NVR cam14 has no AI — headlights/shadows may trigger.
+      Mitigation: requires AP-confirmed bedrooms settled (all 4 family in Bedroom Zone).
+      Re-added at user request 2026-05-20 (was removed in BUG-S18 fix).
+
+[✅] Camera health false alert for cam14/cam15 fixed:
+      Old: staleness fired for cam14/cam15 when sec_on AND daytime AND last_seen > 8h,
+           regardless of occupancy. Triggered during day when nobody home (expected: no motion).
+      Fix: added `and (i not in [8,9] or someone_home)` guard in all three template blocks
+           (state, devices attribute, summary attribute). Indoor cameras (cam14=index 8,
+           cam15=index 9) only flag as stale when someone_home=True. When nobody's home,
+           zero motion in passage/lounge is correct — not a fault.
+
+[✅] Passage arming confirmed correct (no change):
+      inside_cameras_passage_armed armed when nobody_home ONLY.
+      Will NOT arm at bedtime when family is home (bathroom trip protection).
+      HA alerts seen at night = camera health issue (now fixed above), not arming issue.
+```
+
 SPRINT 9d — reload filter + inside-only fallback rung (2026-05-20)
 ```
 [✅] BUG-S33: cam15 (passage, inside_bedrooms) classified as perimeter_threat on
