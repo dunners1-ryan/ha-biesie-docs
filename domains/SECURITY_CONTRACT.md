@@ -102,6 +102,50 @@ Entity prefix pattern: `ipcamXX` for all IP cameras (ipcam01–ipcam05) — stan
 | IPCam05_Back_Boundary | `ipcam05_back_boundary` | Perimeter Rear | **Active 2026-05-08** | Rear boundary — first active rear perimeter sensor |
 | IPCam01_Street_Driveway_Up | `ipcam01_street_driveway_up` | Perimeter Front | **Active 2026-05-08** | Street level — upper approach. regionentrance switch ON. |
 
+#### ipcam01 Smart Event Zone Configuration (verified 2026-05-20)
+
+Accessed via http://10.10.1.11. Current state (observed from camera web UI):
+
+| Rule | Current config | Issue | Recommendation |
+|------|---------------|-------|----------------|
+| Region Entrance Detection | Enabled, Rule 1. Human+Vehicle. Zone covers right side (gate area). Target Validity: Higher | Zone is large enough that any vehicle near gate triggers entrance. | Acceptable — keep as visitor approach signal |
+| Region Exiting Detection | Enabled, Rule 1. Human+Vehicle. **Same zone position as entrance.** | Identical zone → same vehicle triggers both entrance AND exiting | **Disable or move zone** to cover only vehicles retreating FROM gate back down the street. If not needed, disable (currently unused in HA arrival/departure logic) |
+| Line Crossing | Enabled, Rule 1. Human+Vehicle. **Direction: A↔B (bidirectional)** | Fires for movement in either direction — no directional signal | Change to **A→B** where B is the gate side. Only fires for objects approaching gate from street. |
+| Intrusion (Field) | Enabled, Human+Vehicle, Threshold 2s | Fine for general grounds motion | No change |
+
+#### ipcam03 Smart Event Zone Configuration (verified 2026-05-20)
+
+Accessed via http://10.10.1.12. **Root cause of BUG-S29 identified here.**
+
+| Rule | Current config | Issue | Recommendation |
+|------|---------------|-------|----------------|
+| Intrusion (Field) | Enabled, **Human only (Vehicle unchecked)**, Threshold 2s | Misses vehicle-only events (car with tinted windows or no visible driver) | **Add Vehicle** to detection targets |
+| Line Crossing | Enabled, Human+Vehicle. **Direction: A↔B (bidirectional)** | Fires in both directions → HA `linedetection` fires for both arrival and departure | Change to **A→B** (one direction). Recommend: A = garage side → B = gate side = departure direction; or use two separate rules if hikvision_next exposes them separately |
+| Region Entrance | Enabled, Human+Vehicle. **Red zone positioned mid-driveway** | Zone overlaps with Region Exiting zone → a car traversing the driveway in either direction crosses BOTH zones | **Reposition to gate-mouth only** — narrow strip at the top of frame right where the gate opens. Only a car coming THROUGH the gate enters this zone |
+| Region Exiting | Enabled, Human+Vehicle. **Red zone overlaps entrance zone position** | Same overlap problem | **Reposition to mid-driveway** — between garage and gate mouth, lower 40% of frame. Only a departing car reversing from garage toward gate crosses this zone. Must NOT overlap entrance zone |
+
+**Target geometry (no-overlap zones):**
+```
+ipcam03 field of view (gate at top, garage at bottom):
+┌─────────────────────────────┐
+│  [GATE MOUTH]               │
+│  ┌──────────┐               │  ← Region Entrance: narrow strip at gate opening
+│  │ ENTRANCE │               │     Arriving car crosses this once coming through gate
+│  └──────────┘               │     Departing car is already past this, won't re-enter
+│                             │
+│     [DRIVEWAY]              │
+│  ┌──────────────────────┐   │  ← Region Exiting: mid-driveway strip
+│  │     EXITING          │   │     Departing car crosses this as it reverses toward gate
+│  └──────────────────────┘   │     Arriving car drives forward, doesn't double back
+│                             │
+│  [GARAGE / HOUSE END]       │
+└─────────────────────────────┘
+```
+
+**CRITICAL: the two zones must not overlap.** With the current config they cover the same area, causing both `regionentrance` and `regionexiting` to fire for any vehicle movement (BUG-S29). This is what caused arrival/departure confusion in notifications.
+
+**HA-side workaround implemented (S9 — 2026-05-20):** `security_gate_vehicle_stage1` merged automation waits 90s after ipcam03 trigger then uses `family_arriving`/`family_departing` AP state to determine direction. This handles the overlapping zone problem at the HA level, but the camera zone fix is still recommended to make the raw sensors correct.
+
 **Available sensors per IP camera** (confirmed from entity registry):
 
 | Sensor type | Entity suffix pattern | ipcam01 (street up) | ipcam02 (street down) | ipcam03 (driveway) | ipcam04 (pool bar) | ipcam05 (rear boundary) |
@@ -838,6 +882,25 @@ See Sprint 7 in Section 9.
 
 ---
 
+### BUG-S29 — ipcam03 regionentrance and regionexiting zones overlap (direction confusion)
+**Priority: HIGH | Status: ✅ HA workaround applied 2026-05-20 (S9) | Camera fix: OPEN**
+
+**Symptom:** Vehicle departing triggers "Arrival — vehicle entering" notification. Vehicle arriving triggers both arrival and departure Stage 1 simultaneously, or just the wrong one. Both `ipcam03_driveway_entrance_valid` and `ipcam03_driveway_exit_valid` fire for any vehicle movement in the driveway regardless of actual direction.
+
+**Root cause:** Camera zone configuration — the Region Entrance and Region Exiting detection zones on ipcam03 are positioned in overlapping areas (both mid-driveway near gate). Any vehicle traversing the driveway crosses both zones. Confirmed from iVMS camera web UI (10.10.1.12) 2026-05-20.
+
+**HA workaround (applied S9):** Merged Stage 1 automation (`security_gate_vehicle_stage1`) replaces separate arrival/departure Stage 1s. Waits 90s after ipcam03 trigger, then reads `family_arriving`/`family_departing` (AP snapshot-delta) to determine direction. Only the correct branch fires. `mode: single` prevents dual-fire when both sensors trigger together.
+
+**Camera fix (pending — access required to iVMS):**
+- Region Entrance: reposition to gate-mouth only (narrow strip at top of frame, right where gate opens)
+- Region Exiting: reposition to mid-driveway (lower 40% of frame, between garage and gate)
+- Zero overlap between the two zones — see camera table in Section 1 for geometry diagram
+- Line Crossing: change Direction from A↔B to A→B (one direction only)
+- Intrusion (Field): add Vehicle to detection targets (currently Human only on ipcam03)
+- On ipcam01: Region Exiting — consider disabling (unused in HA); Line Crossing A↔B → A→B
+
+---
+
 ### BUG-S21 — ipcam05 (rear boundary) triggers VISITOR classification
 **Priority: HIGH | Status: ✅ FIXED 2026-05-19 (S8)**
 
@@ -1119,6 +1182,35 @@ SPRINT 6 — 2026-05-10/11/12/14 changes (done)
 [✅] Threat rule 3: perimeter + confirmed_human + evening now requires nobody_home for CRITICAL
       — family arriving home no longer triggers CRITICAL (falls to WARNING via rule 6 instead)
 [✅] Visitor/arrival staleness filter: 10s → 30s (Pi queue delay was causing missed notifications)
+```
+
+SPRINT 9 — BUG-S29 camera zone overlap + per-zone files (2026-05-20)
+```
+[✅] BUG-S29: ipcam03 regionentrance + regionexiting zones overlap — both fire
+      for any vehicle movement in driveway regardless of direction.
+      HA fix: merged security_gate_vehicle_stage1 automation replaces the two
+      separate security_arrival_stage1_vehicle + security_departure_stage1_vehicle.
+      New automation: triggers on either sensor, captures AP state at T=0,
+      waits 90s for AP to settle and family_arriving/departing snapshot-delta to
+      update, then reads direction from those sensors and fires one branch only.
+      mode:single prevents dual-fire if both entrance+exit trigger together.
+      Camera fix still recommended: reposition zones to non-overlapping areas
+      (entrance at gate mouth, exiting at mid-driveway). See Section 1 camera table.
+
+[✅] BUG-S22/S23 REAL FIX: per-zone snapshot files on disk.
+      Previous fix (2026-05-19) wrote zone paths all pointing to security_latest.jpg
+      — a later camera could overwrite the file content even though the path stored
+      in the per-zone input_text was different.
+      New fix: security_capture_best_snapshot saves a third snapshot to a
+      zone-specific file (security_grounds_front_latest.jpg etc). Per-zone
+      input_text stores the zone-specific path. Router reads a file that cannot
+      be overwritten by a different zone's camera.
+      Zone files: security_perimeter_front/rear_latest.jpg,
+      security_grounds_front/rear_latest.jpg, security_inside_garage/main/bedrooms_latest.jpg
+
+[✅] ipcam01 + ipcam03 camera zone configuration documented in Section 1
+      with specific per-rule recommendations. Camera changes are physical
+      (requires access to Hikvision web UI) and are the permanent fix for BUG-S29.
 ```
 
 SPRINT 8 — BUG-S21–S27 structural fixes (2026-05-19)
