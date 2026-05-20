@@ -144,7 +144,49 @@ ipcam03 field of view (gate at top, garage at bottom):
 
 **CRITICAL: the two zones must not overlap.** With the current config they cover the same area, causing both `regionentrance` and `regionexiting` to fire for any vehicle movement (BUG-S29). This is what caused arrival/departure confusion in notifications.
 
-**HA-side workaround implemented (S9 — 2026-05-20):** `security_gate_vehicle_stage1` merged automation waits 90s after ipcam03 trigger then uses `family_arriving`/`family_departing` AP state to determine direction. This handles the overlapping zone problem at the HA level, but the camera zone fix is still recommended to make the raw sensors correct.
+**HA-side implementation:** `security_gate_vehicle_stage1` merged automation. S9 used 90s AP settle delay; **S9b (2026-05-20) reduced to 5s** now zones are fixed — direction now comes from trigger entity (entrance vs exit) which is reliable with non-overlapping zones. AP state used only as fallback if both sensors somehow fire simultaneously.
+
+**Updated ipcam03 config (user applied 2026-05-20):**
+
+| Rule | Change made | Notes |
+|------|------------|-------|
+| Region Entrance | Repositioned to gate-mouth area (upper-right of frame, small zone) | ✅ No longer overlapping with exit zone |
+| Region Exiting | Repositioned to lower driveway near garage end (larger zone) | ✅ Separate from entrance zone |
+| Line Crossing | Kept A↔B — positioned between the two zones | General motion between zones; A↔B correct since hikvision_next fires single entity regardless of direction |
+| Intrusion (Field) | Human only, threshold reduced 2s→1s | Vehicle NOT added — entrance/exit already cover vehicles; intrusion = person loitering |
+
+**Updated ipcam01 config (user applied 2026-05-20):**
+
+| Rule | Change made |
+|------|------------|
+| Region Exiting | Disabled |
+| Line Crossing | Changed A↔B → A→B (approach direction only) |
+
+#### Street-Down Camera (ipcam02 / pending ipcam06+) — Smart Event Zone Recommendations
+
+Generic recommendations for any street-facing camera covering the lower driveway approach (same position as ipcam02 but applicable to any replacement). These match the ipcam01 pattern adjusted for the different viewing angle:
+
+| Rule | Recommendation | Rationale |
+|------|---------------|-----------|
+| Intrusion (Field) | Human only, Threshold 2-3s. Zone: full gate approach area on street | Detects loitering person at gate. Vehicle-only detections not needed — entrance handles that |
+| Line Crossing | A→B where B = gate side. Human+Vehicle. | Approach-to-gate direction only; bidirectional creates noise with no HA benefit |
+| Region Entrance | Small zone at gate approach point (pavement in front of gate). Human+Vehicle. | Visitor/arrival approach signal. Zone should be narrow enough that only someone standing at the gate triggers it, not passing street traffic |
+| Region Exiting | **Disable.** | Unused in HA. A "region exit" on a street camera = someone moving away from the gate. Not a useful signal for arrival/departure logic. Generates noise. |
+
+**HA note (ipcam02):** Currently dead — firmware V5.8.13 H13U incompatible with hikvision_next Smart Event discovery (BUG-S28). These recommendations apply to a replacement or firmware-fixed camera.
+
+#### Hikvision AcuSense — HA Entity Limitations
+
+**Human vs vehicle separation:** AcuSense cameras DO classify at hardware level. However hikvision_next maps one HA entity per event TYPE, not per detection target. Multiple rules for the same event type (e.g., Rule 1 = Human, Rule 2 = Vehicle, both Region Entrance) still produce one `*_regionentrance` entity in HA.
+
+**Current workaround using different event types:**
+- `fielddetection` (Intrusion) → Human only → person loitering in zone
+- `regionentrance` / `regionexiting` → Human + Vehicle → arrival/departure
+- `linedetection` → Human + Vehicle → general crossing
+
+This gives partial separation: `fielddetection` = person-specific signal; `regionentrance` = any vehicle or person.
+
+**Line crossing direction:** A↔B and A→B both produce the same HA `linedetection` entity — no directional value in HA. Use A→B to reduce false triggers at the camera level (fewer events sent to HA), but don't rely on it for HA directional logic.
 
 **Available sensors per IP camera** (confirmed from entity registry):
 
@@ -1182,6 +1224,29 @@ SPRINT 6 — 2026-05-10/11/12/14 changes (done)
 [✅] Threat rule 3: perimeter + confirmed_human + evening now requires nobody_home for CRITICAL
       — family arriving home no longer triggers CRITICAL (falls to WARNING via rule 6 instead)
 [✅] Visitor/arrival staleness filter: 10s → 30s (Pi queue delay was causing missed notifications)
+```
+
+SPRINT 9b — Stage 1 delay removed + per-ipcam latest files + visitor grace (2026-05-20)
+```
+[✅] Stage 1 delay 90s→5s: ipcam03 zones now non-overlapping; direction comes from
+      trigger entity (entrance_valid=arrival, exit_valid=departure) — no AP settle needed.
+      Both-sensor ambiguity fallback still uses family_arriving/departing AP state.
+
+[✅] Per-ipcam latest files: security_capture_each_camera_motion now saves
+      /config/www/ipcamXX_latest.jpg for ipcam01-05 (not NVR cameras).
+      NVR cameras recorded natively via NVR; ipcams are not on NVR, so this fills the gap.
+      Served as /local/ipcamXX_latest.jpg for dashboard use.
+
+[✅] Visitor grace period 20s: router visitor branch waits 20s then checks gate.
+      If gate opened during grace period → suppress visitor notification (family arriving).
+      Prevents "Visitor at gate" + "Arrival confirmed" false double-notification when
+      ipcam01 fires as family car approaches before gate opens.
+      Real visitors (gate stays closed for 20s+) still get immediate notification.
+
+[✅] Camera config changes documented: ipcam01 (exit disabled, line A→B),
+      ipcam03 (entrance at gate mouth, exiting at driveway bottom, intrusion Human/1s).
+      Street-down camera recommendations added to Section 1.
+      HA limitation on human vs vehicle separation documented in Section 1.
 ```
 
 SPRINT 9 — BUG-S29 camera zone overlap + per-zone files (2026-05-20)
