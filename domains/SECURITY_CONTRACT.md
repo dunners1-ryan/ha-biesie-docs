@@ -1226,9 +1226,35 @@ SPRINT 6 — 2026-05-10/11/12/14 changes (done)
 [✅] Visitor/arrival staleness filter: 10s → 30s (Pi queue delay was causing missed notifications)
 ```
 
+SPRINT 9h — dogs_inside, auto/manual arming split, dogs_out 10min (2026-05-20)
+```
+[✅] Auto/manual arming boolean split:
+      _manual booleans (inside_*_armed_manual) are dashboard toggles only — arming
+      schedule NEVER writes them. Three new auto booleans added:
+        input_boolean.inside_main_armed     — set by arming schedule (lounge/garage block)
+        input_boolean.inside_garage_armed   — set by arming schedule (lounge/garage block)
+        input_boolean.inside_bedrooms_armed — set by arming schedule (passage block)
+      binary_sensor.inside_*_armed now = auto OR manual (either can arm the zone).
+      Arming condition: nobody_home AND NOT dogs_inside (or bedtime for lounge/garage).
+
+[✅] dogs_inside boolean added (input_boolean.dogs_inside):
+      Dashboard toggle. When ON: inside cameras NOT armed by arming schedule
+      → RUNG 8 cannot fire → no critical_intrusion for cam14/cam15.
+      RUNG 8d: dogs_inside suppresses family_movement fallback (AcuSense + high_conf
+      still escalates to intruder — outdoor cameras corroborating = real threat).
+      dogs_out (outdoor pool suppression): unchanged — separate boolean, separate purpose.
+
+[✅] dogs_out auto-off timer: 20min → 10min.
+
+[✅] Classifier updated: dogs_inside variable added.
+      RUNG 8: added `and not dogs_inside`.
+      RUNG 8d: added `and not dogs_inside` to intruder escalation (AcuSense still wins).
+```
+
 SPRINT 9g — auto-arm S2 classifier booleans for empty-house inside detection (2026-05-20)
 ```
-[✅] Inside cameras now fire critical_intrusion → critical push notification when nobody home.
+[✅] Inside cameras fire critical_intrusion → critical push notification when nobody home.
+     Superseded by S9h (arming booleans renamed to auto/manual split).
       Root: arming schedule only set inside_cameras_armed + inside_cameras_passage_armed
       (snapshot capture guards). RUNG 8 in classifier reads inside_main_armed_manual,
       inside_garage_armed_manual, inside_bedrooms_armed_manual (S2 booleans) — these were
