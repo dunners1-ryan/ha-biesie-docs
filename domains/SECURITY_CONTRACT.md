@@ -1226,6 +1226,25 @@ SPRINT 6 — 2026-05-10/11/12/14 changes (done)
 [✅] Visitor/arrival staleness filter: 10s → 30s (Pi queue delay was causing missed notifications)
 ```
 
+SPRINT 9f — threat_level rule 1 false critical (2026-05-20)
+```
+[✅] BUG-S35: sensor.security_threat_level rule 1 fired critical for cam15 (passage)
+      at night when family IS home. Old: `inside and (nobody OR night)`. The OR night
+      clause made any inside camera firing at night = critical regardless of occupancy.
+      This fed binary_sensor.security_alert_active → HA dashboard showed 1 Critical Alert
+      while push notifications (classifier-based) correctly said family_movement.
+      Two pipelines out of sync: classifier said family_movement (silent), threat_level
+      said critical (dashboard alert).
+      Fix: rule 1 split into:
+        1.  inside + nobody home → critical (property unoccupied)
+        1b. inside + not nobody + night + all_family_in_bedrooms + inside_cameras_armed
+            → critical (stay-mode, mirrors RUNG 2.5)
+      Family at home + night + NOT all settled in bedrooms → rule 1 and 1b both fail
+      → falls to low/elevated → no false dashboard critical alert.
+      Stay-mode (bedtime, lounge fires) → rule 1b fires → critical, consistent with
+      RUNG 2.5 push notification.
+```
+
 SPRINT 9e — stay-mode lounge intrusion + cam14/15 health alert fix (2026-05-20)
 ```
 [✅] RUNG 2.5 added — stay-mode lounge intrusion:
