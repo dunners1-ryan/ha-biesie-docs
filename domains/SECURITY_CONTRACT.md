@@ -1226,6 +1226,32 @@ SPRINT 6 — 2026-05-10/11/12/14 changes (done)
 [✅] Visitor/arrival staleness filter: 10s → 30s (Pi queue delay was causing missed notifications)
 ```
 
+SPRINT 9c — gate-only idle rung, arrival snapshot fix, visitor grace 45s (2026-05-20)
+```
+[✅] BUG-S30: Gate-open-alone classified as perimeter_threat.
+      Root: gate=on exits idle check; if no RUNG 1-8b matches and anyhome=off,
+      classifier falls through to perimeter_threat. Happens when family presses
+      remote from street (AP not connected yet, no cameras fired yet).
+      Fix: RUNG 8c added — gate AND no perim AND no grounds AND no inside → idle.
+      Gate alone (no camera signal) is never a threat, regardless of AP state.
+
+[✅] BUG-S31: Arrival Stage 2 "Unknown" — phone connects to WiFi before ipcam03 fires.
+      Root: Stage 1 before-snapshot (arrival_who_was_home) captured at T=0 AP state.
+      ipcam03 entrance_valid has 2s delay_on; by the time it fires and Stage 1 runs,
+      the phone is already showing as connected to home AP → included in snapshot →
+      excluded from Stage 2 delta → "Unknown".
+      Fix: Stage 1 arrival now writes who_was_home_snapshot (60s rolling, taken before
+      car was in WiFi range) to arrival_who_was_home, not the instantaneous T=0 AP state.
+      Fallback to who_home_now if snapshot is empty.
+
+[✅] BUG-S32: Visitor grace period insufficient (20s) — slow gate openers (intercom,
+      slow motor, fumbling for remote) take 25-45s to open gate after ipcam01 fires.
+      Visitor notification fired before gate opened → false visitor on family arrival.
+      Fix: grace period extended 20s→45s. Suppression condition strengthened:
+      suppresses if gate currently open OR gate.last_changed < 90s OR
+      ipcam03_entrance_valid.last_changed < 120s (vehicle confirmed entered driveway).
+```
+
 SPRINT 9b — Stage 1 delay removed + per-ipcam latest files + visitor grace (2026-05-20)
 ```
 [✅] Stage 1 delay 90s→5s: ipcam03 zones now non-overlapping; direction comes from
