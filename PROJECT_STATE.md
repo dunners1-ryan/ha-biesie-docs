@@ -247,18 +247,34 @@ Devices: switch.geyser_heat_pump_switch, switch.pool_pump_switch, switch.borehol
 # Renamed 2026-04-22: _switch_1 → _switch for both geyser and pool pump (HA entity registry + all YAML + dashboards)
 ✅ DONE 2026-04-29: load_control_borehole_enabled added to binary_sensor.water_refill_allowed state condition (water_templates.yaml:299)
 
-### Three-Zone Inside Arming (added S2 — 2026-05-17)
+### Three-Zone Inside Arming (S2 2026-05-17; S9h 2026-05-20)
 ```
 binary_sensor.security_inside_garage_motion   ← raw garage zone motion (cam05 + DSC hook)
 binary_sensor.security_inside_main_motion     ← raw main-house zone motion (cam14 + DSC hook)
 binary_sensor.security_inside_bedrooms_motion ← raw bedroom passage zone motion (cam15 + DSC hook)
 binary_sensor.security_inside_house_motion    ← backward-compat union of the three (updated S2)
-binary_sensor.inside_garage_armed             ← arming gate (manual now, DSC in S6+)
-binary_sensor.inside_main_armed               ← arming gate (manual now, DSC in S6+)
-binary_sensor.inside_bedrooms_armed           ← arming gate — DESIGNED OFF in stay-mode
-input_boolean.inside_garage_armed_manual      ← dashboard control
-input_boolean.inside_main_armed_manual        ← dashboard control
-input_boolean.inside_bedrooms_armed_manual    ← dashboard control
+
+# Arming gates — binary_sensor.inside_*_armed = auto OR manual (either arms the zone)
+binary_sensor.inside_garage_armed    ← auto OR manual
+binary_sensor.inside_main_armed      ← auto OR manual
+binary_sensor.inside_bedrooms_armed  ← auto OR manual (bedrooms: nobody home only)
+
+# Auto booleans — written by security_inside_cameras_arming automation
+input_boolean.inside_garage_armed    ← auto: ON when nobody home (or bedtime for lounge/garage)
+input_boolean.inside_main_armed      ← auto: ON when nobody home (or bedtime)
+input_boolean.inside_bedrooms_armed  ← auto: ON when nobody home AND NOT dogs_inside
+
+# Manual booleans — dashboard override only, never auto-set
+input_boolean.inside_garage_armed_manual    ← manual override / DSC stub (S6+)
+input_boolean.inside_main_armed_manual      ← manual override / DSC stub
+input_boolean.inside_bedrooms_armed_manual  ← manual override / DSC stub
+```
+
+### Dogs / Occupancy Suppression Booleans (S9h — 2026-05-20)
+```
+input_boolean.security_dogs_out  ← suppress rear/pool alarm during garden walk (10min auto-off)
+input_boolean.dogs_inside         ← suppress inside camera alerts when dogs home alone
+                                    (manual — set before leaving, clear on return)
 ```
 
 ### Security Classifier Presence Signals (S2 — 2026-05-17; S8 logic updated 2026-05-19)
