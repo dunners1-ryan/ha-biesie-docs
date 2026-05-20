@@ -1226,6 +1226,26 @@ SPRINT 6 — 2026-05-10/11/12/14 changes (done)
 [✅] Visitor/arrival staleness filter: 10s → 30s (Pi queue delay was causing missed notifications)
 ```
 
+SPRINT 9g — auto-arm S2 classifier booleans for empty-house inside detection (2026-05-20)
+```
+[✅] Inside cameras now fire critical_intrusion → critical push notification when nobody home.
+      Root: arming schedule only set inside_cameras_armed + inside_cameras_passage_armed
+      (snapshot capture guards). RUNG 8 in classifier reads inside_main_armed_manual,
+      inside_garage_armed_manual, inside_bedrooms_armed_manual (S2 booleans) — these were
+      NEVER auto-set, so RUNG 8 never fired for empty-house inside motion.
+      Fix: arming schedule now sets ALL six booleans in sync:
+        Lounge block (nobody home OR bedtime): arms inside_cameras_armed +
+          inside_main_armed_manual + inside_garage_armed_manual
+        Passage block (nobody home ONLY): arms inside_cameras_passage_armed +
+          inside_bedrooms_armed_manual
+      Result: nobody home → all S2 booleans ON → cam14/cam15 fire → RUNG 8 →
+      critical_intrusion → router → critical push + Telegram + HA dashboard alert.
+      Family returns → arming schedule turns all six OFF → cam14/cam15 → RUNG 3 →
+      family_movement (silent).
+      Dog caveat: dogs left inside with nobody home will trigger cam14/cam15 →
+      critical_intrusion. Use guest_mode to suppress when dogs are home alone.
+```
+
 SPRINT 9f — threat_level rule 1 false critical (2026-05-20)
 ```
 [✅] BUG-S35: sensor.security_threat_level rule 1 fired critical for cam15 (passage)
