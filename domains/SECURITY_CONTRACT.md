@@ -924,6 +924,22 @@ See Sprint 7 in Section 9.
 
 ---
 
+### BUG-S36 — Departure misclassified as arrival (entrance_valid fires for departing car)
+**Priority: HIGH | Status: ✅ FIXED 2026-05-21 (S10)**
+
+**Symptom:** At 06:55 on 2026-05-21, family departed but Telegram showed "Arrival — vehicle entering" and "Arrival confirmed — Unknown home at 06:59." Gate event detected correctly, but Stage 1 classified as arrival and Stage 2 confirmed Unknown (nobody newly home).
+
+**Root cause:** `ipcam03_driveway_entrance_valid` fires when a departing car backs through the gate-mouth region (entrance detection zone positioned at top of frame, gate side). Old logic: entrance_valid → always arrival. A departing car reversing through the gate triggers entrance_valid exactly as an arriving car does.
+
+**Fix:** Stage 1 `cam_dir` now inlines ipcam01 (street-up) recency check:
+- `entrance_valid` + ipcam01 fired within 120s → arrival (car came from street)
+- `entrance_valid` + ipcam01 NOT recent → departure (car was already inside, backing out)
+- `exit_valid` → always departure
+
+Also added mutual 120s suppression condition to Stage 1: the second sensor of a traversal (arrival: exit fires after entrance; departure: entrance fires after exit) is blocked, preventing double Stage 1 notifications per vehicle movement.
+
+---
+
 ### BUG-S29 — ipcam03 regionentrance and regionexiting zones overlap (direction confusion)
 **Priority: HIGH | Status: ✅ HA workaround applied 2026-05-20 (S9) | Camera fix: OPEN**
 
@@ -1224,6 +1240,58 @@ SPRINT 6 — 2026-05-10/11/12/14 changes (done)
 [✅] Threat rule 3: perimeter + confirmed_human + evening now requires nobody_home for CRITICAL
       — family arriving home no longer triggers CRITICAL (falls to WARNING via rule 6 instead)
 [✅] Visitor/arrival staleness filter: 10s → 30s (Pi queue delay was causing missed notifications)
+```
+
+SPRINT 10 — Direction fix + staff muting + perimeter always active (2026-05-21)
+```
+[✅] BUG-S36: Departure misclassified as arrival (confirmed by Telegram 06:55 2026-05-21).
+      Root: ipcam03_driveway_entrance_valid fires when a departing car backs through the
+      gate-mouth zone (entrance detection strip at top of frame). Current logic treated
+      ANY entrance_valid as arrival — wrong when car is already on property departing.
+      Fix: entrance_valid = arrival ONLY if ipcam01 (street-up) fired within 120s.
+      If ipcam01 NOT recent, the car was already inside the property = departure backing
+      through the gate. exit_valid still always = departure. cam_dir variable in Stage 1
+      now inlines ipcam01 recency check; ap_dir fallback retained for unknown-trigger edge cases.
+
+[✅] Mutual suppression added to Stage 1 condition block:
+      If entrance_valid triggers BUT exit_valid last_changed < 120s → suppress.
+      If exit_valid triggers BUT entrance_valid last_changed < 120s → suppress.
+      Prevents the arriving vehicle crossing the exit zone (on way to garage) from
+      generating a spurious second departure Stage 1 event ~60s after the arrival.
+      120s window comfortably covers full driveway traversal in either direction.
+
+[✅] direction variable simplified: cam_dir if cam_dir != 'unknown' else ap_dir.
+      Previously: cam_dir if NOT both_active else ap_dir.
+      With ipcam01-based cam_dir, both_active ambiguity handled upstream; cam_dir is
+      always arrival or departure (never unknown) when triggered by entrance/exit sensors.
+
+[✅] RUNG 4 (service_person): removed 'perim' from zone check.
+      Was: (perim or grounds or inside_any) and staff → caught ALL motion including street.
+      Fix: (grounds or inside_any) and staff → perimeter falls through to RUNG 5/6.
+      Effect: ipcam01/02 at street fires → visitor (RUNG 5) or perimeter_threat (RUNG 6),
+      even when maid/gardener is on site. Gate/street is always active perimeter.
+
+[✅] RUNG 5 (visitor): removed 'and not staff' condition.
+      Was: perim_front and not gate and (allhome or not arriving) and not staff.
+      Fix: perim_front and not gate and (allhome or not arriving).
+      Effect: a genuine visitor at the front gate triggers visitor alert even when
+      staff is on site. Previously fell through to family_movement (silent). Wrong.
+
+[✅] Router service_person branch: always silent logbook (no push notification).
+      Was: "👷 Staff on site" push notification with 10-min cooldown.
+      Fix: logbook.log only. No push notification ever for service_person.
+      Rationale: staff movement in grounds/inside is expected, not actionable.
+      Perimeter/visitor/intruder paths still route through normal alert channels.
+
+[✅] Stage 2 departure: suppress "Unknown departed" notification when staff on site.
+      Was: "Unknown left at HH:MM" push notification even when maid was the one leaving.
+      Fix: if who == 'Unknown' AND binary_sensor.staff_on_site == 'on' → logbook only.
+      Real family departures will have named people; Unknown + staff = maid leaving.
+
+[✅] Zone display format in reason attribute: human-readable names replace compact code.
+      Was: zones: -G--- (P=perim, G=grounds, g=garage, m=main, b=beds, - = inactive).
+      Fix: zones: Grounds (only active zones shown, joined with '+' e.g. 'Grounds+Main').
+      'none' shown when no zone active.
 ```
 
 SPRINT 9h — dogs_inside, auto/manual arming split, dogs_out 10min (2026-05-20)
@@ -1636,7 +1704,11 @@ Also gated by: `security_dogs_out` OFF + `guest_mode` OFF + 5-min cooldown on `l
 
 ---
 
-*Audit completed: 2026-04-13*  
+*Audit completed: 2026-04-13*
+*Updated 2026-05-21 (S10): BUG-S36 departure/arrival direction fix (ipcam01 recency in Stage 1 cam_dir);*
+*  mutual 120s suppression on Stage 1; RUNG 4 perim removed (perimeter always active); RUNG 5 not-staff*
+*  removed; service_person router always silent; departure Stage 2 Unknown suppressed when staff on site;*
+*  zone display format human-readable.*  
 *Audited by: Claude Code deep audit*  
 *Updated 2026-04-15: Sprint 1 bugs resolved (D1/D2/D3/D4/D5 — Issues 4/5/6/12 fixed)*  
 *Updated 2026-04-15: Classification audit — warning threshold 75%, 5-min cooldown,*
