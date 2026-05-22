@@ -1242,6 +1242,56 @@ SPRINT 6 — 2026-05-10/11/12/14 changes (done)
 [✅] Visitor/arrival staleness filter: 10s → 30s (Pi queue delay was causing missed notifications)
 ```
 
+SPRINT 11 — False intruder fixes + visitor immediate + outdoor corroboration (2026-05-22)
+```
+[✅] anyone_connected_home: added delay_off: 2min (presence_core.yaml).
+      Was: dropped to OFF the instant last AP disconnected → departing car in grounds
+      triggered intruder before the gate even closed. 2-min grace covers full departure
+      sequence, phone-sleep AP drop, and inter-AP roaming handoff disconnections.
+
+[✅] RUNG 7 (intruder): added 'and not departing'.
+      Departing car briefly visible in grounds after gate closes + AP disconnect was
+      hitting RUNG 7 → CRITICAL intruder. family_departing=ON suppresses this window.
+
+[✅] RUNG 8d (inside-only fallback): added 'and not departing'.
+      Same departure window can briefly see inside sensors. Suppressed.
+
+[✅] security_external_motion_recent: new binary_sensor in security_zones.yaml.
+      delay_off: 5min. ON whenever any perimeter or grounds camera is active.
+      Represents "outdoor camera fired in the last 5 minutes" — path corroboration
+      for inside camera alerts. A genuine intruder MUST cross an outdoor zone first.
+
+[✅] RUNG 2.5 (stay-mode lounge intrusion): added 'and ext_recent'.
+      cam14 (NVR, no AI) fires constantly at night from headlights through kitchen window.
+      Now requires outdoor camera fired within 5min before lounge fires = credible path.
+      Without outdoor context = headlight/shadow = falls to RUNG 3 (family_movement).
+
+[✅] RUNG 8 (critical_intrusion nobody home): added 'and (ext_recent or ip_cam or high_conf)'.
+      cam14/cam15 NVR firing alone when nobody home = shadow/cat → family_movement (silent).
+      ext_recent: outdoor camera fired in last 5min (intruder came from somewhere).
+      ip_cam: AcuSense camera = AI-confirmed person/vehicle (credible even without outdoor).
+      high_conf: multi-zone corroboration. Falls to RUNG 8d (silent) if none of these met.
+      Kitchen-window blind spot covered: genuine intruder via back kitchen door would still
+      trigger cam09 (rear bedroom area) or cam07 (side entry) → ext_recent ON.
+
+[✅] zone_label: 'grounds' split into 'grounds front' / 'grounds rear' based on trigger camera.
+      Rear cameras (ipcam04, cam09, cam12) → 'grounds rear' → router maps to
+      security_image_grounds_rear (was always mapping to grounds_front = carport image).
+
+[✅] Router zone_img map: added 'grounds rear' → security_image_grounds_rear entry.
+      'grounds front' added as explicit key (was only 'grounds' before).
+
+[✅] Router reason + zone: changed from live state_attr() to trigger.to_state.attributes.
+      With mode:queued, router fires seconds after classification; by then all debounce
+      sensors clear → live reason showed 'zones: none, conf: none'. Snapshot at trigger
+      time preserves the values at the moment of classification.
+
+[✅] Visitor branch: removed 45s grace period. Notification fires immediately.
+      Cooldown reduced 60s → 30s (handles ipcam01+ipcam02 dual-fire for same vehicle).
+      User priority: see gate approach immediately, then arrival Stage 1 follows if family.
+      Two notifications for family arrival (visitor + arrival) is intentional and informative.
+```
+
 SPRINT 10 — Direction fix + staff muting + perimeter always active (2026-05-21)
 ```
 [✅] BUG-S36: Departure misclassified as arrival (confirmed by Telegram 06:55 2026-05-21).
