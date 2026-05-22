@@ -203,7 +203,7 @@ This gives partial separation: `fielddetection` = person-specific signal; `regio
 ¹ `motiondetection` entity exists but "Notify Surveillance Center" is unchecked in camera UI — it will not fire. All cameras now use Smart Events (fielddetection + linedetection + regionentrance) as primary motion signal.
 
 **Entrance/exit debounce sensors (wired in cameras_processing.yaml 2026-05-08):**
-- `binary_sensor.ipcam03_driveway_entrance_valid` — property entry confirmed (gate open, vehicle/person in driveway)
+- `binary_sensor.ipcam03_driveway_entrance_valid` — vehicle/person confirmed in driveway intrusion zone (fielddetection). **S11c 2026-05-22:** changed from regionentrance → fielddetection. regionentrance disabled in camera UI. No longer a Stage 1 trigger (replaced by main_gate_sensor). Still feeds confirmed_human in threat_level sensor.
 - `binary_sensor.ipcam03_driveway_exit_valid` — departure from property
 - `binary_sensor.ipcam01_street_driveway_up_entrance_valid` — person/vehicle approaching gate from street (primary)
 - `binary_sensor.ipcam02_street_driveway_down_entrance_valid` — secondary street approach (may be inactive until ipcam02 initialises)
@@ -548,11 +548,16 @@ SOLE PATH after S3 (2026-05-17) + S7 (2026-05-18) + S8 (2026-05-19):
         'bedroom passage' → input_text.security_image_inside_bedrooms
         fallback          → input_text.security_last_motion_image (global)
 
-Two-stage arrival/departure:
-  security_arrival_stage1_vehicle → fires on ipcam03_driveway_entrance_valid
-  security_arrival_stage2_confirm → 3.5min delay, AP confirmation
-  security_departure_stage1_vehicle → fires on ipcam03_driveway_exit_valid
-  security_departure_stage2_confirm → 3.5min delay, AP confirmation
+Two-stage arrival/departure (S11b — updated 2026-05-22):
+  security_gate_vehicle_stage1 (arrival) → fires on binary_sensor.main_gate_sensor ON
+    condition: ipcam01 fired within 120s (vehicle from street = arrival)
+  security_gate_vehicle_stage1 (departure) → fires on ipcam03_driveway_exit_valid
+    condition: gate opened without recent ipcam01 (car reversing = departure)
+  security_arrival_stage2_confirm  → 3.5min delay, AP delta confirms who arrived
+  security_departure_stage2_confirm → 3.5min delay, AP delta confirms who left
+
+  Note: ipcam03 Region Entrance disabled (2026-05-22). entrance_valid trigger removed.
+  ipcam03 line crossing set to driveway→gate direction (departure only).
 
 Deleted in S3: security_grounds_motion, security_rear_grounds_motion,
 security_house_motion, security_visitor, security_arrival_detected.
@@ -1240,6 +1245,21 @@ SPRINT 6 — 2026-05-10/11/12/14 changes (done)
 [✅] Threat rule 3: perimeter + confirmed_human + evening now requires nobody_home for CRITICAL
       — family arriving home no longer triggers CRITICAL (falls to WARNING via rule 6 instead)
 [✅] Visitor/arrival staleness filter: 10s → 30s (Pi queue delay was causing missed notifications)
+```
+
+SPRINT 11c — entrance_valid source changed to fielddetection (2026-05-22)
+```
+[✅] ipcam03_driveway_entrance_valid: regionentrance → fielddetection (cameras_processing.yaml).
+      regionentrance disabled in ipcam03 camera UI — entity was always OFF.
+      fielddetection (Intrusion zone) restores the "vehicle/person confirmed in driveway"
+      signal for confirmed_human in security_threat_level sensor.
+      entrance_valid is no longer a Stage 1 trigger (main_gate_sensor replaced it in S11b).
+      No functional change to arrival/departure routing — only confirmed_human restored.
+
+[ℹ️] ipcam04 Target Validity: confirmed already on High (no change needed).
+[ℹ️] cam05 (inside garage): NVR motion sensitivity raised 20→40 (NVR web UI).
+      Was triggering NVR recording but not sending ISAPI events to HA. Sensitivity 20
+      was below the ISAPI reporting threshold for pixel-diff in a dark garage interior.
 ```
 
 SPRINT 11b — Stage 1 rewired for new ipcam03 camera config (2026-05-22)
