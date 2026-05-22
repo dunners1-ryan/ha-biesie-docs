@@ -1242,6 +1242,41 @@ SPRINT 6 — 2026-05-10/11/12/14 changes (done)
 [✅] Visitor/arrival staleness filter: 10s → 30s (Pi queue delay was causing missed notifications)
 ```
 
+SPRINT 11b — Stage 1 rewired for new ipcam03 camera config (2026-05-22)
+```
+Camera changes applied by user (ipcam03 driveway, 2026-05-22):
+  - Region Entrance Detection: DISABLED (was firing for departures backing through gate-mouth)
+  - Line Crossing: A→B = driveway→gate direction only (departure direction)
+  - Region Exiting: unchanged (lower driveway zone, departure signal)
+
+Effect on HA: ipcam03_driveway_entrance_valid always OFF (regionentrance disabled).
+Stage 1 entrance_valid trigger is now inert.
+
+[✅] Stage 1 trigger: replaced ipcam03_driveway_entrance_valid with main_gate_sensor
+      (from: "off", to: "on"). Gate opens after ipcam01 detects street approach = arrival.
+
+[✅] Stage 1 condition: replaced S10 mutual 120s entrance/exit suppression with:
+      gate trigger: proceeds only if ipcam01_recent (< 120s). If ipcam01 not recent,
+        gate open = departure initiation → skip, exit_valid will handle it.
+      exit_valid trigger: suppressed if gate_age < 120s AND ipcam01_recent.
+        This means arrival car crossing exit zone on way to garage → blocked.
+        Departure (gate opened without recent ipcam01) passes through.
+
+[✅] Stage 1 cam_dir: simplified.
+      main_gate_sensor trigger → arrival (condition already guaranteed ipcam01_recent).
+      exit_valid trigger → departure (condition already suppressed arrival traversals).
+      ap_dir fallback retained for unknown-trigger edge cases.
+      Removed both_active check (no longer relevant — two distinct signals for arrival/departure).
+
+New arrival flow:
+  ipcam01 fires → visitor notification (immediate, S11) → family opens gate →
+  gate_sensor on → Stage 1 arrival → Stage 2 confirms who (3.5min AP delta).
+
+New departure flow:
+  Car reverses → ipcam03 exit zone fires → exit_valid → Stage 1 departure →
+  Stage 2 confirms who.
+```
+
 SPRINT 11 — False intruder fixes + visitor immediate + outdoor corroboration (2026-05-22)
 ```
 [✅] anyone_connected_home: added delay_off: 2min (presence_core.yaml).
