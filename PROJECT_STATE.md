@@ -283,7 +283,9 @@ binary_sensor.security_external_motion_recent  ← ON for 5min after any perimet
                                                    camera fires. Used by RUNG 2.5 + RUNG 8
                                                    to require outdoor path corroboration
                                                    before escalating inside NVR cameras.
-                                                   Defined in security_zones.yaml.
+                                                   Defined in security_logic.yaml (moved
+                                                   from security_zones.yaml — delay_off
+                                                   not creating entity in zones file).
 ```
 
 ### Security Classifier Presence Signals (S2 — 2026-05-17; S8 logic updated 2026-05-19)
@@ -622,6 +624,7 @@ Rule: binary sensors / input_booleans → `from: "off"`. Template/state sensors 
 
 ---
 
+*2026-05-22 session (security_external_motion_recent moved to security_logic.yaml): Entity was defined in security_zones.yaml but did not create after reload (entity not found). Moved to security_logic.yaml alongside binary_sensor.security_intruder_active which uses the same delay_off pattern and is confirmed working. No functional change — same entity_id, same logic, same delay_off: 5min.*
 *2026-05-22 session (security S11c): ipcam03_driveway_entrance_valid: regionentrance → fielddetection. regionentrance disabled in camera UI after user removed Region Entrance zone from ipcam03. fielddetection restores confirmed_human signal for threat_level sensor. entrance_valid no longer used as Stage 1 trigger. NVR cam05 sensitivity raised 20→40 (NVR web UI, not code). ipcam04 Target Validity confirmed already High. File: cameras_processing.yaml.*
 *2026-05-22 session (security S11b): Stage 1 rewired for new ipcam03 camera config. User disabled ipcam03 Region Entrance, set line crossing to driveway→gate (departure) direction only. Stage 1 arrival trigger changed from ipcam03_driveway_entrance_valid → binary_sensor.main_gate_sensor (from:off, to:on). Condition: gate trigger proceeds only if ipcam01_recent (<120s) = vehicle from street. exit_valid trigger: suppressed if gate opened <120s ago AND ipcam01_recent (arriving car in exit zone). cam_dir simplified: gate=arrival, exit=departure. File: security_automations.yaml.*
 *2026-05-22 session (security S11 — false intruder fixes, outdoor corroboration, visitor immediate): anyone_connected_home: delay_off 2min added — was instantly OFF on AP disconnect → departing car triggered CRITICAL intruder. RUNG 7 + 8d: `not departing` guard added. New binary_sensor.security_external_motion_recent (security_zones.yaml, delay_off 5min) — stays ON for 5min after any outdoor camera fires. RUNG 2.5 (stay-mode lounge at night): added ext_recent requirement — NVR cam14 headlights/shadows no longer escalate without outdoor corroboration. RUNG 8 (nobody home critical): added (ext_recent OR ip_cam OR high_conf) — NVR cam14/15 alone without outdoor context falls silently to RUNG 8d (family_movement). zone_label: grounds split into 'grounds front'/'grounds rear' based on trigger camera (was always 'grounds' → router always used carport image for rear cameras). Router zone_img map: 'grounds rear' → security_image_grounds_rear added. Router reason/zone: changed from live state_attr to trigger.to_state.attributes (snapshot at trigger time, not stale re-evaluation). Visitor branch: 45s grace removed → immediate notification; cooldown 60s→30s. ipcam02 left unchanged (admin access pending, BUG-S28 still open from HA perspective). Files changed: presence_core.yaml, security_zones.yaml, security_logic.yaml, security_automations.yaml. New locked entity: binary_sensor.security_external_motion_recent.*
