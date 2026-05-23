@@ -930,7 +930,7 @@ See Sprint 7 in Section 9.
 ---
 
 ### BUG-S39 — RUNG 2.5 false critical at 5am (no time gate, zero cooldown)
-**Priority: CRITICAL | Status: OPEN — diagnosed 2026-05-23 (S12)**
+**Priority: CRITICAL | Status: ✅ FIXED 2026-05-23 (S13)**
 
 **Symptom:** At 05:03am on 2026-05-23, family got up early (5am). Received 1 blank CRITICAL INTRUDER notification followed by 5 more all showing the same stale cam14_lounge image (05:03:58 timestamp). Notification details: `home: all | zones: Main+Beds | gate: closed | arriving: no | departing: no | staff: no | conf: none | cam: cam14_lounge`.
 
@@ -948,7 +948,7 @@ See Sprint 7 in Section 9.
 ---
 
 ### BUG-S37 — ipcam03_driveway_exit_valid missing linedetection (departures missed)
-**Priority: HIGH | Status: OPEN — diagnosed 2026-05-23 (S12)**
+**Priority: HIGH | Status: ✅ FIXED 2026-05-23 (S13)**
 
 **Symptom:** Multiple missed departure detections. Gate opens for departure but Stage 1 never fires. AP-based departure confirmation also not triggered because Stage 1 (ipcam03_driveway_exit_valid) never goes ON.
 
@@ -966,7 +966,7 @@ state: "{{ is_state('binary_sensor.ipcam03_driveway_regionexiting','on') or is_s
 ---
 
 ### BUG-S43 — security_lighting_required references non-existent entity (boundary lights never trigger on weather)
-**Priority: HIGH | Status: OPEN — diagnosed 2026-05-23 (S12)**
+**Priority: HIGH | Status: ✅ FIXED 2026-05-23 (S13)**
 
 **Symptom:** Security boundary lights did not turn on during poor-visibility evening (2026-05-23). Primary trigger (night_early: sun elevation < 2°) should have fired regardless, but the bug prevents the weather/low-light fallback path from ever working.
 
@@ -985,7 +985,7 @@ Entity `binary_sensor.security_visibility_low` does NOT exist. The correct entit
 ---
 
 ### BUG-S40 — Staff/gardener visitor spam (30s cooldown insufficient for morning garden work)
-**Priority: MEDIUM | Status: OPEN — diagnosed 2026-05-23 (S12)**
+**Priority: MEDIUM | Status: ✅ FIXED 2026-05-23 (S13)**
 
 **Symptom:** Saturday morning gardener worked outside front gate for ~2hrs (08:00–10:00). Repeated visitor notifications every ~30s. Screenshot confirmed: `staff: yes | conf: medium | cam: ipcam01_street_driveway_up` with gardener and plants visible at gate.
 
@@ -996,7 +996,7 @@ Entity `binary_sensor.security_visibility_low` does NOT exist. The correct entit
 ---
 
 ### BUG-S41 — Stage 2 arrival notification shows carport NVR image (cam04 overwrites driveway slot)
-**Priority: MEDIUM | Status: OPEN — diagnosed 2026-05-23 (S12)**
+**Priority: MEDIUM | Status: ✅ FIXED 2026-05-23 (S13)**
 
 **Symptom:** Stage 2 arrival confirmations consistently show a dark NVR carport image (cam04) instead of the driveway approach image (ipcam03). Screenshot confirmed: Arrival Stage 1 and "Arrival confirmed Ryan" both showed cam04 carport frame.
 
@@ -1012,7 +1012,7 @@ Entity `binary_sensor.security_visibility_low` does NOT exist. The correct entit
 ---
 
 ### BUG-S38 — Stage 1 arrival ipcam01 120s window too narrow (gate opens missed)
-**Priority: MEDIUM | Status: OPEN — diagnosed 2026-05-23 (S12)**
+**Priority: MEDIUM | Status: ✅ FIXED 2026-05-23 (S13)**
 
 **Symptom:** Arrival at ~18:59 on 2026-05-23 — screenshots show two gate opens. First gate open missed (Stage 1 not triggered); only second gate open detected. Earlier in the day, departure at ~10:20 also missed.
 
@@ -1023,7 +1023,7 @@ Entity `binary_sensor.security_visibility_low` does NOT exist. The correct entit
 ---
 
 ### BUG-S42 — Delivery person opening gate = false "Arrival — vehicle entering"
-**Priority: LOW | Status: OPEN — structural limitation, partial fix possible**
+**Priority: LOW | Status: ✅ PARTIAL FIX 2026-05-23 (S13) — softer message; structural limitation remains**
 
 **Symptom:** Delivery person rings at gate → user remotely opens gate → delivery walks through → Stage 1 fires "Arrival — vehicle entering" and Stage 2 "Arrival confirmed — Unknown home".
 
