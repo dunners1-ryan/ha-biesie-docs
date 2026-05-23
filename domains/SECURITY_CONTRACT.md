@@ -929,6 +929,114 @@ See Sprint 7 in Section 9.
 
 ---
 
+### BUG-S39 — RUNG 2.5 false critical at 5am (no time gate, zero cooldown)
+**Priority: CRITICAL | Status: OPEN — diagnosed 2026-05-23 (S12)**
+
+**Symptom:** At 05:03am on 2026-05-23, family got up early (5am). Received 1 blank CRITICAL INTRUDER notification followed by 5 more all showing the same stale cam14_lounge image (05:03:58 timestamp). Notification details: `home: all | zones: Main+Beds | gate: closed | arriving: no | departing: no | staff: no | conf: none | cam: cam14_lounge`.
+
+**Root causes (three combined):**
+1. **No time gate on RUNG 2.5:** Condition fires at 5am because `is_late_night = (h >= 23 or h < 6)` is still true at 05:03. Family got up but RUNG 2.5 has no floor — it fires right down to 05:59:59.
+2. **AP location delay:** `all_family_in_bedrooms` uses AP association (15s RAW + up to 5min confidence delay). Family walking to lounge triggers cam14 before APs roam → bedrooms still true at moment of trigger.
+3. **Zero cooldown on critical_intrusion in router:** `security_event_router` has explicit bypass for critical_intrusion (no 300s cooldown). ext_recent stays ON for 5min. cam14 fires repeatedly → 5 queued router dispatches all fire with no gate.
+4. **Blank first image:** `security_capture_best_snapshot` has 2s delay. Router fires immediately after classifier changes → first image lookup hits empty/stale slot before snapshot writes.
+
+**Fix plan:**
+- Add `and (now().hour >= 23 or now().hour < 5)` to RUNG 2.5 (hard 5am floor) in security_logic.yaml
+- Add 90s cooldown to critical_intrusion branch in security_event_router (separate input_datetime.last_critical_event)
+- Add 3s delay before image slot lookup in router critical_intrusion branch
+
+---
+
+### BUG-S37 — ipcam03_driveway_exit_valid missing linedetection (departures missed)
+**Priority: HIGH | Status: OPEN — diagnosed 2026-05-23 (S12)**
+
+**Symptom:** Multiple missed departure detections. Gate opens for departure but Stage 1 never fires. AP-based departure confirmation also not triggered because Stage 1 (ipcam03_driveway_exit_valid) never goes ON.
+
+**Root cause:** In S11b, ipcam03 Line Crossing was configured in the camera to driveway→gate direction (departure direction only). The `ipcam03_driveway_exit_valid` binary sensor in cameras_processing.yaml (line 156) only watches `binary_sensor.ipcam03_driveway_regionexiting`:
+```yaml
+state: "{{ is_state('binary_sensor.ipcam03_driveway_regionexiting','on') }}"
+```
+The `ipcam03_driveway_linedetection` entity fires for the departure direction line crossing but is NOT included in exit_valid. Result: departure line crossing signal is completely ignored by Stage 1.
+
+**Fix plan:** cameras_processing.yaml — change exit_valid state to:
+```yaml
+state: "{{ is_state('binary_sensor.ipcam03_driveway_regionexiting','on') or is_state('binary_sensor.ipcam03_driveway_linedetection','on') }}"
+```
+
+---
+
+### BUG-S43 — security_lighting_required references non-existent entity (boundary lights never trigger on weather)
+**Priority: HIGH | Status: OPEN — diagnosed 2026-05-23 (S12)**
+
+**Symptom:** Security boundary lights did not turn on during poor-visibility evening (2026-05-23). Primary trigger (night_early: sun elevation < 2°) should have fired regardless, but the bug prevents the weather/low-light fallback path from ever working.
+
+**Root cause:** In security_core.yaml (line 78), `security_lighting_required` uses:
+```yaml
+{% set low = is_state('binary_sensor.security_visibility_low','on') %}
+```
+Entity `binary_sensor.security_visibility_low` does NOT exist. The correct entity (defined 5 lines above in the same file) is `binary_sensor.security_weather_low_light`. The template always evaluates `low = false` → weather condition never contributes to lighting_required.
+
+**Secondary issue:** `boundary_security_on` automation (lighting_boundary.yaml) has no `continue_on_error` on switch.turn_on calls and mode:single — if Sonoff integration is slow to respond, the action fails silently with no retry and no alert.
+
+**Fix plan:**
+- security_core.yaml: change `security_visibility_low` → `security_weather_low_light`
+- lighting_boundary.yaml: add `continue_on_error: true` to switch.turn_on sequence; add retry automation after 2min + warning notification if lights still off
+
+---
+
+### BUG-S40 — Staff/gardener visitor spam (30s cooldown insufficient for morning garden work)
+**Priority: MEDIUM | Status: OPEN — diagnosed 2026-05-23 (S12)**
+
+**Symptom:** Saturday morning gardener worked outside front gate for ~2hrs (08:00–10:00). Repeated visitor notifications every ~30s. Screenshot confirmed: `staff: yes | conf: medium | cam: ipcam01_street_driveway_up` with gardener and plants visible at gate.
+
+**Root cause:** S10 correctly removed `not staff` from RUNG 5 (visitor must fire even when maid on site, so maid-at-gate is visible). But Saturday gardener does sustained work outside front gate — continuous ipcam01 motion triggers → visitor fires → 30s cooldown expires → fires again. Staff flag is shown in notification but cooldown is flat 30s regardless of staff_on_site state.
+
+**Fix plan:** security_automations.yaml visitor branch: extend cooldown to 1800s (30min) when `binary_sensor.staff_on_site` is ON at time of visitor fire (use separate input_datetime or check elapsed since last_visitor_event).
+
+---
+
+### BUG-S41 — Stage 2 arrival notification shows carport NVR image (cam04 overwrites driveway slot)
+**Priority: MEDIUM | Status: OPEN — diagnosed 2026-05-23 (S12)**
+
+**Symptom:** Stage 2 arrival confirmations consistently show a dark NVR carport image (cam04) instead of the driveway approach image (ipcam03). Screenshot confirmed: Arrival Stage 1 and "Arrival confirmed Ryan" both showed cam04 carport frame.
+
+**Root cause (two factors):**
+1. **Shared slot overwritten:** Stage 1 fires on gate open → car drives up driveway → cam04 (carport) fires as car enters → writes `input_text.security_image_grounds_front`. Stage 2 fires 3.5 minutes later and reads this slot — which now holds the carport frame, not the driveway approach.
+2. **cam04 ranks above ipcam03:** `security_trigger_camera` priority list: cam14 > cam15 > **cam04** > **ipcam03** > cam07 > ... cam04 (NVR, no AI, dark at night) outranks ipcam03 (IP, AcuSense, daylight quality), so the trigger camera recorded for the event is also cam04.
+
+**Fix plan:**
+- security_automations.yaml Stage 1: lock current `security_image_grounds_front` value into new `input_text.security_image_arrival_locked` at Stage 1 fire time
+- Stage 2: read `security_image_arrival_locked` instead of live `security_image_grounds_front`
+- security_logic.yaml trigger camera priority: promote ipcam03 above cam04
+
+---
+
+### BUG-S38 — Stage 1 arrival ipcam01 120s window too narrow (gate opens missed)
+**Priority: MEDIUM | Status: OPEN — diagnosed 2026-05-23 (S12)**
+
+**Symptom:** Arrival at ~18:59 on 2026-05-23 — screenshots show two gate opens. First gate open missed (Stage 1 not triggered); only second gate open detected. Earlier in the day, departure at ~10:20 also missed.
+
+**Root cause:** Stage 1 condition requires `ipcam01_recent` (ipcam01 fired within 120s of gate open) to confirm vehicle came from street. If ipcam01 fires but the gate is delayed in opening (slow driver, fumbling with remote), or ipcam01 fires briefly and resets, the 120s window is missed and Stage 1 treats the gate open as not vehicle-from-street → no arrival.
+
+**Fix plan:** security_automations.yaml Stage 1: extend ipcam01_recent window from 120s to 180s. Also add AP-based fallback path: if gate opens + nobody_home (departure context) or family_arriving (AP-detected arrival is coming), fire Stage 1 even without ipcam01 confirmation.
+
+---
+
+### BUG-S42 — Delivery person opening gate = false "Arrival — vehicle entering"
+**Priority: LOW | Status: OPEN — structural limitation, partial fix possible**
+
+**Symptom:** Delivery person rings at gate → user remotely opens gate → delivery walks through → Stage 1 fires "Arrival — vehicle entering" and Stage 2 "Arrival confirmed — Unknown home".
+
+**Root cause:** Stage 1 detects gate open + ipcam01_recent → classifies as vehicle from street → arrival. A pedestrian (delivery, visitor on foot) also triggers ipcam01 and opens the gate. There is no pedestrian vs. vehicle distinction available from NVR/IP cameras at this point in the pipeline.
+
+**Structural limitation:** HA cannot distinguish person-entering from car-entering using the current camera layout. True fix requires vehicle-only detection at street camera (Frigate with vehicle class, or dedicated vehicle detector).
+
+**Partial fix plan:**
+- Soften Stage 1 message: change "Arrival — vehicle entering" to "Gate event — someone entering" (less alarm-y for deliveries)
+- Stage 2: if nobody newly arrived (delta = nobody), change "Unknown home" → "Visitor/delivery — nobody added to home" (better context)
+
+---
+
 ### BUG-S36 — Departure misclassified as arrival (entrance_valid fires for departing car)
 **Priority: HIGH | Status: ✅ FIXED 2026-05-21 (S10)**
 
