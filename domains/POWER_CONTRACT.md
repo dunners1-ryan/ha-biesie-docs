@@ -735,19 +735,37 @@ sensor.pool_target_run_hours_today        h           season-aware target (summe
 sensor.pool_pump_control_status           string      human-readable reason why pump is/isn't running
 ```
 
+**Grid-offline and last-sun-slot helpers (added 2026-05-25):**
+```
+input_number.grid_offline_soc_min_pool       %   min SOC to run pool during grid outage (default: 60)
+input_number.grid_offline_soc_min_borehole   %   min SOC for borehole during grid outage (default: 50)
+input_number.grid_offline_soc_min_geyser     %   min SOC for geyser non-critical window (default: 45)
+input_number.geyser_grid_offline_critical_soc % min SOC for geyser even in critical window (default: 35)
+input_number.last_sun_soc_target_summer      %   overnight charge target summer (default: 80)
+input_number.last_sun_soc_target_winter      %   overnight charge target winter (default: 90)
+input_number.last_sun_slot_start_hour        h   hour when last-sun-slot starts (default: 14.0)
+input_number.geyser_target_hours_summer      h   geyser daily solar target summer (default: 2.0)
+input_number.geyser_target_hours_winter      h   geyser daily solar target winter (default: 3.5)
+sensor.last_sun_soc_target                   %   season-aware (80% summer / 90% other)
+sensor.geyser_target_run_hours_today         h   season-aware geyser target
+```
+
 **Control logic summary:**
 - Active window: 08:00–16:00. Gate: `input_boolean.load_control_pool_enabled = on`.
-- **Turn off (16:00 hard stop — Branch 0)**: unconditional shutdown at end of solar window — no minimum run time guard. Fires at exactly 16:00:00.
-- **Turn on** when: `solar_available_surplus > 1200W`, battery not critical, stage < 2, daily target not met, no upcoming shed with low SOC. Gated `before: "16:00:00"` on Branch 5.
+- **Turn off (16:00 hard stop — Branch 0)**: unconditional shutdown at end of solar window — no minimum run time guard.
+- **Turn off (Branch 2a — grid offline + low SOC)**: immediately shuts off if grid is offline AND SOC < `grid_offline_soc_min_pool` (60%). Bypasses minimum run time — battery reserve protection takes priority. Triggers fire on `group.inverter_grid` state change and `sensor.inverter_battery_soc` crossing threshold.
+- **Turn off (Branch 2b — last sun slot)**: shuts off from `last_sun_slot_start_hour` (14:00) until 16:00 if SOC < `last_sun_soc_target` (80%/90% by season). Ensures battery charges to overnight target before sundown. Bypasses minimum run time.
 - **Turn off (load shedding)**: stage >= 2, or upcoming shed within 3h AND SOC < threshold — enforces minimum run time.
 - **Turn off (solar dropped)**: `solar_available_surplus < 800W` (hysteresis lower band) or battery low/critical — enforces minimum run time.
 - **Turn off (target met)**: daily run hours >= season target — enforces minimum run time.
-- Minimum run time guards prevent short cycles (pump must run `pool_minimum_run_minutes` before any turn-off). Does NOT apply to the 16:00 hard stop.
+- **Turn on gates (Branch 5)**: requires grid-offline SOC threshold AND last-sun-slot SOC target in addition to existing surplus/battery/load-shedding conditions.
+- Minimum run time guards prevent short cycles (pump must run `pool_minimum_run_minutes` before any turn-off). Does NOT apply to 16:00 hard stop, grid-offline, or last-sun branches.
 - Season logic: `sensor.season == 'summer'` → summer target; all other seasons → winter target.
-- Load shedding inputs: `state_attr('sensor.load_shedding_stage_eskom', 'stage')` (int 0–8) and `starts_in` attribute on load shedding area sensor.
-- All notifications via `script.notify_power_event` (severity: information, subsystem: energy) — routes to HA app + Telegram mirror.
-- Hourly default branch fires when pv > 500W and pump is off — Telegram trace of why pump didn't run.
-- `mode: queued` (changed from `single` 2026-04-28) — ensures Branch 1 (records `pool_pump_last_on`) is not dropped when Branch 5 turns on the pump.
+- All notifications via `script.notify_power_event` (severity: information/warning, subsystem: energy).
+- `mode: queued` — ensures Branch 1 (records `pool_pump_last_on`) is not dropped when Branch 5 turns on the pump.
+
+**Design note — incident 2026-05-25 (Eskom outage):**
+Grid failed ~01:00. Battery drained from 45% to 38% by dawn. Pool pump turned on at 07:25 drawing ~3.9kW from battery (grid still offline). BMS protection tripped at 07:45 (SOC crashed from ~36% to 12%), tripping the house. House off 07:50–09:45. Grid-offline gate (60% threshold) would have prevented the pool pump from starting at 38% SOC. Battery also showing possible health issue — 24% SOC drop in 5 minutes under load is not consistent with rated capacity.
 
 **Replaced automations (removed 2026-04-22):**
 ```
@@ -1179,6 +1197,51 @@ Add a binary_sensor that checks if `group.known_power_loads` has any members. If
 - [ ] Build Buy Score v2 with net position weighting
 - [ ] Add auto-reconciliation trigger when drift exceeds threshold + meter reading entered
 - [ ] Add pyscript load group health check + restart trigger
+
+### Sprint 5 — Geyser Solar Control (PENDING — design review needed before implementation)
+
+**Context:** Added 2026-05-25. Helpers and template sensors are already in place. Automation NOT yet
+implemented — geyser is critical for morning/evening showers and requires careful design review.
+
+**Helpers already added:**
+```
+input_number.grid_offline_soc_min_geyser        %   non-critical window min (default: 45)
+input_number.geyser_grid_offline_critical_soc   %   critical window min (default: 35)
+input_number.geyser_target_hours_summer         h   daily solar target summer (default: 2.0)
+input_number.geyser_target_hours_winter         h   daily solar target winter (default: 3.5)
+sensor.geyser_target_run_hours_today            h   season-aware target
+```
+
+**UI helper needed (before implementing):**
+```
+sensor.geyser_run_hours_today — History Stats helper (same pattern as pool pump):
+  Settings → Helpers → History Stats
+  Entity: switch.geyser_heat_pump_switch, State: on, Type: Time
+  Start: {{ now().replace(hour=0,minute=0,second=0,microsecond=0) }}, End: {{ now() }}
+```
+
+**Proposed control windows:**
+- Morning critical (06:00–09:00): pre-heat for morning showers — run if grid ON OR SOC >= 35%
+- Solar daytime (09:00–17:00): run on solar surplus >3000W (geyser ~2kW), all gates applied
+- Evening critical (17:00–20:30): pre-heat for evening showers — run if grid ON OR SOC >= 35%
+- Hard stop 20:30: unconditional off
+
+**Non-critical window gates (solar daytime only):**
+1. Grid offline AND SOC < 45% → block
+2. Last sun slot (14:00+) AND SOC < last_sun_soc_target → block (battery charging priority)
+3. Solar headroom < 3000W → block
+4. Daily solar target already met → block (critical windows exempt from this)
+
+**Design questions that need review before implementing:**
+- Morning window: if grid is offline at 06:00 and SOC is e.g. 35% (borderline), do we run geyser?
+  The 2kW heat pump for 2h = 4kWh from battery. At 35% SOC (11kWh available) that's 36% of battery.
+  Probably correct NOT to run if SOC < 45% even in morning window — but this conflicts with shower need.
+- Evening window: if Eskom is still out at 17:00, SOC might be higher (solar charged). Easier to gate.
+- Integration with geyser schedule inverter programs — the inverter may already control geyser via
+  Prog2/Prog3 time programs. Need to confirm whether switch.geyser_heat_pump_switch overrides those
+  or conflicts with them. May need to disable inverter timer program first.
+- Minimum run time: geyser heat pump takes ~15 min to reach operating temperature — add min_run_minutes?
+- Geyser temperature sensor: if available, could replace time-based with temperature-based target.
 
 ---
 

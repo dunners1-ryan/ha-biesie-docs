@@ -74,8 +74,18 @@ The water system is a **deterministic refill lifecycle engine** that observes ph
 
 ```
 binary_sensor.water_refill_allowed = ON when:
-  group.inverter_grid = "on"
+  group.inverter_grid = "on"                                       ← grid must be on
   AND sensor.battery_soc >= input_number.water_battery_soc_sufficient
+  AND input_boolean.load_control_borehole_enabled = "on"
+  AND (
+    now_hour < last_sun_slot_start_hour                            ← before last-sun window
+    OR battery_soc >= sensor.last_sun_soc_target                   ← OR SOC already at target
+    OR sensor.water_tank_level <= 20                               ← OR tank critically low (override)
+  )
+
+Last-sun-slot gate added 2026-05-25: during the last ~2h of peak sun (default 14:00 onwards),
+borehole is blocked unless SOC has reached the overnight charge target (80% summer / 90% winter).
+Tank-critical override (≤20%) bypasses this gate so essential water supply is never blocked.
 
 NOTE: This is simpler than WATER_CONTEXT.md specifies — see Issue 7.
 ```
@@ -451,13 +461,22 @@ sensor:
 
 ---
 
-### Issue 6 — SAFETY GAP: Battery hard stop reactive protection not implemented
+### Issue 6 — ✅ PARTIALLY RESOLVED 2026-05-25: Mid-run shutdown now implemented for permission changes and solar window close
 **Priority:** P2 — SOC-based protection only prevents START, does not abort active refill  
 **Files:** All water package files — reactive SOC monitor not present  
 **Root cause:** The battery hard stop logic in `water_tank_refill_control.yaml` only gates the EMERGENCY mode (case 3 — grid off + SOC < hard_stop → limited 10-min run). There is no automation that monitors battery SOC during an active refill and stops the pump if SOC drops below `water_battery_soc_hard_stop` mid-cycle.  
 **WATER_CONTEXT.md spec:** "Battery hard stop: SOC drops below `water_battery_soc_hard_stop` → Stop pump" — this reactive behaviour is NOT implemented.  
-**Risk:** During a normal refill, if the grid drops out and battery begins depleting, nothing stops the pump until the no-rise protection fires (15 min) or the max runtime fires (not implemented — Issue 5).  
-**Fix:** Add to `water_safety.yaml`:
+**Risk:** During a normal refill, if the grid drops out and battery begins depleting, nothing stops the pump until the no-rise protection fires (15 min) or the max runtime fires (not implemented — Issue 5).
+
+**Partial fix implemented 2026-05-25 — `water_borehole_mid_run_shutdown` automation added:**
+- Triggers: `binary_sensor.water_refill_allowed → off` (catches grid offline, SOC drop, last-sun-slot, load control) AND `binary_sensor.water_solar_window_active → off` (end of solar day)
+- Stops pump immediately in both cases. Exempt: `water_state = safety` (emergency bypass).
+- Does NOT set `water_refill_aborted_due_to_safety` — these are policy stops, not hardware faults.
+- Notifies via `script.notify_water_event` with reason (permission_revoked or solar_window_closed).
+
+**Remaining gap:** The hard stop using `water_battery_soc_hard_stop` threshold (below `water_battery_soc_sufficient`) is NOT yet covered. The `water_refill_allowed` gate uses `water_battery_soc_sufficient` (50%), but the hard stop spec says to stop when SOC < `water_battery_soc_hard_stop` (30%) even mid-run. This needs the additional automation below:
+
+**Remaining fix needed — add to `water_safety.yaml`:**
 ```yaml
 - id: water_safety_battery_hard_stop
   alias: "Water Safety ▸ Battery Hard Stop"
