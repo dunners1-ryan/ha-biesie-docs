@@ -251,9 +251,9 @@ input_number.water_refill_end_level         % at end (UI/legacy only)
 
 ```
 # From water_helpers.yaml (updated 2026-05-25 — live values set via dashboard):
-input_number.water_depth_critical           m  (live: 0.30) — emergency refill trigger
-input_number.water_depth_low                m  (live: 0.50) — "low" display state threshold
-input_number.water_depth_minimum_safety     m  (live: 0.40) — safety state floor
+input_number.water_depth_critical           m  (live: 0.25) — emergency refill trigger
+input_number.water_depth_low                m  (live: 0.80) — "low" display state threshold
+input_number.water_depth_minimum_safety     m  (live: 0.35) — safety state floor
 input_number.water_battery_soc_sufficient   %  (initial: 50)  — min SOC to start refill
 input_number.water_battery_soc_hard_stop    %  (initial: 40)  — absolute SOC floor (temp; lower to 20% after new batteries)
 input_number.water_refill_max_runtime_minutes min — DEFINED BUT UNUSED (Issue 5)
