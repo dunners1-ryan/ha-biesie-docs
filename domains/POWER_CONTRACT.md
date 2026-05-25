@@ -447,6 +447,12 @@ sensor.flexible_load_percent       %  flexible_power / house_load_power
 sensor.house_outdoor_power_throttled W  10s debounce version of outdoor
 ```
 
+### Plug Device Change Log
+
+| Date | Old Device / Entity | New Device / Entity | Reason |
+|------|---------------------|---------------------|--------|
+| 2026-05-25 | Water Cooler Plug (`switch.water_cooler_plug`) | LG Combo Washer Plug (`switch.lg_combo_washer_plug`) | Plug relocated to LG combo washer for energy tracking; higher consumption load. ZHA device renamed, all `water_cooler_plug_*` entities renamed to `lg_combo_washer_plug_*`. Config: added `sensor.lg_combo_washer_plug_power` to `known_power_loads`, `flexible_power_loads`, `house_laundry_power_sensors` in `power_templates.yaml`. UI: integral sensor source + utility meters + Energy Dashboard updated manually. |
+
 ---
 
 ## 6. Entity Reference — Energy & Prepaid
