@@ -461,51 +461,30 @@ sensor:
 
 ---
 
-### Issue 6 — ✅ PARTIALLY RESOLVED 2026-05-25: Mid-run shutdown now implemented for permission changes and solar window close
-**Priority:** P2 — SOC-based protection only prevents START, does not abort active refill  
-**Files:** All water package files — reactive SOC monitor not present  
-**Root cause:** The battery hard stop logic in `water_tank_refill_control.yaml` only gates the EMERGENCY mode (case 3 — grid off + SOC < hard_stop → limited 10-min run). There is no automation that monitors battery SOC during an active refill and stops the pump if SOC drops below `water_battery_soc_hard_stop` mid-cycle.  
-**WATER_CONTEXT.md spec:** "Battery hard stop: SOC drops below `water_battery_soc_hard_stop` → Stop pump" — this reactive behaviour is NOT implemented.  
-**Risk:** During a normal refill, if the grid drops out and battery begins depleting, nothing stops the pump until the no-rise protection fires (15 min) or the max runtime fires (not implemented — Issue 5).
+### Issue 6 — ✅ RESOLVED 2026-05-25: Full mid-run shutdown coverage implemented
+**Priority:** P2 — now fully covered  
+**Files:** `water_tank_refill_control.yaml`, `water_safety.yaml`
 
-**Partial fix implemented 2026-05-25 — `water_borehole_mid_run_shutdown` automation added:**
+**Fix 1 — `water_borehole_mid_run_shutdown` automation (policy stops):**
 - Triggers: `binary_sensor.water_refill_allowed → off` (catches grid offline, SOC drop, last-sun-slot, load control) AND `binary_sensor.water_solar_window_active → off` (end of solar day)
 - Stops pump immediately in both cases. Exempt: `water_state = safety` (emergency bypass).
 - Does NOT set `water_refill_aborted_due_to_safety` — these are policy stops, not hardware faults.
 - Notifies via `script.notify_water_event` with reason (permission_revoked or solar_window_closed).
 
-**Remaining gap:** The hard stop using `water_battery_soc_hard_stop` threshold (below `water_battery_soc_sufficient`) is NOT yet covered. The `water_refill_allowed` gate uses `water_battery_soc_sufficient` (50%), but the hard stop spec says to stop when SOC < `water_battery_soc_hard_stop` (30%) even mid-run. This needs the additional automation below:
+**Fix 2 — `water_safety_battery_hard_stop` automation (hardware floor, `water_safety.yaml`):**
+- Triggers: `sensor.battery_soc` below `input_number.water_battery_soc_hard_stop`
+- No SAFETY-state exemption — this IS the absolute floor even for emergency refills
+- DOES set `water_refill_aborted_due_to_safety` (fault stop, not policy stop)
+- `water_battery_soc_hard_stop` initial = **40%** (temporary; current battery cells unreliable below 40%). Lower to 20% after new battery installation end of week 2026-05-25.
 
-**Remaining fix needed — add to `water_safety.yaml`:**
-```yaml
-- id: water_safety_battery_hard_stop
-  alias: "Water Safety ▸ Battery Hard Stop"
-  mode: restart
-  trigger:
-    - trigger: numeric_state
-      entity_id: sensor.battery_soc
-      below: input_number.water_battery_soc_hard_stop
-  condition:
-    - condition: state
-      entity_id: switch.borehole_pump
-      state: "on"
-  action:
-    - action: switch.turn_off
-      target:
-        entity_id: switch.borehole_pump
-    - action: input_boolean.turn_on
-      target:
-        entity_id: input_boolean.water_refill_aborted_due_to_safety
-    - action: logbook.log
-      data:
-        name: Water Safety – Battery Hard Stop
-        message: >
-          Pump stopped: battery SOC dropped to {{ states('sensor.battery_soc') }}%
-    - action: script.notify_water_event
-      data:
-        severity: warning
-        message: "[Code: water_battery_hard_stop] Pump stopped — battery SOC below hard stop."
-```
+**Coverage summary:**
+| Scenario | Covered by |
+|---|---|
+| Grid goes offline mid-run (normal state) | `water_refill_allowed → off` → mid_run_shutdown |
+| SOC drops below 50% mid-run (normal state) | `water_refill_allowed → off` → mid_run_shutdown |
+| Last-sun-slot starts at 14:00 mid-run | `water_refill_allowed → off` → mid_run_shutdown |
+| Solar window closes end-of-day | `water_solar_window_active → off` → mid_run_shutdown |
+| SOC crashes below hard-stop (40%) — any state incl. SAFETY | `water_safety_battery_hard_stop` |
 
 ---
 
@@ -724,9 +703,11 @@ Five protections listed in `WATER_CONTEXT.md`. Each audited independently.
 
 ### Protection 4: Battery Hard Stop
 - **Spec:** SOC drops below `water_battery_soc_hard_stop` → Stop pump  
-- **Implementation:** ❌ NOT IMPLEMENTED as a reactive protection  
-- **What exists:** `water_tank_refill_control.yaml` case 3 — only triggers the 10-min emergency mode when SOC is ALREADY below hard_stop AND grid is off. This is a START condition, not a REACTIVE stop.  
-- **Verdict:** ❌ MISSING — see Issue 6. The protection described in the spec does not exist.
+- **Implementation:** ✅ `water_safety.yaml` — `water_safety_battery_hard_stop` (added 2026-05-25)
+- **Trigger:** `sensor.battery_soc` below `input_number.water_battery_soc_hard_stop`
+- **Threshold:** 40% (temporary — current battery cells unreliable below 40%). Lower to 20% after new battery installation end of week 2026-05-25.
+- **Coverage:** No SAFETY-state exemption — applies even to emergency refills (unlike `water_borehole_mid_run_shutdown`). Sets `water_refill_aborted_due_to_safety`.
+- **Verdict:** ✅ IMPLEMENTED. See Issue 6 for full coverage details.
 
 ### Protection 5: Max Runtime Cutoff
 - **Spec:** Pump on > `water_refill_max_runtime_minutes` → Stop pump  
@@ -741,10 +722,10 @@ Five protections listed in `WATER_CONTEXT.md`. Each audited independently.
 | Max depth stop | ✅ Implemented (minor spike risk) | Low |
 | Dry run (power-based) | ❌ Disabled | Medium — 15min exposure |
 | No-rise protection | ✅ Implemented | Low (minor spike sensitivity) |
-| Battery hard stop (reactive) | ❌ Missing | High — battery can deplete mid-refill |
+| Battery hard stop (reactive) | ✅ Implemented 2026-05-25 — `water_safety_battery_hard_stop` in `water_safety.yaml` | Low — floor set at 40% (temp; lower to 20% after new battery install) |
 | Max runtime cutoff | ❌ Missing | Medium — runaway possible |
 
-**Two of five protections are missing.** The system relies entirely on the no-rise protection (15 min) and max depth stop as its only active hardware safeguards during a running refill.
+**One of five protections missing.** Battery hard stop now implemented. Max runtime cutoff (Issue 5) is the remaining gap.
 
 ---
 
