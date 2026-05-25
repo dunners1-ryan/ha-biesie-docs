@@ -211,16 +211,28 @@ input_number.water_refill_end_level         % at end (UI/legacy only)
 ### Thresholds
 
 ```
-# From water_helpers.yaml:
-input_number.water_depth_critical           m  (initial: 0.50)
-input_number.water_depth_low                m  (initial: 1.00)
-input_number.water_depth_minimum_safety     m  (initial: 0.60) — safety state floor
-input_number.water_battery_soc_sufficient   %  (initial: 50) — min SOC to start refill
-input_number.water_battery_soc_hard_stop    %  (initial: 30) — SOC for emergency limited mode
-input_number.water_refill_max_runtime_minutes min — DEFINED BUT UNUSED in any automation
-input_number.water_target_depth_normal      m  (initial: 1.55)
-input_number.water_target_depth_partial     m  (initial: 1.65)
-input_number.water_target_depth_full        m  (initial: 1.85) — max stop at 1.95 hardcoded in safety
+# From water_helpers.yaml (updated 2026-05-25):
+input_number.water_depth_critical           m  (initial: 0.25) — emergency refill trigger
+input_number.water_depth_low                m  (initial: 1.00) — "low" display state threshold
+input_number.water_depth_minimum_safety     m  (initial: 0.35) — safety state floor
+input_number.water_battery_soc_sufficient   %  (initial: 50)  — min SOC to start refill
+input_number.water_battery_soc_hard_stop    %  (initial: 40)  — absolute SOC floor (temp; lower to 20% after new batteries)
+input_number.water_refill_max_runtime_minutes min — DEFINED BUT UNUSED (Issue 5)
+input_number.water_target_depth_normal      m  (initial: 1.00) — stop depth for Normal days
+input_number.water_target_depth_partial     m  (initial: 1.20) — stop depth for Wash/Clean days (entity_id unchanged)
+input_number.water_target_depth_irrigation  m  (initial: 1.25) — stop depth for Irrigation days (NEW)
+input_number.water_target_depth_full        m  (initial: 1.60) — stop depth for Pool days (entity_id unchanged)
+
+# Day demand selectors (NEW 2026-05-25):
+input_select.water_demand_monday … water_demand_sunday
+  Options: Normal | Wash/Clean | Irrigation | Pool
+  Summer defaults: Mon=Wash/Clean Tue=Normal Wed=Irrigation Thu=Wash/Clean Fri=Irrigation Sat=Pool Sun=Irrigation
+  Winter defaults: Mon=Wash/Clean Tue=Normal Wed=Irrigation Thu=Wash/Clean Fri=Normal Sat=Normal Sun=Irrigation
+  Preset scripts: script.water_demand_set_summer_profile / water_demand_set_winter_profile
+
+# Derived sensor (NEW 2026-05-25):
+sensor.water_target_depth_tomorrow — reads tomorrow's input_select, maps to depth input_number
+sensor.water_demand_today          — today's demand type string (dashboard display)
 
 # From water_policy_helpers.yaml:
 input_number.water_depth_full_threshold     m  (initial: 1.98) — POLICY driven, NOT used in templates
