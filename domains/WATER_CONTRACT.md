@@ -112,21 +112,21 @@ NOTE: This is simpler than WATER_CONTEXT.md specifies — see Issue 7.
 | File | Role | Layer |
 |---|---|---|
 | `a_water_lifecycle_contract.yaml` | Specification document — LOCKED hard rules | Contract |
-| `water_helpers.yaml` | Lifecycle flags, timestamps, depth thresholds, irrigation toggles | Helpers |
-| `water_policy_helpers.yaml` | Policy-driven threshold helpers (full/low/critical/empty) | Helpers |
+| `water_helpers.yaml` | Lifecycle flags, timestamps, depth thresholds, day demand selectors (7 input_select) | Helpers |
+| `water_policy_helpers.yaml` | Policy-driven threshold helpers (full/low/critical/empty) — ORPHANED, unused | Helpers |
 | `water_sensor.yaml` | Derivative depth rate sensor (platform: derivative) | Core |
-| `water_templates.yaml` | Depth validation, tank level %, refill allowed, solar window | Templates |
+| `water_templates.yaml` | Depth validation, tank level %, refill allowed, solar window, demand planning sensors | Templates |
 | `water_state_extensions.yaml` | Derived cycle state mirror binary_sensor | State |
 | `water_refill_cycle.yaml` | Cycle state sensor, summary sensor, avg flow rate | State |
 | `water_refill_capture.yaml` | Automations that write start/end timestamps and depths | Automations |
-| `water_tank_refill_control.yaml` | Main control: decides pump on/off based on water_state + policy | Automations |
-| `water_safety.yaml` | Hard stop at max depth (single automation) | Safety |
+| `water_tank_refill_control.yaml` | Main control: demand-based pump on/off; water_stop_at_daily_target; mid-run shutdown | Automations |
+| `water_safety.yaml` | Hard stops: max depth (1.95m) + battery SOC floor (water_safety_battery_hard_stop) | Safety |
 | `water_protection_automations.yaml` | No-rise protection, spike logging | Safety |
 | `water_fault_logging.yaml` | Centralised fault logger (queued) | Logging |
 | `water_health.yaml` | Sensor health binary_sensors (healthy/stable) | Health |
 | `water_consume_cycle.yaml` | Consumption rate sensor (from depth rate) | Analytics |
 | `water_maintenance_automations.yaml` | Counter/flag resets (daily/weekly) | Maintenance |
-| `water_scripts.yaml` | Manual pump scripts (5/10/15/30/60 min) | Scripts |
+| `water_scripts.yaml` | Manual pump scripts (5/10/15/30/60 min) + season demand preset scripts | Scripts |
 | `water_reporting.yaml` | Weekly summary automation, avg flow sensors | Reporting |
 | `water_test_helpers.yaml` | Reset script for test/debug cycle state | Debug |
 
@@ -147,6 +147,45 @@ sensor.water_tank_depth_validated            m  spike-filtered (trigger-based te
 sensor.water_tank_level_percent              %  = (validated_depth / 1.95) * 100
 sensor.water_tank_depth_rate                 m/h  derivative of RAW depth (not validated)
 sensor.water_tank_consumption_rate           m/h  depth rate when negative (consuming)
+```
+
+### Demand Planning Sensors (added 2026-05-25)
+
+```
+sensor.water_target_depth_tomorrow           m  — stop depth for tonight's refill based on tomorrow's
+                                                  input_select demand type and mapped input_number target
+  attributes:
+    demand_type: Normal | Wash/Clean | Irrigation | Pool
+    tomorrow_day: Mon | Tue | Wed | Thu | Fri | Sat | Sun
+
+sensor.water_demand_today                    string — today's demand type (dashboard display only)
+
+sensor.water_refill_blocked_reason           "none" OR human-readable reason string
+                                             Compares against sensor.water_target_depth_tomorrow
+                                             (was: water_target_depth_normal — updated 2026-05-25)
+```
+
+### Demand Planning Helpers (added 2026-05-25)
+
+```
+input_select.water_demand_monday   )
+input_select.water_demand_tuesday  )  Options: Normal | Wash/Clean | Irrigation | Pool
+input_select.water_demand_wednesday)  Summer defaults: Mon=Wash/Clean Tue=Normal Wed=Irrigation
+input_select.water_demand_thursday )    Thu=Wash/Clean Fri=Irrigation Sat=Pool Sun=Irrigation
+input_select.water_demand_friday   )  Winter defaults: Mon=Wash/Clean Tue=Normal Wed=Irrigation
+input_select.water_demand_saturday )    Thu=Wash/Clean Fri=Normal Sat=Normal Sun=Irrigation
+input_select.water_demand_sunday   )
+
+# Season preset scripts — bulk-set all 7 selectors in one tap:
+script.water_demand_set_summer_profile
+script.water_demand_set_winter_profile
+
+# REMOVED 2026-05-25 (were unused — no logic ever read them):
+# input_boolean.irrigation_full_monday … irrigation_full_sunday      (7 removed)
+# input_boolean.irrigation_partial_monday … irrigation_partial_sunday (7 removed)
+# input_boolean.washing_heavy_monday, washing_heavy_thursday          (2 removed)
+# input_boolean.house_cleaning_monday, house_cleaning_thursday        (2 removed)
+# input_boolean.washing_partial_friday/saturday/sunday                (3 removed)
 ```
 
 ### Lifecycle Sensors
