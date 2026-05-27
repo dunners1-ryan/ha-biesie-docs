@@ -329,7 +329,7 @@ No security-domain helpers were found to be UI-created. All are YAML-defined in
 | Entity | Type | File | Output States | Consumers |
 |--------|------|------|---------------|-----------|
 | `sensor.security_trigger_camera` | template sensor | security_logic.yaml | `camera.camXX_...` or `none` | security_automations.yaml, notify script |
-| `sensor.security_event_classification` | template sensor | security_logic.yaml | idle, arrival, departure, family_movement, service_person, visitor, perimeter_threat, intruder, critical_intrusion | security_event_router automation (S3) |
+| `sensor.security_event_classification` | template sensor | security_logic.yaml | idle, arrival, departure, family_movement, service_person, **perimeter_front**, visitor, perimeter_threat, intruder, critical_intrusion | security_event_router automation (S3) |
 | `binary_sensor.security_inside_garage_motion` | template sensor | security_zones.yaml | on/off | security_event_classification |
 | `binary_sensor.security_inside_main_motion` | template sensor | security_zones.yaml | on/off | security_event_classification |
 | `binary_sensor.security_inside_bedrooms_motion` | template sensor | security_zones.yaml | on/off | security_event_classification |
@@ -1481,7 +1481,7 @@ SPRINT 6 — 2026-05-10/11/12/14 changes (done)
 [✅] Visitor/arrival staleness filter: 10s → 30s (Pi queue delay was causing missed notifications)
 ```
 
-SPRINT 15 — Stale image fixes: inside camera zone slot + visitor delay (2026-05-27)
+SPRINT 15 — Stale image fixes + perimeter_front rung split (2026-05-27)
 ```
 [✅] BUG-S47 (Path 1): security_image_inside_main never updated during RUNG 2.5 events.
       security_capture_best_snapshot gates on medium/high confidence; cam14 alone = none,
@@ -1494,6 +1494,17 @@ SPRINT 15 — Stale image fixes: inside camera zone slot + visitor delay (2026-0
       been written yet. Added 4s delay + visitor_img re-read in visitor router branch,
       matching the pattern already used by critical_intrusion branch. Slot is now read
       after the snapshot has been captured and written. security_automations.yaml modified.
+
+[✅] RUNG 5 split — perimeter_front vs visitor using AcuSense entrance_valid:
+      Original RUNG 5 classified ALL ipcam01/02 activity as "visitor". Split into:
+      RUNG 5a (visitor): entrance_valid (ipcam01 regionentrance) active → person in gate
+        approach zone → "Visitor at gate" critical alert (genuine intent to enter).
+      RUNG 5b (perimeter_front): entrance_valid NOT active → street/passing activity →
+        "Activity on front perimeter" critical alert (only at night or nobody home).
+      Daytime street activity with family home now falls silently to family_movement.
+      entrance_valid = binary_sensor.ipcam01_street_driveway_up_entrance_valid (already
+      calibrated as "Higher validity" gate approach zone in ipcam01 Smart Events).
+      security_logic.yaml + security_automations.yaml modified.
 ```
 
 SPRINT 14 — go2rtc replay filter + RUNG 8 arrival guard + alarm deactivation (2026-05-26)
@@ -2117,7 +2128,9 @@ Also gated by: `security_dogs_out` OFF + `guest_mode` OFF + 5-min cooldown on `l
 
 *Audit completed: 2026-04-13*
 *Updated 2026-05-27 (S15): BUG-S47 stale image fix — inside camera zone slot write in security_capture_each_camera_motion;*
-*  visitor branch 4s delay + visitor_img re-read to fix perimeter_front slot timing race. security_automations.yaml modified.*
+*  visitor branch 4s delay + visitor_img re-read to fix perimeter_front slot timing race;*
+*  RUNG 5 split into perimeter_front (street activity, night/away only) + visitor (entrance_valid, genuine gate approach);*
+*  security_logic.yaml + security_automations.yaml modified.*
 *Updated 2026-05-26 (S14): BUG-S44 go2rtc replay filter (delay_on cam14/cam15); BUG-S46 RUNG 8 arriving guard;*
 *  BUG-S45 partial: ipcam04 alarm deactivate REST command + dogs_out cancel automation;*
 *  camera alarm Hikvision app visibility explained (expected behaviour, ISAPI output ≠ motion event).*
