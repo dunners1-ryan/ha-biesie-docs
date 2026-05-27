@@ -32,11 +32,13 @@ quality degradation.
 
 | File | Contents |
 |------|----------|
-| `packages/network/network_helpers.yaml` | All sensors, input_numbers, statistics sensors |
+| `packages/network/network_helpers.yaml` | WAN/LAN sensors, input_numbers, statistics sensors |
+| `packages/network/network_ups.yaml` | EcoFlow River Pro UPS — helpers, templates, automations (added 2026-05-27) |
 | `packages/alerts/alerts_network.yaml` | Groups, alert binary sensors, alert entity, context sensor |
 
-There is no `*_automations.yaml` for network — notifications are driven by `alert.network_alert`
+There is no `*_automations.yaml` for LAN/WAN — notifications are driven by `alert.network_alert`
 via the alerts pipeline. No direct notify calls.
+UPS automations are in `network_ups.yaml` and call `script.notify_power_event` directly.
 
 ---
 
@@ -198,6 +200,83 @@ Packet loss component contributes noise rather than signal.
   updated manually when the ISP plan changes (not auto-discovered).
 - Alert anti-flap delay is 250s consistently across all LAN binary sensors.
   WAN degraded uses a `for: minutes: 5` on the numeric_state trigger instead.
+
+---
+
+## Section 9: UPS Monitoring — EcoFlow River Pro (added 2026-05-27)
+
+**Device:** EcoFlow River Pro (RIVER_PRO), via Ecoflow-Cloud integration, area: Network.
+All entities prefixed `river_pro_ups_*`.
+
+### Key source entities (already enabled)
+```
+sensor.river_pro_ups_main_battery_level   %    SOC — drives runtime calculation
+sensor.river_pro_ups_ac_in_power          W    AC input (0 = on battery)
+sensor.river_pro_ups_ac_out_power         W    AC output (network equipment load)
+sensor.river_pro_ups_total_out_power      W    all outputs combined
+sensor.river_pro_ups_dc_out_power         W    DC out
+sensor.river_pro_ups_type_c_out_power     W    USB-C out
+sensor.river_pro_ups_usb_1_out_power      W    USB 1 out
+sensor.river_pro_ups_usb_2_out_power      W    USB 2 out
+sensor.river_pro_ups_usb_3_out_power      W    USB 3 out
+sensor.river_pro_ups_remaining_time       min  EcoFlow native estimate (0 when on grid)
+sensor.river_pro_ups_status                    status string (standby/charging/discharging)
+switch.river_pro_ups_ac_always_on              auto-restores AC on UPS restart — MUST stay ON
+switch.river_pro_ups_ac_enabled                enable/disable AC output
+```
+
+### Derived sensors (network_ups.yaml)
+```
+binary_sensor.ups_on_battery         on = on battery (ac_in < 5W, ac_out > 0)
+sensor.ups_runtime_seconds           s    calculated reserve (always, not just on battery)
+sensor.ups_runtime_friendly          text "X hours, Y minutes" human readable
+sensor.ups_runtime_eta               text HH:MM depletion ETA (-- when on grid)
+sensor.ups_status_card               text markdown status string for dashboard card
+sensor.ups_runtime_severity          ok | warning | critical | unknown (battery only)
+sensor.ups_load_percent              %    ac_out / rated_output_watts
+sensor.ups_load_status               ok | warning | critical
+sensor.ups_load_markdown             text load breakdown string for dashboard card
+```
+
+### Configuration helpers (network_ups.yaml)
+```
+input_number.ups_rated_capacity_wh        Wh   720 default (River Pro rated capacity)
+input_number.ups_rated_output_watts       W    600 default (River Pro max AC output)
+input_number.ups_load_warning_percent     %    65 default
+input_number.ups_load_critical_percent    %    85 default
+input_number.ups_battery_warning_minutes  min  60 default
+input_number.ups_battery_critical_minutes min  20 default
+input_boolean.ups_alerts_notify                enable/disable UPS alert pipeline
+```
+
+### Automations (network_ups.yaml)
+| ID | Purpose |
+|----|---------|
+| `ups_enforce_ac_always_on` | Re-enables switch.river_pro_ups_ac_always_on if ever OFF |
+| `ups_notify_on_battery` | Warning on grid→battery transition (10s stability) |
+| `ups_notify_grid_restored` | Info on battery→grid restore |
+| `ups_battery_runtime_warning` | Warning when runtime_severity → warning |
+| `ups_battery_runtime_critical` | Critical when runtime_severity → critical |
+| `ups_load_warning` | Warning/critical when load_status → warning/critical |
+
+All UPS alerts route through `script.notify_power_event` (same pipeline as inverter).
+
+### Runtime calculation
+```
+usable_wh = (battery_level / 100) × rated_capacity_wh
+runtime_s  = (usable_wh / ac_out_power) × 3600
+```
+Deliberately flat-rate and pessimistic vs EcoFlow native (which uses battery curve + temperature).
+Both shown in `sensor.ups_status_card` when on battery for comparison.
+
+### Load breakdown
+AC out = network equipment (unknown by device — no sub-metering yet).
+USB/DC = accessories/charging. Total = `total_out_power`.
+Add smart plugs to individual devices to build up "known" breakdown.
+
+### Disabled entities — none needed for this implementation
+Disabled diagnostics (cell voltages, temperatures, slave battery data) can be enabled
+later for battery health monitoring. Not required for runtime/load tracking.
 
 ---
 
