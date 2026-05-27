@@ -1500,11 +1500,19 @@ SPRINT 15 — Stale image fixes + perimeter_front rung split (2026-05-27)
       RUNG 5a (visitor): entrance_valid (ipcam01 regionentrance) active → person in gate
         approach zone → "Visitor at gate" critical alert (genuine intent to enter).
       RUNG 5b (perimeter_front): entrance_valid NOT active → street/passing activity →
-        "Activity on front perimeter" critical alert (only at night or nobody home).
-      Daytime street activity with family home now falls silently to family_movement.
+        "Activity on front perimeter". Fires in ALL presence states (family home does NOT
+        explain perimeter activity — family is inside the house). Severity varies:
+        - warning: day + family home (unexplained but lower risk)
+        - critical: night OR nobody home
+        Staff cooldown: 1800s when staff_on_site (gardener-at-gate suppression).
       entrance_valid = binary_sensor.ipcam01_street_driveway_up_entrance_valid (already
       calibrated as "Higher validity" gate approach zone in ipcam01 Smart Events).
       security_logic.yaml + security_automations.yaml modified.
+
+[ℹ️] ipcam03 dog triggering Region Exiting: AcuSense AI misclassifying dog as "Person".
+      Camera fix needed: ipcam03 Smart Events → Region Exiting → increase Minimum Target
+      Size so dog-sized bounding boxes are filtered. Does NOT trigger security alerts
+      (exit_valid feeds departure detection which requires gate+departing → RUNG 2).
 ```
 
 SPRINT 14 — go2rtc replay filter + RUNG 8 arrival guard + alarm deactivation (2026-05-26)
@@ -2127,9 +2135,9 @@ Also gated by: `security_dogs_out` OFF + `guest_mode` OFF + 5-min cooldown on `l
 ---
 
 *Audit completed: 2026-04-13*
-*Updated 2026-05-27 (S15): BUG-S47 stale image fix — inside camera zone slot write in security_capture_each_camera_motion;*
-*  visitor branch 4s delay + visitor_img re-read to fix perimeter_front slot timing race;*
-*  RUNG 5 split into perimeter_front (street activity, night/away only) + visitor (entrance_valid, genuine gate approach);*
+*Updated 2026-05-27 (S15): BUG-S47 stale image fix — inside camera zone slot + visitor 4s delay;*
+*  RUNG 5 split: perimeter_front (always fires, severity by time/presence) + visitor (entrance_valid only);*
+*  ipcam03 dog-as-person AI misclassification noted (camera fix required);*
 *  security_logic.yaml + security_automations.yaml modified.*
 *Updated 2026-05-26 (S14): BUG-S44 go2rtc replay filter (delay_on cam14/cam15); BUG-S46 RUNG 8 arriving guard;*
 *  BUG-S45 partial: ipcam04 alarm deactivate REST command + dogs_out cancel automation;*
