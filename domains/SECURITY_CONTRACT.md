@@ -329,7 +329,7 @@ No security-domain helpers were found to be UI-created. All are YAML-defined in
 | Entity | Type | File | Output States | Consumers |
 |--------|------|------|---------------|-----------|
 | `sensor.security_trigger_camera` | template sensor | security_logic.yaml | `camera.camXX_...` or `none` | security_automations.yaml, notify script |
-| `sensor.security_event_classification` | template sensor | security_logic.yaml | idle, arrival, departure, family_movement, service_person, **perimeter_front**, visitor, perimeter_threat, intruder, critical_intrusion | security_event_router automation (S3) |
+| `sensor.security_event_classification` | template sensor | security_logic.yaml | idle, arrival, departure, family_movement, service_person, **perimeter_front**, visitor, **gate_activity**, perimeter_threat, intruder, critical_intrusion | security_event_router automation (S3) |
 | `binary_sensor.security_inside_garage_motion` | template sensor | security_zones.yaml | on/off | security_event_classification |
 | `binary_sensor.security_inside_main_motion` | template sensor | security_zones.yaml | on/off | security_event_classification |
 | `binary_sensor.security_inside_bedrooms_motion` | template sensor | security_zones.yaml | on/off | security_event_classification |
@@ -1495,18 +1495,30 @@ SPRINT 15 — Stale image fixes + perimeter_front rung split (2026-05-27)
       matching the pattern already used by critical_intrusion branch. Slot is now read
       after the snapshot has been captured and written. security_automations.yaml modified.
 
-[✅] RUNG 5 split — perimeter_front vs visitor using AcuSense entrance_valid:
-      Original RUNG 5 classified ALL ipcam01/02 activity as "visitor". Split into:
-      RUNG 5a (visitor): entrance_valid (ipcam01 regionentrance) active → person in gate
-        approach zone → "Visitor at gate" critical alert (genuine intent to enter).
-      RUNG 5b (perimeter_front): entrance_valid NOT active → street/passing activity →
-        "Activity on front perimeter". Fires in ALL presence states (family home does NOT
-        explain perimeter activity — family is inside the house). Severity varies:
-        - warning: day + family home (unexplained but lower risk)
+[✅] RUNG 5 three-way split — perimeter_front / visitor / gate_activity:
+      Original single RUNG 5 (all ipcam01/02 = "visitor") replaced with three rungs:
+
+      RUNG 5a (visitor): entrance_valid + (allhome OR nobody home) + not arriving.
+        - All family home → person at gate is definitively a visitor.
+        - Nobody home → any gate approach is a visitor (no family to arrive).
+        → "Visitor at gate" critical alert.
+
+      RUNG 5b (gate_activity): entrance_valid + some family home (anyhome, not allhome)
+        + not arriving.
+        - Ambiguous: could be returning family member or genuine visitor.
+        → "Activity at gate — arrival or visitor?" warning (day) / critical (night).
+        Shares last_visitor_event cooldown (30s / 1800s staff) with visitor rung.
+        Gate control included — family decides whether to open.
+
+      RUNG 5c (perimeter_front): no entrance_valid, gate closed.
+        Street/passing activity. Fires in ALL presence states (family being inside the
+        house does NOT explain street perimeter activity). Severity varies:
+        - warning: day + family home
         - critical: night OR nobody home
-        Staff cooldown: 1800s when staff_on_site (gardener-at-gate suppression).
-      entrance_valid = binary_sensor.ipcam01_street_driveway_up_entrance_valid (already
-      calibrated as "Higher validity" gate approach zone in ipcam01 Smart Events).
+        Staff cooldown: 1800s when staff_on_site (gardener suppression).
+
+      entrance_valid = binary_sensor.ipcam01_street_driveway_up_entrance_valid
+      (ipcam01 AcuSense "Higher validity" gate approach zone, already calibrated).
       security_logic.yaml + security_automations.yaml modified.
 
 [ℹ️] ipcam03 dog triggering Region Exiting: AcuSense AI misclassifying dog as "Person".
@@ -2135,10 +2147,8 @@ Also gated by: `security_dogs_out` OFF + `guest_mode` OFF + 5-min cooldown on `l
 ---
 
 *Audit completed: 2026-04-13*
-*Updated 2026-05-27 (S15): BUG-S47 stale image fix — inside camera zone slot + visitor 4s delay;*
-*  RUNG 5 split: perimeter_front (always fires, severity by time/presence) + visitor (entrance_valid only);*
-*  ipcam03 dog-as-person AI misclassification noted (camera fix required);*
-*  security_logic.yaml + security_automations.yaml modified.*
+*Updated 2026-05-27 (S15): BUG-S47 stale image fix; RUNG 5 three-way split (perimeter_front / visitor / gate_activity);*
+*  ipcam03 dog AcuSense misclassification noted; security_logic.yaml + security_automations.yaml modified.*
 *Updated 2026-05-26 (S14): BUG-S44 go2rtc replay filter (delay_on cam14/cam15); BUG-S46 RUNG 8 arriving guard;*
 *  BUG-S45 partial: ipcam04 alarm deactivate REST command + dogs_out cancel automation;*
 *  camera alarm Hikvision app visibility explained (expected behaviour, ISAPI output ≠ motion event).*
