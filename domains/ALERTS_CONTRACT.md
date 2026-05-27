@@ -39,6 +39,7 @@ largely correct. Remaining open issue:
 | `alerts_water.yaml` | 123 | ✅ Active | Water alert pipeline — implemented 2026-04-14 |
 | `alerts_security.yaml` | 109 | ✅ Active | Security alert pipeline — implemented 2026-04-14 |
 | `alerts_garden.yaml` | ~120 | ✅ Active | Garden/pond pump unscheduled alert — implemented 2026-04-29 |
+| `alerts_batteries.yaml` | ~250 | ✅ Active | Dashboard tablet battery low/overcharge alert — implemented 2026-05-27 |
 
 **Note:** ALERTS_CONTEXT.md lists `alerts_core.yaml` and `alerts_device.yaml` — neither
 exists. That context file is stale; this contract is authoritative.
@@ -86,6 +87,7 @@ Scans all `sensor.*_alert_context` entities. For each non-normal context:
 | `sensor.device_temp_alert_context` | `alert.device_temp` | ✅ |
 | `sensor.storage_temp_alert_context` | `alert.storage_temp` | ✅ |
 | `sensor.garden_alert_context` | `alert.garden_alert` | ✅ (fallback candidate2) |
+| `sensor.dash_battery_alert_context` | `alert.dash_battery_alert` | ✅ (fallback candidate2) |
 
 All active alert entities resolve correctly. No broken name mappings.
 
@@ -109,6 +111,7 @@ entity_id:
   - alert.water_borehole_critical_fault ✅
   - alert.presence_alert        ✅
   - alert.garden_alert          ✅
+  - alert.dash_battery_alert    ✅ (added 2026-05-27)
 - trigger: time_pattern
   minutes: "/1"                 # fallback poll
 ```
@@ -261,6 +264,23 @@ automations bypass the central script (see BUG-A03).
 **PASS.** Well-structured. 120s `delay_on`/`delay_off` on binary sensor
 prevents spurious watchman alerts.
 
+### Dashboard Battery Domain — `alerts_batteries.yaml`
+
+**IMPLEMENTED 2026-05-27.**
+
+| Stage | Entity | Status |
+|---|---|---|
+| Toggle | `input_boolean.dash_battery_alert_notify` | ✅ suppress gate |
+| Per-device binary sensors | `binary_sensor.honor10_dash_battery_low`, `binary_sensor.honorx7_dash_battery_low` | ✅ delay_on 1 min, fires when < warning_threshold AND not charging |
+| Overcharge binary sensors | `binary_sensor.honor10_dash_battery_overcharge_active`, `binary_sensor.honorx7_dash_battery_overcharge_active` | ✅ delay_on 2 h — fires when ≥ overcharge_threshold AND charging |
+| Runtime estimate sensors | `sensor.honor10_dash_battery_time_remaining_est`, `sensor.honorx7_dash_battery_time_remaining_est` | ✅ minutes remaining; -1 when charging/unavailable |
+| Master binary sensor | `binary_sensor.dash_battery_alert_active` | ✅ any device low OR overcharge, gated by notify toggle |
+| Context sensor | `sensor.dash_battery_alert_context` | ✅ critical/warning/normal; devices[] with per-device SOC + time remaining |
+| Alert entity | `alert.dash_battery_alert` | ✅ 30/60 min repeat |
+| In aggregator trigger | ✅ (triggered) | Added 2026-05-27 |
+
+**PASS.** Severity: critical when any device < `dash_battery_critical_threshold` (15%) AND discharging; warning for low (<30%) or overcharge. Screen brightness management lives in `packages/admin/tablets.yaml`.
+
 ---
 
 ## Section 5: Alert Entity Inventory
@@ -278,6 +298,7 @@ prevents spurious watchman alerts.
 | `alert.storage_temp` | `binary_sensor.storage_temp_alert_active` | (varies) | `STD_Alerts` | Implicit |
 | `alert.media_alert` | `binary_sensor.media_devices_down_alert_active` | 3/10/30/60 min | `STD_Alerts` | Implicit |
 | `alert.garden_alert` | `binary_sensor.garden_alert_active` | 60 min | `STD_Alerts` | ✅ |
+| `alert.dash_battery_alert` | `binary_sensor.dash_battery_alert_active` | 30/60 min | `STD_Alerts` | ✅ |
 
 All active alert entities use `STD_Alerts` (mobile + Telegram group).
 
@@ -294,6 +315,11 @@ All thresholds are `input_number` entities:
 | `input_number.wan_temp_high_trigger` | 90°C | alerts_temperature |
 | `input_number.lan_temp_high_trigger` | 75°C | alerts_temperature |
 | `input_number.device_temp_high_trigger` | 80°C | alerts_temperature |
+| `input_number.dash_battery_warning_threshold` | 30% | alerts_batteries — low alert trigger |
+| `input_number.dash_battery_critical_threshold` | 15% | alerts_batteries — critical severity |
+| `input_number.dash_battery_overcharge_threshold` | 95% | alerts_batteries — overcharge trigger |
+| `input_number.honor10_dash_battery_capacity_wh` | 39.1 Wh | alerts_batteries — runtime calc (Honor Pad 10: 10100 mAh × 3.87V) |
+| `input_number.honorx7_dash_battery_capacity_wh` | 27.2 Wh | alerts_batteries — runtime calc (Honor Pad X7: 7020 mAh × 3.87V) |
 | `input_number.storage_temp_high_trigger` | 55°C | alerts_temperature |
 | `input_number.perimeter_open_escalation_minutes` | 10 min | alerts_doors |
 | `input_number.door_warning_escalation_minutes` | 15 min | alerts_doors |
@@ -477,6 +503,7 @@ automation, not an alert entity. No pipeline entry.
 | Security | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A02 |
 | Presence | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-16 B1 |
 | Garden | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-29 new |
+| Dash Batteries | ✅ (x5) | ✅ | ✅ | ✅ (triggered) | PASS | 2026-05-27 new |
 
 ---
 
@@ -500,6 +527,7 @@ automation, not an alert entity. No pipeline entry.
 
 ---
 
-*Contract generated: 2026-04-13*  
+*Contract generated: 2026-04-13*
+*Last updated: 2026-05-27 — alerts_batteries.yaml added; dash battery + screen brightness domain documented; aggregator trigger list updated*  
 *Last updated: 2026-04-29 — alerts_garden.yaml added; garden domain pipeline audit added; aggregator trigger list corrected to full current state*  
 *Based on: 13 alerts package files + cross-domain dependency trace*

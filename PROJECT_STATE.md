@@ -44,7 +44,7 @@
 packages/
   power/          # 25 files — dual inverter, solar, battery, prepaid, energy, automations, statistics
   water/          # 20 files — tank lifecycle, safety aborts, audit
-  alerts/         # 14 files — see ALERTS_CONTRACT.md for actual file list (alerts_garden.yaml + alerts_camera_health.yaml added 2026-04-29)
+  alerts/         # 15 files — see ALERTS_CONTRACT.md for actual file list (alerts_batteries.yaml added 2026-05-27)
   lighting/       # 14 files — presence-aware and time-based scenes
   notifications/  # 12 files — routing, quiet hours, severity (includes water/power/presence/security/system scripts)
   security/       # 7 files  — cameras_core, cameras_processing, security_helpers,
@@ -63,7 +63,7 @@ packages/
   sensors/        # 1 file   — filter.yaml (sensor smoothing utilities)
   load_shedding/  # 2 files  — load_shedding_templates.yaml (migrated from power/ 2026-04-21)
                  #             load_shedding_automations.yaml (3 warning automations migrated 2026-04-29)
-  admin/          # 0 files  — EMPTY directory (reserved for future admin automations)
+  admin/          # 1 file   — tablets.yaml (screen brightness management for dashboard tablets — added 2026-05-27)
 ```
 
 **Important:** Several `*_CONTEXT.md` documents list incorrect filenames. The `*_CONTRACT.md`
@@ -206,6 +206,40 @@ sensor.total_info_alert_devices
 sensor.total_active_alerts
 sensor.total_acknowledged_alerts
 sensor.total_unacknowledged_alerts
+```
+
+### Dashboard Battery Alert Entities (added 2026-05-27)
+```
+# alerts_batteries.yaml
+input_boolean.dash_battery_alert_notify           ← pipeline suppress toggle
+input_number.dash_battery_warning_threshold       ← 30% low alert trigger
+input_number.dash_battery_critical_threshold      ← 15% critical severity
+input_number.dash_battery_overcharge_threshold    ← 95% overcharge trigger
+input_number.honor10_dash_battery_capacity_wh     ← 39.1 Wh (Honor Pad 10, HEY3-W00 — 10100 mAh × 3.87V)
+input_number.honorx7_dash_battery_capacity_wh     ← 27.2 Wh (Honor Pad X7, JMS-W09 — 7020 mAh × 3.87V)
+sensor.honor10_dash_battery_time_remaining_est    ← minutes remaining (-1 = charging/unavailable)
+sensor.honorx7_dash_battery_time_remaining_est    ← minutes remaining (-1 = charging/unavailable)
+binary_sensor.honor10_dash_battery_low            ← delay_on 1 min, < warning_threshold AND not charging
+binary_sensor.honorx7_dash_battery_low            ← same for X7
+binary_sensor.honor10_dash_battery_overcharge_active ← delay_on 2 h, ≥95% while charging
+binary_sensor.honorx7_dash_battery_overcharge_active ← same for X7
+binary_sensor.dash_battery_alert_active           ← master trigger (any low OR overcharge)
+sensor.dash_battery_alert_context                 ← canonical context sensor for aggregator
+alert.dash_battery_alert                          ← 30/60 min repeat, STD_Alerts
+
+# tablets.yaml (admin package) — screen brightness
+input_number.dash_brightness_day                  ← 150 (0–255 scale)
+input_number.dash_brightness_night                ← 20
+input_number.dash_brightness_away                 ← 40
+automation.tablets_brightness_night_dim           ← night_mode ON → night brightness
+automation.tablets_brightness_morning_restore     ← night_mode OFF → day (or away if nobody home)
+automation.tablets_brightness_away_dim            ← nobody_home ON → away brightness (if not night)
+automation.tablets_brightness_return_restore      ← nobody_home OFF → day brightness (if not night)
+
+# Entities to ENABLE in HA Settings → Entities (currently disabled by integration):
+#   binary_sensor.honor10_dash_interactive  — screen on/off (useful for future proximity logic)
+#   binary_sensor.honorx7_dash_interactive  — screen on/off
+#   binary_sensor.honorx7_dash_doze_mode    — device doze/sleep state
 ```
 
 ### Power Core Sensors
@@ -397,7 +431,7 @@ script.water_demand_set_winter_profile
 | ⚡ Power | Updated 2026-05-27 | **2026-05-27:** BUG fix — pyscript sync_power_groups.py was wiping group.flexible_power_loads and group.critical_power_loads to [] on every startup, overriding YAML definitions. Removed the two wipe lines; pyscript now only maintains real_power_loads (auto-detected). YAML in power_templates.yaml is now the sole owner of flexible/critical groups. Plug change: Water Cooler Plug → LG Combo Washer Plug (2026-05-25); sensor.lg_combo_washer_plug_power added to known_power_loads, flexible_power_loads, house_laundry_power_sensors. Issue 16 in POWER_CONTRACT resolved. **Session H (2026-05-25):** Eskom outage triggered BMS protection — pool pump drew ~3.9kW at 07:25 (grid offline, SOC ~38%), causing BMS shutdown and house trip at 07:45. Fixed: (1) pool pump now blocked during grid outage when SOC < `grid_offline_soc_min_pool` (60%, Branch 2a) — bypasses minimum run time; (2) pool pump now blocked in last-sun-slot (14:00–16:00) when SOC < `sensor.last_sun_soc_target` (80%/90% by season, Branch 2b); (3) same two conditions added as gates to Branch 5 turn-on; (4) new triggers: `group.inverter_grid` state change + `sensor.inverter_battery_soc` below threshold. Borehole: `binary_sensor.water_refill_allowed` updated with last-sun-slot gate (SOC below target → block, but bypassed if tank ≤20%). New shared helpers added to power_helpers.yaml (9 new input_numbers). New template sensors: `sensor.last_sun_soc_target` (80%/90% season-aware), `sensor.geyser_target_run_hours_today` (2/3.5h season-aware). Geyser: helpers added but automation NOT implemented — see POWER_CONTRACT Sprint 5 for design questions. Session G (2026-04-28): pool_pump_solar_control two bugs fixed — (1) no 16:00 hard-stop: pump ran until 18:05 when manually stopped; fixed by adding "16:00:00" trigger (id: end_of_day) + Branch 0 unconditional turn-off, removing before:"16:00:00" from global condition, moving it to Branch 5 turn-on only; (2) pool_pump_last_on never updated: mode:single caused Branch 1 to be silently dropped when Branch 5 turned pump on, leaving pool_pump_continuous_run_minutes stale at ~18h; fixed by changing to mode:queued. Session F (2026-04-22): power_statistics.yaml created — inverter_production_7d_mean/30d_mean, house_load_24h_mean (statistics platform), solar_vs_forecast_ratio_7d + solar_weather_correlation (template). All 5 excluded from recorder. pv3/pv4 broken voltage entries removed from 3 dashboards (operations/overview/testing). Broken suppress-counter entity cards removed from dashboard_operations. prepaid_balance_confidence | min(30) bug fixed (must wrap in list). Dashboard card last_changed guards added for pool_pump_control_status, pool_target_run_hours_today, pool_pump_continuous_run_minutes. pyscript sync_power_groups.py: hass.* proxy is fully restricted — hass.data, hass.services, homeassistant.helpers imports, and task.executor(pyscript_fn) all blocked. Final working solution uses state.names(domain="sensor") + service.call() builtins only; label-based flexible/critical groups left empty (entity registry inaccessible from pyscript). Session D (2026-04-22): pool_pump_solar_control added to power_automations.yaml; 4 old pool pump blocks removed from automations.yaml; pool helpers added to power_helpers.yaml; pool runtime sensors (history_stats + 2 templates) added to power_state.yaml; POWER_CONTRACT pool section added. Session A (2026-04-21): grid_to_house_power fixed; energy flow sensors corrected; battery_energy_available + average_night_consumption statistics sensor added; solar_forecast.yaml syntax error + 3× sensor.inverter_power fixed; grid_risk.yaml + alerts_system_health.yaml sensor.inverter_power fixed; power_core.yaml inverter_today_energy_import deprecation documented; pyscript event.fire fixed. Session B (2026-04-21): power_automations.yaml created; grid_status_monitoring + inverter_pwer_monitoring commented out (superseded by alerts_power.yaml); inverter_alert_battery_soc_critical migrated with ssa_*→ss_* fixes; alerts_power.yaml 3× inverter_power fixed; load_shedding migrated to new packages/load_shedding/ dir (⚠️ restart required); B4 sensor rename; B5 group ref fixed; B6 prog1_capacity fixed. Session C (2026-04-22): sync_power_groups.py startup trigger added + import rewritten (hass.data.get); battery_runtime.yaml 6× int default fixed; battery_energy_available device_class removed; number.inverter_battery_capacity storage template int default fixed. Pool pump automations researched (C3 — 4 blocks, lines 2222–3174, research only). |
 | 💳 Prepaid | Clean | Drift history tracking added 2026-04-23. Confidence layer done. |
 | 🚰 Water | Updated 2026-05-25 | "full" dead code fixed — water_tank_full_notification now triggers on binary_sensor.water_tank_full_depth. Fault escalation implemented (L1 notify / L2 warning alert / L3 critical alert). sensor.water_refill_blocked_reason added. Borehole fault counters defined in YAML. **2026-05-25 (session H — three commits):** (1) binary_sensor.water_refill_allowed updated — last-sun-slot gate added (borehole blocked if SOC below overnight target during 14:00+ window, unless tank ≤ 20% critical override). (2) water_borehole_mid_run_shutdown automation added — stops pump mid-cycle if water_refill_allowed goes OFF or solar window closes; safety state exempt; does NOT set safety abort flag. (3) water_safety_battery_hard_stop automation added in water_safety.yaml — stops pump + sets safety abort flag when SOC < water_battery_soc_hard_stop (40% temp, lower to 20% after new batteries). Issue 6 FULLY RESOLVED. (4) Demand-based refill targets: 21 per-day demand booleans removed (were unused); replaced by 7 input_select per day (Mon–Sun, options: Normal/Wash/Clean/Irrigation/Pool); sensor.water_target_depth_tomorrow and sensor.water_demand_today added; Case 4 refill trigger now fires when depth < tomorrow's target (not just state=low); water_stop_at_daily_target automation added — pump stops at demand target instead of always 1.95m. (5) Thresholds corrected: critical 0.50→0.25m, minimum_safety 0.60→0.35m, low_trigger 1.00→0.80m, target_depth_normal 1.55→1.00m, target_depth_partial (Wash/Clean) 1.65→1.20m, target_depth_full (Pool Day) 1.85→1.60m; water_target_depth_irrigation added (1.25m). Season preset scripts: water_demand_set_summer_profile / water_demand_set_winter_profile. |
-| 🔔 Alerts | All domains live | alert.camera_health added 2026-04-29 (alerts/ = 14 files). All other pipelines live. |
+| 🔔 Alerts | Updated 2026-05-27 | alert.camera_health added 2026-04-29 (alerts/ = 14 files). **2026-05-27:** alerts_batteries.yaml added (15th file) — full battery alert pipeline for Honor 10 Dash + Honor X7 Dash. Pipeline: per-device low + overcharge binary sensors → dash_battery_alert_context → alert.dash_battery_alert → aggregator. Screen brightness management added in packages/admin/tablets.yaml (night dim, away dim, morning/arrival restore). ⚠️ Requires HA restart (alert: entity). |
 | 🔔 Notifications | Scripts correct | All C-series bypasses resolved. BUG-N02 counter entity correct. |
 | 🧭 Presence | Alert pipeline live | Unknown AP alert + occupancy anomaly implemented. Trust chain intact. |
 | 💡 Lighting | Stable | All L01–L10 fixed and verified 2026-04-29. BUG-L09 closed: lighting_entertainment.yaml + lighting_energy_saving.yaml both populated. M1/M2/M3 implemented. SOC-based energy saving trigger remains future work (power session). |

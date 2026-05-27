@@ -236,6 +236,8 @@ sensor.ups_runtime_severity          ok | warning | critical | unknown (battery 
 sensor.ups_load_percent              %    ac_out / rated_output_watts
 sensor.ups_load_status               ok | warning | critical
 sensor.ups_load_markdown             text load breakdown string for dashboard card
+sensor.ups_accessories_power         W    sum of USB1/2/3 + TypeC + DC out
+sensor.ups_visibility_score          %    accessories / total × 100 (mirrors load_visibility_score pattern)
 ```
 
 ### Configuration helpers (network_ups.yaml)
@@ -293,5 +295,5 @@ later for battery health monitoring. Not required for runtime/load tracking.
 
 ---
 
-*Last updated: 2026-04-16*
-*Source: packages/network/network_helpers.yaml, packages/alerts/alerts_network.yaml*
+*Last updated: 2026-05-28 — sensor.ups_accessories_power + sensor.ups_visibility_score added to Section 9*
+*Source: packages/network/network_helpers.yaml, packages/alerts/alerts_network.yaml, packages/network/network_ups.yaml*
