@@ -1159,6 +1159,132 @@ for a genuine second visitor within the hour; long enough to suppress the deboun
 
 ---
 
+### BUG-S44 — cam14 / cam15 NVR false motion from go2rtc reconnect replay
+**Priority: HIGH | Status: ✅ FIXED 2026-05-26 (S14)**
+
+**Symptom:** cam14 (lounge) and cam15 (passage) fire motion events in HA that have NO
+corresponding entry in the Hikvision NVR app. Two patterns observed:
+1. "Old image" in notification — snapshot shows an image from hours earlier.
+2. "Repeated" alerts — multiple critical_intrusion events within minutes.
+
+**Root cause:** go2rtc NVR timeout instability (documented in contract). When go2rtc
+reconnects after a timeout, HA's hikvision integration briefly replays the last-known
+state of `cam14_lounge_motiondetection` / `cam15_passage_motiondetection` as "on".
+This is an instantaneous state replay (<1s) — the NVR never raised a new motion event,
+so nothing appears in the Hikvision app.
+
+The "old image" confirms this: `security_capture_best_snapshot` requires `medium/high`
+confidence before writing `security_image_inside_main` — but cam14 alone is confidence
+"none" (inside cameras excluded from the confidence score). So the zone slot holds the
+last real image from a previous event hours earlier.
+
+The "repeated" pattern: cam12 (pond) fires legitimately → provides `ext_recent = ON` →
+go2rtc reconnects → cam15 replays "on" immediately → both satisfy RUNG 2.5 / RUNG 8
+conditions → critical_intrusion.
+
+**Fix:** Added `delay_on: "00:00:03"` to `cam14_lounge_motion_valid` and
+`cam15_passage_motion_valid` in `cameras_processing.yaml`. A go2rtc state replay is
+instantaneous (< 1s) and will not survive the 3s hold-on filter. Genuine human motion
+(person walking through lounge or passage) stays ON for multiple seconds. This
+eliminates the false-positive without any risk of missing real events.
+
+---
+
+### BUG-S45 — ipcam04 pool camera alarm fires independently of HA (camera-side linkage)
+**Priority: HIGH | Status: 🔧 PARTIAL FIX — requires camera-side config change**
+
+**Symptom:** Turning on `input_boolean.security_dogs_out` did not stop the pool camera
+alarm from sounding. HA's `security_pool_alarm_trigger` correctly conditions on
+`security_dogs_out = off`, so the alarm should have been suppressed.
+
+**Root cause (two parts):**
+1. **Camera-side alarm linkage:** ipcam04 almost certainly has Smart Event → Intrusion
+Detection → Linkage Method → "Alarm Output" checked in the camera web UI
+(http://10.10.1.13). This means the CAMERA ITSELF triggers the alarm output whenever
+AcuSense detects a person/vehicle in the field detection zone — completely independently
+of HA. HA's `dogs_out` flag has zero effect on this camera-side linkage.
+2. **No deactivation command:** HA's `rest_command.ipcam04_trigger_alarm` only activates
+the alarm output. Once activated (either by HA or by the camera's own linkage), there was
+no HA command to CANCEL it before the camera's configured alarm duration expired.
+
+**Fix applied in S14 (2026-05-26):**
+- `rest_command.ipcam04_deactivate_alarm` added (security_helpers.yaml) — sends
+  `outputState: inactive` to immediately cancel the alarm output.
+- `security_dogs_out_cancel_alarm` automation added (security_automations.yaml) — fires
+  when `security_dogs_out` turns ON, calls deactivate immediately to silence any active alarm.
+
+**Remaining action required (camera web UI):**
+To give HA full control, disable the camera's own alarm output linkage:
+- Open http://10.10.1.13 → Configuration → Event → Smart Event → Intrusion Detection
+- In "Linkage Method", uncheck "Alarm Output"
+- Repeat for any other Smart Event types (Line Crossing etc.) that have Alarm Output linked.
+- After this change: the alarm can ONLY be triggered by HA's `rest_command.ipcam04_trigger_alarm`.
+
+---
+
+### BUG-S46 — cam15_passage triggers critical_intrusion during family arrival (AP transition)
+**Priority: MEDIUM | Status: ✅ FIXED 2026-05-26 (S14)**
+
+**Symptom:** Critical security event showing cam15_passage as trigger camera, occurring
+during the day / early evening when family is (or appears to be) home. Often coincides
+with cam12_back_pond motion firing.
+
+**Root cause:** RUNG 8 was missing a `not arriving` guard. During arrival (AP transitioning
+from Away → home, phone connects within seconds of entering property), `anyone_connected_home`
+can briefly be OFF (2-min delay_off window). At that moment:
+- `inside_armed_active` = ON (arming schedule activated on departure, not yet disarmed)
+- `not anyhome` = true (AP not yet connected)
+- cam12 provides `ext_recent`
+- cam15 go2rtc replay fires → RUNG 8 → `critical_intrusion`
+
+Adding `and not arriving` to RUNG 8 prevents this: `family_arriving = on` when the person
+is transitioning to home (snapshot-delta), providing the correct suppression window.
+
+**Fix:** Added `and not arriving` to RUNG 8 condition in `security_logic.yaml`.
+
+---
+
+### BUG-S47 — Stale image in critical_intrusion and visitor notifications
+**Priority: HIGH | Status: ✅ FIXED 2026-05-27 (S15)**
+
+**Symptom:** Critical intrusion notifications (RUNG 2.5) and visitor notifications show
+images timestamped hours or days before the notification. Examples from screenshots:
+- 01:44 critical_intrusion notification shows cam14_lounge image timestamped 04:08 previous morning
+- 03:04 critical_intrusion shows cam14_lounge image timestamped 02:14 (50min stale)
+- 07:00 visitor notification shows ipcam01 image timestamped 21:32 previous night
+
+**Root cause (two separate paths):**
+
+**Path 1 — Inside camera (RUNG 2.5):**
+`security_capture_best_snapshot` gates on `confidence in ['medium','high']`. Inside cameras
+(cam14, cam15, cam05) are excluded from confidence scoring. cam14 alone = confidence "none".
+cam12 (rear NVR, LOW confidence) + cam14 = still "low". So `security_image_inside_main` is
+NEVER updated during RUNG 2.5 events. The critical_intrusion router reads a slot that was
+last written during a much earlier medium/high confidence outdoor event — hours or days stale.
+`security_capture_each_camera_motion` was capturing per-camera snapshots and writing history
+but NOT writing the per-zone slot (`input_text.security_image_inside_main`).
+
+**Path 2 — Visitor (timing race):**
+The router fires immediately when `security_event_classification` → `visitor`. The top-level
+`variables:` block reads `input_text.security_image_perimeter_front` at that instant — before
+`security_capture_best_snapshot` (which has a 2s delay + snapshot time) has written a fresh
+image. The router sends the notification with the stale slot value.
+
+**Fix — Path 1:**
+Added a zone-slot write step at the end of `security_capture_each_camera_motion` for inside
+cameras (cam14 → `security_image_inside_main`, cam15 → `security_image_inside_bedrooms`,
+cam05 → `security_image_inside_garage`). This runs after the 1s snapshot delay, so the slot
+is written ~2s before the router's 3s delay expires. Slot is now guaranteed fresh on any valid
+inside camera motion, regardless of confidence.
+
+**Fix — Path 2:**
+Added `delay: "00:00:04"` before image read in visitor branch, plus a local `visitor_img`
+re-read (same pattern as `critical_intrusion` branch). The 4s wait gives
+`security_capture_best_snapshot` (2s delay + snapshot ≈ 3–4s) time to write the fresh slot.
+`security_automations.yaml` modified.
+
+---
+
 ### BUG-S28 — ipcam02 dead signal (firmware incompatibility)
 **Priority: MEDIUM | Status: OPEN — awaiting installer**
 
@@ -1353,6 +1479,78 @@ SPRINT 6 — 2026-05-10/11/12/14 changes (done)
 [✅] Threat rule 3: perimeter + confirmed_human + evening now requires nobody_home for CRITICAL
       — family arriving home no longer triggers CRITICAL (falls to WARNING via rule 6 instead)
 [✅] Visitor/arrival staleness filter: 10s → 30s (Pi queue delay was causing missed notifications)
+```
+
+SPRINT 15 — Stale image fixes: inside camera zone slot + visitor delay (2026-05-27)
+```
+[✅] BUG-S47 (Path 1): security_image_inside_main never updated during RUNG 2.5 events.
+      security_capture_best_snapshot gates on medium/high confidence; cam14 alone = none,
+      cam12+cam14 = low — slot was never written. Added zone-slot write step to
+      security_capture_each_camera_motion for cam14/cam15/cam05, ensuring the slot is
+      always fresh when a valid inside motion occurs. security_automations.yaml modified.
+
+[✅] BUG-S47 (Path 2): Visitor notification reads stale perimeter_front slot (timing race).
+      Router fires simultaneously with security_capture_best_snapshot trigger; slot hasn't
+      been written yet. Added 4s delay + visitor_img re-read in visitor router branch,
+      matching the pattern already used by critical_intrusion branch. Slot is now read
+      after the snapshot has been captured and written. security_automations.yaml modified.
+```
+
+SPRINT 14 — go2rtc replay filter + RUNG 8 arrival guard + alarm deactivation (2026-05-26)
+```
+[✅] BUG-S44: cam14/cam15 NVR false motion from go2rtc reconnect replays.
+      Added delay_on: 3s to cam14_lounge_motion_valid and cam15_passage_motion_valid.
+      go2rtc state replays are instantaneous (<1s) and filtered by the hold-on window.
+      Genuine human motion stays ON for multiple seconds and passes through unchanged.
+      cameras_processing.yaml modified.
+
+[✅] BUG-S46: RUNG 8 missing 'not arriving' guard — critical_intrusion during arrival.
+      Added 'and not arriving' to RUNG 8 condition in security_logic.yaml.
+      Prevents cam15 false alert when family member is walking through house while AP
+      has not yet fully connected (2-min delay_off still in effect from departure).
+
+[✅] BUG-S45 (partial): Pool alarm not cancelable from HA when dogs_out turns ON.
+      Added rest_command.ipcam04_deactivate_alarm (outputState: inactive) to
+      security_helpers.yaml.
+      Added security_dogs_out_cancel_alarm automation to security_automations.yaml —
+      triggers when security_dogs_out turns ON, immediately calls deactivate.
+      REMAINING ACTION: In ipcam04 camera web UI (http://10.10.1.13), remove "Alarm Output"
+      from Smart Event Intrusion Detection linkage method. Camera-side linkage fires
+      independently of HA and cannot be suppressed by dogs_out until disabled.
+
+[ℹ️] Camera alarm output not visible in Hikvision app: EXPECTED BEHAVIOUR.
+      ISAPI alarm output trigger (/ISAPI/System/IO/outputs/1/trigger) activates the
+      physical alarm but does NOT create a "Motion Detection Alarm" or Smart Event.
+      Hikvision app shows Motion Detection / Smart Events only — not alarm output activations.
+      To verify HA trigger is working: ipcam04 camera web UI → System → Maintenance → Log
+      → look for "Alarm Output" entries timestamped when HA triggered the alarm.
+```
+
+SPRINT 13 — BUG-S39/S37/S43/S40/S41/S38/S42 batch fix (2026-05-23)
+```
+[✅] BUG-S39: RUNG 2.5 false critical at 5am — added hard 5am floor (now().hour < 5).
+      90s cooldown added to critical_intrusion router branch.
+      3s delay added before critical_intrusion image lookup.
+
+[✅] BUG-S37: ipcam03 exit_valid missing linedetection — departure misses.
+      exit_valid state updated to include linedetection OR regionexiting.
+
+[✅] BUG-S43: security_lighting_required visibility entity name wrong.
+      security_visibility_low → security_weather_low_light in security_core.yaml.
+
+[✅] BUG-S40: Gardener visitor spam — 30s cooldown extended to 1800s (30min) when
+      binary_sensor.staff_on_site is ON at time of visitor fire.
+
+[✅] BUG-S41: Stage 2 arrival shows carport image (cam04 overwrites grounds_front slot).
+      input_text.security_image_arrival_locked added. Stage 1 locks the driveway image
+      at T+5s before car reaches carport. Stage 2 reads locked slot, not live grounds_front.
+
+[✅] BUG-S38: Stage 1 arrival ipcam01 120s window too narrow.
+      Extended from 120s to 180s in Stage 1 condition.
+
+[✅] BUG-S42: Delivery person classified as "Arrival — vehicle entering".
+      Stage 1 message softened to "Gate opened — vehicle entering". Stage 2 Unknown
+      changed to "Visitor/delivery — nobody newly detected home".
 ```
 
 SPRINT 11c — entrance_valid source changed to fielddetection (2026-05-22)
@@ -1918,6 +2116,11 @@ Also gated by: `security_dogs_out` OFF + `guest_mode` OFF + 5-min cooldown on `l
 ---
 
 *Audit completed: 2026-04-13*
+*Updated 2026-05-27 (S15): BUG-S47 stale image fix — inside camera zone slot write in security_capture_each_camera_motion;*
+*  visitor branch 4s delay + visitor_img re-read to fix perimeter_front slot timing race. security_automations.yaml modified.*
+*Updated 2026-05-26 (S14): BUG-S44 go2rtc replay filter (delay_on cam14/cam15); BUG-S46 RUNG 8 arriving guard;*
+*  BUG-S45 partial: ipcam04 alarm deactivate REST command + dogs_out cancel automation;*
+*  camera alarm Hikvision app visibility explained (expected behaviour, ISAPI output ≠ motion event).*
 *Updated 2026-05-21 (S10): BUG-S36 departure/arrival direction fix (ipcam01 recency in Stage 1 cam_dir);*
 *  mutual 120s suppression on Stage 1; RUNG 4 perim removed (perimeter always active); RUNG 5 not-staff*
 *  removed; service_person router always silent; departure Stage 2 Unknown suppressed when staff on site;*
