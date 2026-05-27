@@ -1059,11 +1059,11 @@ input_select:
 
 ---
 
-### Issue 16 — UNKNOWN STATE: Load groups
+### Issue 16 — ✅ RESOLVED 2026-05-27: Load groups wiped by pyscript at startup
 **Priority:** P3 — Power templates that sum group states show unknown  
-**File:** `packages/power/power_helpers.yaml` and `power_templates.yaml`  
-**Root cause:** `group.known_power_loads`, `group.flexible_power_loads`, `group.critical_power_loads` all show state "unknown" per watchman. These are populated by `pyscript/sync_power_groups.py` — if pyscript is not running or hasn't executed, groups are empty.  
-**Fix:** Ensure pyscript runs on HA startup. Add a startup trigger. Monitor that pyscript completes successfully.
+**File:** `pyscript/sync_power_groups.py`, `packages/power/power_templates.yaml`  
+**Root cause:** `group.flexible_power_loads` and `group.critical_power_loads` are defined in YAML (power_templates.yaml) but pyscript wiped them to empty `[]` on every startup. YAML-defined members were correct; pyscript overwrote them. `group.known_power_loads` "unknown" state is expected — HA groups of numeric sensors always report "unknown" state, but `expand()` in templates still iterates members correctly.  
+**Fix applied 2026-05-27:** Removed the two wipe lines from pyscript. pyscript now only maintains `group.real_power_loads` (auto-detected). YAML owns `flexible_power_loads` and `critical_power_loads` — members survive restarts.
 
 ---
 
@@ -1099,9 +1099,9 @@ These entities appear in watchman_report.txt as missing or unavailable. Map thes
 
 | Entity | Status | Root Cause |
 |---|---|---|
-| `group.known_power_loads` | unknown | pyscript not populating groups |
-| `group.flexible_power_loads` | unknown | pyscript not populating groups |
-| `group.critical_power_loads` | unknown | pyscript not populating groups |
+| `group.known_power_loads` | unknown (expected) | HA groups of numeric sensors always report "unknown" state; expand() still works correctly |
+| `group.flexible_power_loads` | ✅ FIXED 2026-05-27 | pyscript was wiping to [] on startup; fix in sync_power_groups.py — YAML members now survive |
+| `group.critical_power_loads` | ✅ FIXED 2026-05-27 | pyscript was wiping to [] on startup; fix in sync_power_groups.py — YAML members now survive |
 | `group.inverter_battery_state` | unknown | solarman group entity issue |
 | `group.house_kitchen_power_sensors` | unknown | no entities in group? |
 | `group.house_living_areas_power_sensors` | unknown | no entities in group? |
