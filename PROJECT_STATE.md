@@ -54,7 +54,9 @@ packages/
                  #             presence_boundary, presence_validation, presence_trust (migrated from context/ 2026-04-30)
   context/        # 2 files  — context_global, context_night (context_presence + context_schedules deleted 2026-04-30/28)
   core/           # 3 files  — core_helpers (startup guard), ha_monitoring, sensor_smoothing
-  network/        # 1 file   — network_helpers (WAN health, UniFi speed, latency, jitter, NOC status)
+  network/        # 3 files  — network_helpers (WAN health, UniFi speed, latency, jitter, NOC status);
+                 #             network_ups (EcoFlow River Pro UPS monitoring — added 2026-05-27);
+                 #             network_nas (Synology NAS graceful shutdown + WoL restore — added 2026-05-28)
   alerts/ already counted above; also covers: network, temperature, system_health, media, doors, water, security, presence, power
   backup/         # 1 file   — github.yaml (5AM git backup, script, status sensor)
   integrations/   # 1 file   — sonoff.yaml (Sonoff/EWElink config)
@@ -240,6 +242,22 @@ automation.tablets_brightness_return_restore      ← nobody_home OFF → day br
 #   binary_sensor.honor10_dash_interactive  — screen on/off (useful for future proximity logic)
 #   binary_sensor.honorx7_dash_interactive  — screen on/off
 #   binary_sensor.honorx7_dash_doze_mode    — device doze/sleep state
+```
+
+### NAS Protection Entities (added 2026-05-28)
+```
+# network_nas.yaml — Synology graceful shutdown + WoL restore
+input_boolean.ups_nas_auto_shutdown_enabled    ← cancel gate; toggle OFF to abort pending shutdown
+input_boolean.ups_nas_was_shutdown             ← flag set at shutdown; gates WoL on HA restart
+input_number.ups_nas_shutdown_warn_minutes     ← Stage 1 threshold (default 15 min)
+input_number.ups_nas_shutdown_grace_minutes    ← grace between warning and forced shutdown (default 5 min)
+input_number.ups_pi_shutdown_wait_minutes      ← wait after NAS shutdown before Pi shutdown (default 4 min)
+binary_sensor.ups_nas_shutdown_imminent        ← ON when on battery AND runtime < warn threshold
+
+# External entities (not HA-defined — Synology DSM + WoL integrations)
+button.guardians_shutdown                      ← Synology DSM shutdown
+button.wol_synology_nas_00_11_32_ad_af_a5      ← WoL magic packet to LAN 1 NIC (MAC 00:11:32:ad:af:a5)
+                                                  broadcast_address: 192.168.1.255 (fixed 2026-05-28 — was wrong unicast IP)
 ```
 
 ### Power Core Sensors
@@ -652,6 +670,36 @@ Spurious fires on HA restart / template reload — missing `from:` / `not_from:`
 ```
 Rule: binary sensors / input_booleans → `from: "off"`. Template/state sensors → `not_from: [unknown, unavailable]`.
 
+### Group U — iCloud Re-integration [DEFERRED — blocked on upstream fix]
+```
+BLOCKER: icloud integration broken on HA 2025.11.0 (Issue #155933 — dict has no attribute user_info).
+         Do not start U1–U3 until integration is confirmed working on current HA version.
+         Monitor: https://github.com/home-assistant/core/issues/155933
+
+U1. [DEFERRED] Re-add iCloud integration via UI (Settings → Integrations → Apple iCloud)
+    Use primary Apple ID account (non-primary family accounts unsupported upstream).
+    Enable "with family" to expose all family device trackers.
+
+U2. [DEFERRED] presence/presence_icloud.yaml — new file
+    - Monitor device_tracker.* iCloud entities going unavailable (auth failure detection)
+    - Auto-delete /config/.storage/icloud via shell_command on failure detection
+    - Trigger HA restart via homeassistant.restart service
+    - Send push notification (script.notify_presence_event, warning severity) with
+      deep link to /config/integrations so re-auth is one tap away
+    - Startup guard: suppress during system_startup window to avoid false triggers
+    Note: 2FA code entry itself cannot be automated — human must approve on Apple device.
+    This reduces monthly re-auth from manual diagnostic + terminal + restart to
+    a single notification → tap → enter code flow.
+
+U3. [DEFERRED] Apple device battery pipeline — two options (decide at implementation time):
+    Option A: Extend alerts/alerts_batteries.yaml — add Apple device battery/charging
+              sensors alongside existing Honor tablet pipeline (same pattern)
+    Option B: New alerts/alerts_apple_devices.yaml — separate file if scope grows
+              (location staleness monitoring, find-my state, etc.)
+    Entities expected from iCloud: sensor.PERSON_iphone_battery_level,
+    binary_sensor.PERSON_iphone_battery_charging — one per family member device.
+```
+
 ---
 
 ## 📚 Document Index
@@ -699,8 +747,11 @@ Rule: binary sensors / input_booleans → `from: "off"`. Template/state sensors 
 | `ids_hyyp` v1.9.0 | Zero automations in automations.yaml — integration not yet wired at HA level | Medium | Stub created (IMP-IDS01 ✅). Migrate entity interface when IDS is live. |
 | `localtuya` v5.2.3 | False reconnect event can trigger spurious water tank abort | Medium | See WATER_CONTRACT.md — input_boolean.water_refill_aborted_due_to_safety can get stuck |
 | Multiple weather integrations | OWM + OWM History + Met.no + Met Nowcast all installed — canonical source unclear | Low | Document which is used for what in INFRA_CONTRACT.md |
+| `icloud` (built-in) | **Removed end of 2025.** Monthly 2FA session expiry requires manual `.storage/icloud` delete + HA restart + code entry. Non-primary Apple ID (family members) unsupported. Broke entirely on HA 2025.11.0 (`dict has no attribute user_info`). Value lost: GPS away-from-home location + Apple device battery/charging state for all family devices. | High | **DEFERRED** — monitor upstream fixes (Issue #155933 for 2025.11 breakage). Re-add only when auth is stable. Recovery automation + Apple device battery pipeline planned: see Group U. |
 
 ---
+
+*2026-05-28 session (network: Synology NAS graceful shutdown + WoL restore + HA Pi shutdown): network_nas.yaml created (3rd network/ file). Three-stage shutdown pipeline: Stage 1 warn at <15 min remaining (critical notification, grace countdown); Stage 2 grace period (5 min, cancellable by toggling ups_nas_auto_shutdown_enabled OFF or grid restore); Stage 3 NAS shutdown (button.guardians_shutdown) → 4 min wait → hassio.host_shutdown (Pi). binary_sensor.ups_nas_shutdown_imminent = ON when on battery AND runtime < warn_threshold. WoL restore: HA startup trigger → if ups_nas_was_shutdown flag ON AND NAS offline → 3 min delay → button.wol_synology_nas_00_11_32_ad_af_a5 → 5 min wait → confirm/warn → clear flag. WoL broadcast_address bug fixed in .storage/core.config_entries: was 192.168.1.6 (unicast to powered-off IP, never works) → 192.168.1.255 (subnet broadcast). NAS on 192.168.1.x, Pi on 10.10.1.x (cross-subnet WoL via routing). DSM WoL confirmed enabled on LAN 1 + LAN 2 physical NICs; auto-restart on power failure also enabled in DSM. WoL targets physical NIC MAC (00:11:32:AD:AF:A5), not bond interface (Bond 1 = LAN1+LAN2, WoL is per-NIC only). 3 automations + binary sensor + 5 input helpers. Restart required (new helpers). See NETWORK_CONTRACT.md Section 10.*
 
 *2026-05-28 session (dashboard battery alerts + Mobile Devices view): alerts_batteries.yaml created (15th alerts/ file) — canonical battery alert pipeline for Honor 10 Dash (HEY3-W00, 10100 mAh, 39.1 Wh) and Honor X7 Dash (JMS-W09, 7020 mAh, 27.2 Wh). Full pipeline: per-device low binary sensors (delay_on 1 min, < 30% AND not charging) + per-device overcharge binary sensors (delay_on 2 h, ≥ 95% while charging) → binary_sensor.dash_battery_alert_active → sensor.dash_battery_alert_context (critical/warning/normal, devices[] with SOC + runtime) → alert.dash_battery_alert (30/60 min repeat, STD_Alerts) → global aggregator. Runtime estimate sensors: honor10_dash_battery_time_remaining_est / honorx7_dash_battery_time_remaining_est (minutes; -1 when charging; 0.5W doze fallback when power < 0.1W). Screen brightness management added to packages/admin/tablets.yaml (new admin/ package, first file): 4 automations — night_dim (night_mode ON → night brightness), morning_restore (night_mode OFF → day or away), away_dim (nobody_home ON, not night → away brightness), return_restore (nobody_home OFF, not night → day brightness). Three input_number helpers for day/night/away brightness levels (0–255 Android scale). ⚠️ Restart required (alert: entity). Mobile Devices dashboard view (lovelace.dashboard_operations, mobile-devices path): 3-column sections layout built — col 1: summary tiles + alert status card + brightness sliders + alert settings; col 2: Honor Pad 10 detail (battery/state/runtime, health/temp/power, cycles/low/overcharge, screen/interactive/doze, per-device brightness buttons); col 3: Honor Pad X7 (same structure). Heading badges fixed: type: entity (type: template not supported in heading card badges). 16 new locked entities — see Dashboard Battery Alert Entities section. Network: sensor.ups_accessories_power (sum USB1/2/3/TypeC/DC) and sensor.ups_visibility_score (accessories/total × 100) added to network_ups.yaml.*
 

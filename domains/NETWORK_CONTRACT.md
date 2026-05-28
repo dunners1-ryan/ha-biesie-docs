@@ -34,11 +34,12 @@ quality degradation.
 |------|----------|
 | `packages/network/network_helpers.yaml` | WAN/LAN sensors, input_numbers, statistics sensors |
 | `packages/network/network_ups.yaml` | EcoFlow River Pro UPS — helpers, templates, automations (added 2026-05-27) |
+| `packages/network/network_nas.yaml` | Synology NAS graceful shutdown protection + WoL restore (added 2026-05-28) |
 | `packages/alerts/alerts_network.yaml` | Groups, alert binary sensors, alert entity, context sensor |
 
 There is no `*_automations.yaml` for LAN/WAN — notifications are driven by `alert.network_alert`
 via the alerts pipeline. No direct notify calls.
-UPS automations are in `network_ups.yaml` and call `script.notify_power_event` directly.
+UPS and NAS automations call `script.notify_power_event` directly.
 
 ---
 
@@ -282,6 +283,54 @@ later for battery health monitoring. Not required for runtime/load tracking.
 
 ---
 
+## Section 10: NAS Protection — Synology Graceful Shutdown (added 2026-05-28)
+
+**Device:** Synology NAS "Guardians" at 192.168.1.6 (bonded LAN 1+2, Bond 1).
+**Shutdown entity:** `button.guardians_shutdown` (Synology DSM integration)
+**WoL entity:** `button.wol_synology_nas_00_11_32_ad_af_a5` (WoL integration, MAC 00:11:32:ad:af:a5 — LAN 1 physical NIC)
+**Network note:** NAS on 192.168.1.x, HA Pi on 10.10.1.x. WoL broadcast_address set to 192.168.1.255 (cross-subnet broadcast via routing).
+**WoL reliability note:** WoL is per physical NIC (LAN 1 / LAN 2), not the bond interface. Magic packet targets LAN 1 NIC MAC directly — works while bond is down (NAS off).
+
+### Shutdown timing (all adjustable via helpers)
+```
+Warning at 15 min remaining → 5 min grace → NAS shutdown at ~10 min remaining
+  → 4 min wait → HA Pi (hassio.host_shutdown) at ~6 min remaining.
+NAS needs ~2–3 min to complete. Pi needs ~30 sec.
+UniFi APs + Hikvision NVR tolerate hard power loss — no graceful shutdown needed.
+```
+
+### Cancel path
+Toggle `input_boolean.ups_nas_auto_shutdown_enabled` OFF before grace period expires.
+Automation re-arms this flag automatically when grid restores.
+
+### Entities (network_nas.yaml)
+```
+# Helpers
+input_boolean.ups_nas_auto_shutdown_enabled    — master enable/disable (cancel gate)
+input_boolean.ups_nas_was_shutdown             — flag: set when graceful shutdown fires; gates WoL on HA restart
+input_number.ups_nas_shutdown_warn_minutes     — runtime threshold for Stage 1 warning (default 15 min)
+input_number.ups_nas_shutdown_grace_minutes    — grace period between warning and forced shutdown (default 5 min)
+input_number.ups_pi_shutdown_wait_minutes      — wait after NAS shutdown before Pi shutdown (default 4 min)
+
+# Derived
+binary_sensor.ups_nas_shutdown_imminent        — ON when on battery AND runtime < warn threshold
+```
+
+### Automations (network_nas.yaml)
+| ID | Purpose |
+|----|---------|
+| `ups_nas_graceful_shutdown` | 3-stage: warn → wait grace → NAS shutdown → wait → Pi shutdown (mode: single) |
+| `ups_nas_rearm_on_grid_restore` | Re-enables auto_shutdown flag when grid restores (if user cancelled) |
+| `ups_nas_wol_on_grid_restore` | HA startup trigger: if was_shutdown flag ON → 3 min delay → WoL → confirm online |
+
+### DSM configuration (manual — not HA-managed)
+DSM → Control Panel → Hardware & Power → General:
+- ✅ Enable WOL on LAN 1 (confirmed enabled 2026-05-28)
+- ✅ Enable WOL on LAN 2 (confirmed enabled 2026-05-28)
+- ✅ Restart automatically when power supply issue is fixed (safety net for hard power loss)
+
+---
+
 ## Section 8: Improvement Backlog
 
 | ID | Priority | Description |
@@ -295,5 +344,5 @@ later for battery health monitoring. Not required for runtime/load tracking.
 
 ---
 
-*Last updated: 2026-05-28 — sensor.ups_accessories_power + sensor.ups_visibility_score added to Section 9*
-*Source: packages/network/network_helpers.yaml, packages/alerts/alerts_network.yaml, packages/network/network_ups.yaml*
+*Last updated: 2026-05-28 — network_nas.yaml added; NAS graceful shutdown + WoL restore pipeline documented (Section 10)*
+*Source: packages/network/network_helpers.yaml, packages/alerts/alerts_network.yaml, packages/network/network_ups.yaml, packages/network/network_nas.yaml*
