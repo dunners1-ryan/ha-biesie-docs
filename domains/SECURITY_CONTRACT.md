@@ -173,7 +173,7 @@ Generic recommendations for any street-facing camera covering the lower driveway
 | Region Entrance | Small zone at gate approach point (pavement in front of gate). Human+Vehicle. | Visitor/arrival approach signal. Zone should be narrow enough that only someone standing at the gate triggers it, not passing street traffic |
 | Region Exiting | **Disable.** | Unused in HA. A "region exit" on a street camera = someone moving away from the gate. Not a useful signal for arrival/departure logic. Generates noise. |
 
-**HA note (ipcam02):** Currently dead — firmware V5.8.13 H13U incompatible with hikvision_next Smart Event discovery (BUG-S28). These recommendations apply to a replacement or firmware-fixed camera.
+**HA note (ipcam02):** Partially active — `scenechangedetection` works and is included in `ipcam02_street_driveway_down_motion_valid` as a fallback (2026-05-27). AcuSense sensors (fielddetection/linedetection/regionentrance) still not discovered by hikvision_next (BUG-S28). Full camera restart + Smart Event reconfigure + HA re-add attempted 2026-05-28 — still only scenechangedetection. These recommendations apply once AcuSense discovery is resolved.
 
 #### Hikvision AcuSense — HA Entity Limitations
 
@@ -1285,23 +1285,19 @@ re-read (same pattern as `critical_intrusion` branch). The 4s wait gives
 
 ---
 
-### BUG-S28 — ipcam02 dead signal (firmware incompatibility)
-**Priority: MEDIUM | Status: OPEN — awaiting installer**
+### BUG-S28 — ipcam02 AcuSense sensors absent (firmware incompatibility)
+**Priority: MEDIUM | Status: OPEN — awaiting firmware resolution**
 
-**Symptom:** `ipcam02_street_driveway_down_motion_valid` always OFF. `security_perimeter_front_motion`
-effectively ipcam01-only. All ipcam02 fielddetection/linedetection/regionentrance entities
-do not exist in HA.
+**Symptom:** `ipcam02_street_driveway_down_motion_valid` does not fire from AcuSense events. All ipcam02 fielddetection/linedetection/regionentrance entities do not exist in HA. Only `scenechangedetection` is discovered.
 
 **Root cause:** ipcam02 firmware V5.8.13 branch H13U incompatible with hikvision_next Smart
-Event ISAPI discovery. Only `scenechangedetection` is discovered. See Section 10.9 for full
-troubleshooting history.
+Event ISAPI discovery. See Section 10.9 for full troubleshooting history.
 
-**Impact:** Perimeter front has only one camera (ipcam01 street_up). ipcam02 (street_down)
-contributes zero signal. No code fix possible — requires firmware rollback to V5.7.19 G5 or
-camera replacement. Installer contact initiated 2026-05-11.
+**2026-05-28 re-attempt:** Camera fully restarted, Smart Events reconfigured (Intrusion/Line Crossing/Region Entrance — Notify Surveillance Center enabled), deleted from HA entity + device registry, re-added fresh. Result: still only scenechangedetection. AcuSense ISAPI incompatibility confirmed persistent across factory-equivalent reconfigure.
 
-**Mitigation:** OR in the perimeter_front zone sensor is harmless (always-off sensor has no
-effect). No code change needed until ipcam02 is repaired.
+**Impact:** Perimeter front effectively ipcam01-only for AcuSense detection. Requires firmware rollback to V5.7.19 G5 branch or camera replacement.
+
+**Mitigation (2026-05-27):** `scenechangedetection` added as OR fallback in `ipcam02_street_driveway_down_motion_valid`. Provides partial signal (scene-level changes, not person/vehicle AI). Perimeter_front zone still primarily ipcam01-driven.
 
 ---
 
@@ -2116,13 +2112,11 @@ for the G5 branch but not H13U. All other cameras are G5 firmware; ipcam02 is H1
 **Conclusion:** Not a permissions or config issue. Firmware branch H13U (V5.8.13) fundamentally
 incompatible with this version of hikvision_next. Installer contacted for assistance 2026-05-11.
 
-**Current HA state:** `ipcam02_street_driveway_down_motion_valid` always reads `off` (references
-fielddetection/linedetection/regionentrance — none exist). Camera entity shows idle/connected.
-ipcam02 contributes ZERO signal to the security system until resolved.
+**Current HA state (updated 2026-05-28):** Camera alive and connected. `scenechangedetection` active — added as OR condition in `ipcam02_street_driveway_down_motion_valid` (2026-05-27). AcuSense sensors (fielddetection/linedetection/regionentrance) still absent. Camera fully restarted, reconfigured with Smart Events, deleted from HA, and re-added 2026-05-28 — still only scenechangedetection discovered by hikvision_next.
 
-**Pending installer:** May need firmware rollback to V5.7.19 G5 branch, factory reset + re-provision,
-or replacement camera. Do not waste further time on HA-side config changes until installer confirms
-what's different between ipcam01 and ipcam02 at hardware/firmware level.
+**ipcam02 current signal:** Contributes scenechangedetection-based events only (camera tamper/scene-shift signal — not AcuSense person/vehicle AI detection). Unreliable as perimeter sensor; better than zero. `security_perimeter_front_motion` still primarily ipcam01-driven.
+
+**Pending:** Firmware rollback to V5.7.19 G5 branch or replacement camera. No further HA-side config changes until root cause confirmed at hardware/firmware level.
 
 ### 10.10 — Pool alarm tiered threat gate (UPDATED 2026-05-10)
 
@@ -2147,6 +2141,7 @@ Also gated by: `security_dogs_out` OFF + `guest_mode` OFF + 5-min cooldown on `l
 ---
 
 *Audit completed: 2026-04-13*
+*Updated 2026-05-28: BUG-S28 — ipcam02 full reconfigure + HA re-add attempted; AcuSense still absent. Section 10.9 + BUG-S28 + camera table updated. scenechangedetection fallback documented.*
 *Updated 2026-05-27 (S15): BUG-S47 stale image fix; RUNG 5 three-way split (perimeter_front / visitor / gate_activity);*
 *  ipcam03 dog AcuSense misclassification noted; security_logic.yaml + security_automations.yaml modified.*
 *Updated 2026-05-26 (S14): BUG-S44 go2rtc replay filter (delay_on cam14/cam15); BUG-S46 RUNG 8 arriving guard;*
