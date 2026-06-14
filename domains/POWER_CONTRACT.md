@@ -601,8 +601,22 @@ sensor.power_strategy         solar_surplus/solar_ok/battery_guard/battery_criti
 sensor.power_strategy_status  human readable strategy text
 sensor.power_strategy_severity critical/warning/opportunity/normal
 
-# Energy orchestrator (energy_state.yaml)
-sensor.energy_orchestrator_state        run_heavy_loads/run_medium_loads/reduce_load/conserve_energy/normal
+# Energy orchestrator (energy_state.yaml) — rebuilt Session E1 2026-06-14
+# 6-state priority ladder (first match wins, evaluated top-to-bottom):
+#   loadshedding_critical  load shedding active AND SOC < emergency threshold (15%)
+#   loadshedding           load shedding active OR (upcoming within pre_shed_hours_warning AND SOC < pre_shed_soc_threshold)
+#   critical               battery_state_health == 'critical' OR SOC < critical_threshold (25%)
+#   conserve               battery_state_health == 'low' OR SOC < conserve_threshold (50%)
+#                          OR solar_weather_correlation == 'degraded' AND SOC < degraded_soc_threshold (60%)
+#   surplus                solar_export_potential > surplus_threshold (1000W) AND battery strong/healthy
+#   normal                 default
+# Gated by: input_boolean.orchestrator_enabled — when OFF, always returns 'normal'
+# Consumers: binary_sensor.water_refill_allowed (blocks on critical/loadshedding/loadshedding_critical)
+#            lighting_energy_saving.yaml (future — via input_boolean.energy_saving_mode)
+#            pool_pump_solar_control (future — direct orchestrator gate)
+sensor.energy_orchestrator_state        loadshedding_critical/loadshedding/critical/conserve/surplus/normal
+sensor.orchestrator_decision_reason     human-readable string explaining why current state was chosen
+#                                       e.g. "SOC 23% below critical threshold 25%" or "Load shedding active"
 sensor.energy_economy_score             0-100
 sensor.house_energy_resilience_hours    h  how long house can run on current energy
 sensor.house_energy_resilience_status       text description
@@ -780,6 +794,53 @@ Grid failed ~01:00. Battery drained from 45% to 38% by dawn. Pool pump turned on
 1742294477609 — Pool Pump Turn on - Daily AM 11-1pm
 1742295582190 — Pool Pump Turn on - Daily PM 1-4pm
 ```
+
+### Energy Orchestrator Controls (power_helpers.yaml — added E1 2026-06-14)
+
+Master switch:
+```
+input_boolean.orchestrator_enabled      default: true — when OFF, orchestrator returns 'normal' always
+```
+
+SOC threshold ladder (all UI-controllable, no hardcoded values in templates):
+```
+input_number.orchestrator_emergency_soc_threshold     %  15  — halt almost everything
+input_number.orchestrator_critical_soc_threshold      %  25  — battery critical floor
+input_number.orchestrator_conserve_soc_threshold      %  50  — shed non-essential loads
+input_number.orchestrator_pre_shed_soc_threshold      %  80  — pre-load-shedding reserve gate
+input_number.orchestrator_conserve_degraded_soc_threshold % 60 — SOC floor for degraded-solar conserve branch
+```
+
+Other thresholds:
+```
+input_number.orchestrator_surplus_export_threshold    W  1000 — solar surplus to enter surplus state
+input_number.orchestrator_target_soc_by_sunset        %  90   — charge target by end of solar window (future use)
+input_number.orchestrator_load_first_soc_threshold    %  65   — crossover: battery-first → load-first (future use)
+input_number.orchestrator_pre_shed_hours_warning      h  3    — warning window before upcoming shed
+```
+
+Pool winter scheduling:
+```
+input_number.pool_winter_start_hour                   h  10   — earliest hour to run pool pump in winter
+```
+
+### Inverter Sync (power_helpers.yaml + power_automations.yaml — added E1 2026-06-14)
+
+```
+input_boolean.inverter_sync_status     ON = inverter 1 and 2 in sync; OFF = mismatch detected
+automation.inverter_sync_check         triggers on select.inverter_1_energy_pattern change; 90s delay;
+                                       compares confirmed entities; sets sync status; notifies on mismatch
+script.force_inverter_sync             copies inverter 1 energy_pattern to inverter 2; dashboard-callable
+```
+
+**⚠️ Partially implemented** — currently only compares `select.inverter_1/2_energy_pattern` (confirmed entities).
+The following entities are referenced in the spec but NOT confirmed to exist in HA — verify in Developer Tools → States:
+```
+select.inverter_1_work_mode / select.inverter_2_work_mode
+select.inverter_1_program_N_charging / select.inverter_2_program_N_charging  (N 1–6)
+number.inverter_2_program_N_soc  (N 1–6)  — inverter_1 versions confirmed; inverter_2 unverified
+```
+Add confirmed entities to `inverter_sync_check` compare list and `force_inverter_sync` copy list.
 
 **Missing solar helpers** (referenced in solar_forecast.yaml but not in solar_helpers.yaml):
 ```

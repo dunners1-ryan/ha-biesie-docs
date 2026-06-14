@@ -82,9 +82,18 @@ binary_sensor.water_refill_allowed = ON when:
     OR battery_soc >= sensor.last_sun_soc_target                   ← OR SOC already at target
     OR sensor.water_tank_level <= 20                               ← OR tank critically low (override)
   )
+  AND sensor.energy_orchestrator_state NOT IN                      ← orchestrator gate (added E1 2026-06-14)
+      ['critical', 'loadshedding', 'loadshedding_critical']
 
 Last-sun-slot gate added 2026-05-25: during the last ~2h of peak sun (default 14:00 onwards),
 borehole is blocked unless SOC has reached the overnight charge target (80% summer / 90% winter).
+
+Orchestrator gate added 2026-06-14 (Session E1): when the energy orchestrator enters critical,
+loadshedding, or loadshedding_critical state, normal refills are blocked. The 'conserve' and
+'surplus' states do NOT block refill — the existing SOC floor already handles conserve, and
+surplus means solar is ample. Emergency branches (Branch 1 safety, Branch 2 critical+grid,
+Branch 3 critical+limited) in water_tank_refill_control.yaml bypass this sensor entirely and
+are unaffected by the orchestrator gate.
 Tank-critical override (≤20%) bypasses this gate so essential water supply is never blocked.
 
 ⚠️ IMPORTANT — Branch 2 (critical + grid on) does NOT use this gate (fixed 2026-06-14):
@@ -406,6 +415,7 @@ The weekly summary in water_reporting.yaml also calls telegram directly.
 | `sensor.battery_soc` | Power (`sensor.power_battery_soc`) | `water_templates.yaml`, `water_tank_refill_control.yaml` | Name-derived alias of "Battery SOC" template |
 | `sensor.inverter_battery_soc` | Power | (NOT used directly — goes via `sensor.battery_soc`) | |
 | `group.inverter_grid` | Power | `water_templates.yaml` (refill_allowed), control | On = grid available |
+| `sensor.energy_orchestrator_state` | Power (`energy_state.yaml`) | `water_templates.yaml` (refill_allowed) | Gates refill when state in [critical, loadshedding, loadshedding_critical] — added E1 2026-06-14 |
 | `script.notify_water_event` | Notifications | All water notification calls | Central routing |
 | `notify.telegram_bot_5527` | Core | `water_tank_refill_control.yaml`, `water_reporting.yaml` | Direct Telegram (bypasses routing) |
 | `input_boolean.notifications_enabled` | Notifications | `water_notifications.yaml` | Quiet hours gate |
