@@ -116,7 +116,7 @@ by evening routine. See BUG-L02.
 
 | ID | Trigger | Key Conditions | Action |
 |---|---|---|---|
-| `morning_wake_lights_on` | living_areas_occupied ON | morning_routine_ran_today=off, after weekday/weekend start time | scene_morning_routine_on + optional back security if after second_wake_time, clears bedtime_mode |
+| `morning_wake_lights_on` | living_areas_occupied ON | morning_routine_ran_today=off, after weekday/weekend start time AND before noon (BUG-L11 fix) | scene_morning_routine_on + optional back security if after second_wake_time, clears bedtime_mode |
 | `morning_wake_lights_on_manual` | input_button.morning_routine_on | — | scene_morning_routine_on |
 | `morning_wake_wfh_cleanup` | bedrooms_occupied ON | anyone_connected_home=on, hour<8, after sleep_longer_time, morning_routine_ran_today=on | scene_morning_routine_off |
 | `morning_routine_daily_reset` | 00:05:00 | — | morning_routine_ran_today = OFF |
@@ -342,6 +342,17 @@ see Section 4 ⚠️ note.
 
 ---
 
+### ~~BUG-L11~~ [HIGH] ✅ FIXED 2026-06-14 — Morning wake fires at night (no noon ceiling)
+
+**File:** `packages/lighting/lighting_morning.yaml`
+**Description:** `morning_wake_lights_on` time condition only checked `now() >= morning_start`.
+At 23:09, cam14 lounge motion triggered the routine because `morning_routine_ran_today` was off
+and 23:09 is after 05:00. No upper bound existed.
+**Fix:** Condition now reads `morning_start <= now() < today_at('12:00:00')` for both weekday
+and weekend paths. Any trigger after noon is rejected.
+
+---
+
 ### BUG-L09 [LOW] lighting_entertainment.yaml and lighting_energy_saving.yaml are empty
 
 **Files:** both
@@ -463,9 +474,15 @@ DONE 2026-05-10/11
 [✅] Notification message updated: "front security" not "security" for clarity.
 
 HARDENING NEEDED
-[ ] Add continue_on_error: true to the script.notify_lighting_event calls in kids_bedtime_week
-    and kids_bedtime_weekend. Currently a notification failure stops the automation before the
-    scene fires. Lights should turn off regardless of notification success.
+[✅] Add continue_on_error: true to the script.notify_lighting_event calls in kids_bedtime_week
+    and kids_bedtime_weekend. Fixed 2026-04-29 (BUG-L10 session).
+
+DONE 2026-06-14
+[✅] BUG-L11: morning_wake_lights_on had no upper-bound time gate. Condition only checked
+              now() >= morning_start — at 23:09 this was true, so cam14 lounge motion triggered
+              the morning routine at night. Fixed: condition now checks
+              morning_start <= now() < 12:00 (noon ceiling added to both weekday and weekend paths).
+              lighting_morning.yaml condition block updated.
 ```
 
 ---
@@ -473,5 +490,6 @@ HARDENING NEEDED
 *Audit completed: 2026-04-16*
 *Updated: 2026-04-29 — BUG-L05/L07/L08 marked fixed; scene inventory corrected; helper inventory pruned;
 entertaining_mode entity name clarified; Sonoff outage (BUG-L10) documented; checklist updated.*
+*Updated: 2026-06-14 — BUG-L11 found and fixed (morning wake noon ceiling).*
 *Audited by: claude.ai session — live file review*
 *Next review: After new AI cameras installed (cam motion valid sensors change)*
