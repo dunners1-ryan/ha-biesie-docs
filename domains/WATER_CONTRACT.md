@@ -87,6 +87,12 @@ Last-sun-slot gate added 2026-05-25: during the last ~2h of peak sun (default 14
 borehole is blocked unless SOC has reached the overnight charge target (80% summer / 90% winter).
 Tank-critical override (≤20%) bypasses this gate so essential water supply is never blocked.
 
+⚠️ IMPORTANT — Branch 2 (critical + grid on) does NOT use this gate (fixed 2026-06-14):
+Branch 2 directly checks `group.inverter_grid = on` + `load_control_borehole_enabled = on`.
+SOC is irrelevant when water is critical and grid is available — the grid covers the pump load.
+The permission gate's 50% SOC floor was previously blocking critical refills during low-SOC
+mornings even with grid on, violating the contract table below.
+
 NOTE: This is simpler than WATER_CONTEXT.md specifies — see Issue 7.
 ```
 
@@ -218,6 +224,11 @@ input_boolean.water_refill_manual_run            ON when manual (unmanaged) pump
 input_boolean.water_refill_aborted_due_to_safety ON after any safety abort
 input_boolean.water_tank_refill_enabled          Master enable/disable switch
 input_boolean.water_emergency_acknowledged       Emergency event acknowledged
+input_boolean.water_refill_force_override        Force-start refill bypassing solar window, SOC,
+                                                 and last-sun-slot gates. Safety hard-stops
+                                                 (battery floor 40%, max depth 1.95m) still apply.
+                                                 Turn OFF manually on dashboard after use.
+                                                 Added 2026-06-14 (water_helpers.yaml).
 ```
 
 ### Binary Sensors
@@ -606,6 +617,28 @@ sensor:
 **File:** `packages/water/water_tank_refill_control.yaml:585`  
 **Root cause:** If Tuya connectivity drops while pump is running, switch state becomes `unavailable`. After 30 seconds of `unavailable`... actually, the trigger is `to: "off"` with `for: "00:00:30"` — `unavailable` is not `"off"`, so this may be OK. But if the Tuya device briefly reports `"off"` before recovering, the cycle flag is cleared. When pump is reported back on, capture fires again with a new start timestamp, doubling the apparent cycle.  
 **Mitigation:** The `for: "00:00:30"` window provides some protection against very brief glitches.
+
+---
+
+### Issue 14 — ✅ FIXED 2026-06-14: `water_block_refill_when_not_allowed` had no safety-state exemption
+**Priority:** P1 — Safety-state refills looped endlessly (start → immediate block → repeat every 5 min)  
+**File:** `packages/water/water_tank_refill_control.yaml`  
+**Root cause:** When `water_state = safety` (depth 0.25–0.35m), Branch 1 turns the pump on without checking `water_refill_allowed`. But `water_block_refill_when_not_allowed` had no safety-state exemption — it fired on any pump turn-on when `water_refill_allowed = off`, killing the pump immediately. `water_borehole_mid_run_shutdown` already had the safety exemption; the block automation did not. Inconsistency.  
+**Symptom:** Pump tried to start multiple times, blocked each time, refill never actually ran.  
+**Fix:** Added two NOT-conditions to `water_block_refill_when_not_allowed`:
+- NOT (water_state = safety) — matches existing mid_run_shutdown exemption
+- NOT (water_state = critical AND group.inverter_grid = on) — see Issue 15
+
+---
+
+### Issue 15 — ✅ FIXED 2026-06-14: Branch 2 (critical+grid) incorrectly required SOC ≥ 50%
+**Priority:** P1 — Critical water refills silently failed when battery was 40–50% and grid was on  
+**File:** `packages/water/water_tank_refill_control.yaml`  
+**Root cause:** Contract table says `critical + grid on + any SOC → full refill`. Branch 2 required `binary_sensor.water_refill_allowed = on`, which has a hard 50% SOC floor (`water_battery_soc_sufficient`). The tank-critical override (≤20% tank level) in `water_refill_allowed` only bypasses the last-sun-slot gate, NOT the base SOC floor. Result: critical water + grid on + SOC at e.g. 45% → `water_refill_allowed = off` → Branch 2 fails → Branch 3 requires grid off → nothing fires.  
+**Symptom:** Tank at 2% fill this morning — still not running. User had to manually lower `water_battery_soc_sufficient` to force it.  
+**Fix:**
+1. Branch 2 now directly checks `group.inverter_grid = on` + `load_control_borehole_enabled = on` instead of `water_refill_allowed`. SOC not required when grid is on for a critical refill.
+2. `water_block_refill_when_not_allowed` exempts `critical + grid on` starts (so block doesn't kill the pump Branch 2 just started).
 
 ---
 
