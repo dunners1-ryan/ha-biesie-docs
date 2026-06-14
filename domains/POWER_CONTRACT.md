@@ -120,7 +120,7 @@
 | `power_statistics.yaml` | Rolling average sensors + weather correlation (added 2026-04-22) | Derived |
 | `power_strategy.yaml` | power_strategy, power_strategy_status, severity | Decision |
 | `power_automations.yaml` | Power domain automations — migrated from automations.yaml | Automation |
-| `geyser_automations.yaml` | Geyser heat pump scheduling — 4 automations + script.geyser_manual_run (added E2 2026-06-14) | Automation |
+| `geyser_automations.yaml` | Geyser heat pump scheduling — 4 automations + script.geyser_manual_run (E2 2026-06-14; E4 retrofit: orchestrator gate, midday solar-gated, at-temp proxy, window helpers, emergency off) | Automation |
 | `power_contract.yaml` | Documentation notes only — no executable YAML | Docs |
 | `battery_runtime.yaml` | Program-aware battery runtime, severity, confidence | Derived |
 | `battery_state.yaml` | battery_state_health (strong/healthy/low/critical) | State |
@@ -852,58 +852,94 @@ number.inverter_2_program_N_soc  (N 1–6)  — inverter_1 versions confirmed; i
 ```
 Add confirmed entities to `inverter_sync_check` compare list and `force_inverter_sync` copy list.
 
-### Geyser Scheduling (power_helpers.yaml + geyser_automations.yaml — added E2 2026-06-14)
+### Geyser Scheduling (power_helpers.yaml + geyser_automations.yaml — E2 2026-06-14, upgraded E4 2026-06-14)
 
-Migrated from automations.yaml IDs 1742224800650 + 1744130174080. Switch entity confirmed: `switch.geyser_heat_pump_switch`.
+Migrated E2 from automations.yaml IDs 1742224800650 + 1744130174080. E4 retrofit: orchestrator gate, midday solar gate, at-temperature proxy, window time helpers, morning hard-off, emergency off.
+
+Switch entity: `switch.geyser_heat_pump_switch` (~1.25 kW draw).
 
 **Helpers (power_helpers.yaml):**
 ```
-input_boolean.geyser_sports_night          ← Tue/Thu auto-set 17:00; OFF clears at 00:01 daily
-                                               When ON: turn-on delayed to 21:05, hard-off at 23:05
-input_boolean.geyser_morning_override      ← manual override flag (reserved for future logic)
-input_boolean.geyser_manual_run_active     ← ON while manual run is in progress (set/cleared by script)
+# Control booleans
+input_boolean.geyser_sports_night          ← Tue/Thu auto-set 17:00; clears 00:01 daily
+                                               ON: evening delayed to 21:00, hard-off at 23:00/23:30
+input_boolean.geyser_morning_override      ← bypasses load_control_geyser_enabled for morning window
+input_boolean.geyser_manual_run_active     ← ON while manual run in progress
 input_select.geyser_manual_run_duration    ← "30" or "60" minutes for manual run
+
+# Window timing (added E4) — triggers are fixed at default values; see TRIGGER FLOOR NOTE
+input_number.geyser_morning_start_weekday  h  4.0  (trigger 04:00 non-winter, 03:30 winter)
+input_number.geyser_morning_start_weekend  h  5.0  (trigger 05:00 non-winter, 04:30 winter)
+input_number.geyser_morning_end_weekday    h  7.5  (trigger 07:30 non-winter, 08:00 winter)
+input_number.geyser_morning_end_weekend    h  8.5  (trigger 08:30 non-winter, 09:00 winter)
+input_number.geyser_winter_start_offset    min 30  (subtracts from start, adds to end in winter)
+
+# Midday solar gate (added E4)
+input_number.geyser_midday_surplus_threshold W 300  (geyser draws 1.25 kW; 300W = solar covers most)
+```
+
+**Derived sensors (power_state.yaml — added E4):**
+```
+sensor.geyser_control_status         13-state priority display (see priority order in code)
+                                     Manual run / Morning override / Disabled / Critical forced off /
+                                     Running morning+midday+evening+sports / At temperature /
+                                     Midday blocked / Waiting morning+evening / Outside active windows
+binary_sensor.geyser_at_temperature  ON after 5 min sustained geyser_heat_pump_power < 50W while switch on
+                                     Power proxy — no temperature sensor available
 ```
 
 **Automations (geyser_automations.yaml):**
 ```
-automation.geyser_turn_on
-  Morning standard : 04:30 (spring/summer/autumn) — geyser off + grid on + stage < 4 + geyser_enabled
-  Morning winter   : 04:00 (winter only) — same conditions, 30 min earlier
-  Midday           : 12:05, 13:05, 14:05 — geyser off only (unconditional, matches original)
-  Evening standard : 20:05 if sports_night off — geyser off + grid on + stage < 4 + geyser_enabled
-  Evening sports   : 21:05 if sports_night on — same conditions, delayed start
-  Seasonal design  : dual triggers with IDs; both fire daily, branch condition filters by trigger.id + sensor.season
-  Gate             : input_boolean.load_control_geyser_enabled (defined in load_control.yaml)
+automation.geyser_turn_on  (5 branches)
+  Morning     : weekday non-winter 04:00 / winter 03:30
+                weekend non-winter 05:00 / winter 04:30
+                NON-NEGOTIABLE — only blocked at loadshedding_critical
+                geyser_morning_override bypasses load_control_geyser_enabled
+  Midday      : 12:00, 13:00, 14:00 — SOLAR-GATED (E4 upgrade from unconditional)
+                orchestrator in [surplus, normal]
+                solar_available_surplus > geyser_midday_surplus_threshold (300W default)
+                binary_sensor.geyser_at_temperature must be OFF (skip if already hot)
+                Before 15:00. load_control_geyser_enabled must be ON.
+  Evening std : 20:00 non-winter, sports_night off — non-negotiable (loadshedding_critical only block)
+  Evening win : 19:30 winter, sports_night off — 30 min earlier in winter
+  Sports night: 21:00 any season, sports_night on
 
-automation.geyser_turn_off
-  AM protection  : 05:30/06:30/07:30/08:30 — if grid off + SOC < number.inverter_1_program_2_soc + shedding active
-  Evening winter : 22:00 if winter and sports_night off (55 min later than standard)
-  Evening std    : 21:05 if not winter and sports_night off
-  Sports night   : 23:05 if sports_night on
+automation.geyser_turn_off  (7 branches + default, mode: queued)
+  AM protection    : 05:30/06:30/07:30/08:30 — grid off + SOC < prog2_soc + shedding active
+                     (fires even in morning window — hard safety floor, not orchestrator gate)
+  Morning hard-off : weekday 07:30 non-winter / 08:00 winter
+                     weekend 08:30 non-winter / 09:00 winter
+  Midday hard-off  : 15:00 unconditional
+  Evening winter   : 22:00 — winter + sports_night off
+  Evening standard : 21:30 — non-winter + sports_night off
+  Sports night win : 23:30 — winter + sports_night on
+  Sports night std : 23:00 — non-winter + sports_night on
+  Emergency off    : sensor.energy_orchestrator_state → loadshedding_critical
+                     ONLY fires outside morning window (morning window is sacred)
+                     Notifies at severity: critical
 
-automation.geyser_sports_night_scheduler
-  ON  : Tue + Thu at 17:00 (conditional weekday trigger)
-  OFF : 00:01 daily if currently on (daily reset safety net)
+automation.geyser_sports_night_scheduler  (unchanged from E2)
+  ON: Tue + Thu 17:00. OFF: 00:01 daily if on.
 
-automation.geyser_manual_run
-  Triggered by: script.geyser_manual_run (sets geyser_manual_run_active to on)
-  Action: turns on geyser → waits selected duration (or until switch turns off) → turns off → clears flag
-  Duration: read from input_select.geyser_manual_run_duration ("30" or "60" min)
-  Notifies via script.notify_power_event on start and completion. mode: single.
+automation.geyser_manual_run  (unchanged from E2)
+  Triggered by script.geyser_manual_run. Timed run (30 or 60 min). mode: single.
 
-script.geyser_manual_run
-  Dashboard entry point. Sets geyser_manual_run_active to on → triggers automation.geyser_manual_run.
+script.geyser_manual_run  (unchanged from E2)
+  Dashboard entry point.
 ```
 
-**Migration fixes applied (from automations.yaml originals):**
-- `device_id: 04313162c9b0bb48347b8002235c725d` → `switch.geyser_heat_pump_switch`
-- `sensor.inverter_power` → `sensor.inverter_load_power`
-- `notify.STD_Information` → `script.notify_power_event`
-- Direct Telegram `notify.send_message` → removed (script handles routing)
-- Load shedding check re-enabled: `state_attr('sensor.load_shedding_stage_eskom', 'stage') | int(0) < 4`
-  (original used string comparison `< 'Stage 4'` which was disabled due to unavailable sensor blocking)
-- Default "no change" notification removed (was very noisy — fires at every trigger time); replaced with logbook.log only
+**Orchestrator gate policy:**
+- Morning + evening windows: blocked ONLY at `loadshedding_critical` (battery emergency floor). All other orchestrator states (loadshedding, critical, conserve) do NOT block — hot water is essential for household function.
+- Midday: blocked when orchestrator is NOT in `[surplus, normal]` — discretionary solar run, so conserve/critical/loadshedding all block it.
+- Emergency off: fires on any `loadshedding_critical` transition OUTSIDE morning window.
+- This is the second appliance to adopt the orchestrator gate pattern (after pool). Geyser + pool patterns are now consistent.
+
+**Canonical entity — solar surplus:**
+`sensor.solar_available_surplus` (Watts, power_state.yaml) — used for midday solar gate.
+Do NOT use `sensor.solar_surplus_available` (solar_core.yaml — returns `"True"`/`"False"` string, useless for thresholds).
+
+**Trigger floor limitation:**
+HA time triggers cannot read input_number at runtime. Triggers are fixed at values matching helper defaults. Adjusting a helper within ±15 min of its trigger time works. Larger adjustments also require updating the matching trigger line in geyser_automations.yaml.
 
 **Missing solar helpers** (referenced in solar_forecast.yaml but not in solar_helpers.yaml):
 ```
