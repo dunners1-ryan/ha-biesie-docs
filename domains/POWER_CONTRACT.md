@@ -1112,6 +1112,47 @@ sensor.inverter_1_program_2_charge_power_percent   %
 ... (program-specific target SOC — read by battery_runtime.yaml)
 ```
 
+### Energy Simulator (pyscript/energy_simulator.py + power_helpers.yaml — E8 2026-06-14)
+
+Read-only scenario simulator — evaluates orchestrator and appliance decisions using simulated inputs without touching any live entity. Output goes to `persistent_notification.energy_simulator` and fires `event.energy_simulator_result`.
+
+**Safety gate:** `input_boolean.simulator_active` must be ON to run. Defaults to OFF.
+
+**Helpers (power_helpers.yaml):**
+```
+input_boolean.simulator_active              default: false — safety gate
+input_select.simulator_scenario             8 presets + "Custom"
+input_number.simulator_soc_override         % (0–100, step 5) — used in Custom mode
+input_number.simulator_solar_override       W (0–15000, step 100)
+input_number.simulator_load_override        W (0–8000, step 100)
+input_number.simulator_hour_override        h (0–23, step 1)
+input_number.simulator_shed_stage_override  0–6
+```
+
+**Scenario presets:**
+| Scenario | SOC | Solar | Load | Hour | Shed |
+|---|---|---|---|---|---|
+| Normal sunny day | 75% | 5000W | 2000W | 12:00 | 0 |
+| Poor solar — rain | 45% | 800W | 2500W | 13:00 | 0 |
+| Load shedding stage 2 | 65% | 3000W | 2000W | 14:00 | 2 |
+| Load shedding stage 4 | 40% | 1000W | 2500W | 16:00 | 4 |
+| Critical battery morning | 18% | 0W | 1800W | 05:00 | 0 |
+| Tennis night — low solar | 55% | 0W | 2000W | 21:00 | 0 |
+| Post battery upgrade — surplus | 85% | 8000W | 2500W | 11:00 | 0 |
+| Custom | simulator_*_override inputs | | | | |
+
+**What it simulates:**
+- Orchestrator 6-state priority logic (mirrors energy_state.yaml)
+- Geyser: which window is active at sim_hour, orchestrator gate, midday solar gate
+- Pool: solar surplus headroom, window gate, winter morning hold, last-sun-slot
+- Borehole: water_refill_allowed equivalent (grid + SOC + orchestrator + solar window)
+- Air fryer: grid-off + SOC-low cut condition
+- Inverter programme: Battery/Load First crossover, P4 grid charge evaluation
+
+**Live threshold reads:** All `input_number.orchestrator_*` thresholds are read at runtime — changing a threshold immediately affects simulation output without editing the pyscript.
+
+**Call via:** `Developer Tools → Services → pyscript.energy_simulator`
+
 ---
 
 ## 9. Data Flow Maps
