@@ -1783,6 +1783,25 @@ SPRINT 10 — Direction fix + staff muting + perimeter always active (2026-05-21
       'none' shown when no zone active.
 ```
 
+SPRINT 9h+ — dogs_inside departure notification tap (2026-06-14)
+```
+[✅] automation.dogs_inside_from_notification added (security_automations.yaml):
+      Trigger: mobile_app_notification_action event — action: DOGS_INSIDE_ON
+      Action: input_boolean.turn_on dogs_inside + logbook
+      Purpose: allows departing family member to set dogs_inside from the departure
+      notification without opening the app. Tap-to-enable UX.
+
+[✅] Departure Stage 1 notification updated (notify_security_events.yaml):
+      Dogs Inside prompt added to Stage 1 departure push notification.
+      Shows inline action button: "DOGS INSIDE 🐕" (action: DOGS_INSIDE_ON).
+      Suppressed when: dogs_inside already ON, guest_mode ON, or staff_on_site ON.
+      Fires at Stage 1 (gate opened) so the person sees it while still in the car.
+
+[❌] auto-off: dogs_inside has NO auto-off. Must be cleared manually on return
+      (or the inside_cameras_arming disarm logic clears the arming booleans on return,
+      which prevents false alerts even if dogs_inside is left on).
+```
+
 SPRINT 9h — dogs_inside, auto/manual arming split, dogs_out 10min (2026-05-20)
 ```
 [✅] Auto/manual arming boolean split:
