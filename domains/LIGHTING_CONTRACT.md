@@ -498,11 +498,15 @@ CLOSED — All L01–L08 fixed (verified against live files 2026-04-29)
 ✅ BUG-L07: kids_bedtime_enabled removed — fixed 2026-04-28
 ✅ BUG-L08: patio_second_wake_time removed — fixed 2026-04-28
 
-OPEN
-[ ] BUG-L09: Wire entertainment_mode_on button → input_boolean.entertaining_mode;
-             populate lighting_entertainment.yaml; guard kids bedtime from clobbering scene;
-             implement energy_saving_mode (power domain owns SOC trigger).
-             See GROUP M in PROJECT_STATE.md for full plan.
+DONE 2026-04-29 (M1/M2/M3)
+[✅] BUG-L09: Wire entertainment_mode_on button → input_boolean.entertaining_mode;
+              populate lighting_entertainment.yaml; guard kids bedtime from clobbering scene;
+              implement energy_saving_mode (power domain owns SOC trigger).
+              Fixed: lighting_entertainment.yaml fully populated — button→boolean, scene on/off,
+              06:00 daily clear. entertaining_mode guard added to both kids bedtime automations in
+              lighting_bedtime.yaml. M2/M3: energy_saving_mode helpers + lighting_energy_saving.yaml
+              populated; manual override buttons wired; morning wake clears boolean.
+              NOTE: power_automations.yaml SOC auto-trigger for energy_saving_mode still OPEN (M2 remainder).
 
 DONE 2026-05-10/11
 [✅] BUG-L10: security_lighting_reset was turning off front/back security lights at night after
