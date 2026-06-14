@@ -954,6 +954,60 @@ select.inverter_1_work_mode:            "Export First" | "Zero Export To Load" |
 Service call: select.select_option with option: "<exact string>"
 ```
 
+### Air Fryer Control + Unknown Draw Detection (power_helpers.yaml + power_automations.yaml — E7 2026-06-14)
+
+**Appliance entity correction**: spec called these `switch.air_fryer_switch` / `sensor.air_fryer_power` — actual entities are:
+```
+switch.philips_airfryer_plug     ← controllable smart plug switch (~1.5–2 kW)
+sensor.philips_airfryer_plug_power ← live power reading
+input_boolean.load_control_airfryer_enabled ← default: true — auto-cut gate
+```
+
+**Load visibility sensors (power_templates.yaml — already existed, E7-2 was no-op):**
+```
+sensor.known_load_power          kW  sum of group.known_power_loads (all monitored appliances)
+sensor.unknown_load_power        kW  inverter_load_power/1000 - known_load_power (floor 0)
+sensor.load_visibility_score     %   100 - (unknown/total × 100); 100 when idle
+sensor.active_high_loads_power   W   known appliances drawing > 500W
+```
+
+**Unknown draw detection helpers (power_helpers.yaml — added E7):**
+```
+input_boolean.tier4_warnings_enabled         default: true — gate for unknown_draw_warning automation
+input_number.unknown_draw_warning_threshold  W  1500 — warning level (W; sensor.unknown_load_power is kW)
+input_number.unknown_draw_critical_threshold W  3000 — critical level
+input_number.unknown_draw_duration_trigger   min  3 — minutes sustained above threshold before alert
+input_datetime.unknown_draw_last_alert           cooldown stamp (30 min between alerts)
+```
+
+**Automations (power_automations.yaml — added E7):**
+```
+automation.airfryer_critical_cut
+  Trigger: group.inverter_grid → off  OR  sensor.inverter_battery_soc below orchestrator_critical_soc_threshold
+  Condition: load_control_airfryer_enabled ON + switch ON + grid OFF + SOC < critical_threshold
+  Action: turn off switch + notify warning "Grid offline + low battery — air fryer cut"
+  Design rule: grid ON → air fryer always allowed regardless of orchestrator state.
+               grid OFF + SOC low → cut immediately (air fryer draws from battery only).
+  No auto-restart: cooking appliance safety rule.
+
+automation.airfryer_restore_on_recovery
+  Trigger: group.inverter_grid → on FROM off
+  Condition: load_control_airfryer_enabled ON
+  Action: notify info "Grid restored — air fryer safe to restart manually"
+
+automation.unknown_draw_warning
+  Trigger: sensor.unknown_load_power above 0, sustained for duration_trigger minutes
+  Condition: tier4_warnings_enabled ON + orchestrator in [conserve, critical, loadshedding*]
+             + unknown_draw_W > warning_threshold + 30-min cooldown gate
+  Branch 1 (critical): unknown_draw > critical_threshold AND orch critical/loadshedding_critical
+             → script.notify_power_event severity: critical
+  Branch 2 (warning): unknown_draw > warning_threshold → severity: warning
+  NOTE: does NOT fire on surplus/normal days — unknown draw acceptable then.
+  Unit conversion: unknown_load_power (kW) × 1000 compared to threshold (W).
+```
+
+**Honor tablet notifications**: no separate chime/TTS mechanism exists. Tablets (Honor 10 Dash, Honor X7 Dash) receive push notifications via `mobile_app_honor10_dash` / `mobile_app_honorx7_dash` which are members of all STD_* groups. `script.notify_power_event` at severity critical already reaches both tablets. Individual services available: `notify.honor_10_dash_mobile_app`, `notify.honor_x7_dash_mobile_app`.
+
 ### Geyser Scheduling (power_helpers.yaml + geyser_automations.yaml — E2 2026-06-14, upgraded E4 2026-06-14)
 
 Migrated E2 from automations.yaml IDs 1742224800650 + 1744130174080. E4 retrofit: orchestrator gate, midday solar gate, at-temperature proxy, window time helpers, morning hard-off, emergency off.

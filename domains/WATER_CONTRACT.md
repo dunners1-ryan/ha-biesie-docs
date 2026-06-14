@@ -429,6 +429,37 @@ The weekly summary in water_reporting.yaml also calls telegram directly.
 | `binary_sensor.water_tank_refilling` | Dashboard | Visual indicator |
 | `sensor.water_tank_depth_validated` | Dashboard | UI display |
 
+### Daily Usage Analytics (water_reporting.yaml — added E7 2026-06-14)
+
+```
+sensor.water_tank_consumption_integral   m  — cumulative integral of water_tank_consumption_rate
+                                              (platform: integration, method: left, unit_time: h)
+                                              Resets on HA restart. Source for water_usage_today.
+
+sensor.water_usage_today                 m  — daily-reset accumulation of depth consumed.
+                                              utility_meter daily cycle on water_tank_consumption_integral.
+                                              Resets to 0 at midnight. ⚠️ Requires HA restart.
+
+sensor.water_daily_usage_mean            m  — 7-day rolling mean of water_usage_today samples.
+                                              platform: statistics, state_characteristic: mean, 7d/100 samples.
+                                              NOTE: underestimates true daily mean by ~50% (statistics mean
+                                              of a 0→peak daily ramp). Multiply by ~2 for calibrated daily
+                                              average, or set predictive fill threshold accordingly.
+                                              Accurate after ≥7 days of history.
+```
+
+### Effective Fill Target Sensor (water_templates.yaml — added E7 2026-06-14)
+
+```
+sensor.water_effective_fill_target       m  — dynamic pump stop depth.
+  Normal:           returns sensor.water_target_depth_tomorrow (demand-plan depth)
+  Predictive fill:  returns input_number.water_target_depth_full (1.6m) when
+                    water_predictive_fill_enabled=ON AND orchestrator='conserve'
+  attributes:
+    source: demand_target | predictive_fill_full
+  Read by: water_stop_at_daily_target (above: trigger), Branch 4.7 log message
+```
+
 ### Borehole Control Status Sensor (water_state_extensions.yaml — added E6 2026-06-14)
 
 `sensor.borehole_control_status` — 9-state priority display mirroring pool/geyser pattern:
@@ -445,17 +476,27 @@ The weekly summary in water_reporting.yaml also calls telegram directly.
 | 8 | `Ready to fill (X%)` | water_refill_allowed on AND water_state not ok |
 | 9 | `Monitoring (X%)` | default |
 
-### Predictive Fill Helpers (water_helpers.yaml — added E6 2026-06-14, disabled pending usage history)
+### Predictive Fill Helpers (water_helpers.yaml — added E6 2026-06-14)
 
 ```
-input_boolean.water_predictive_fill_enabled          ← default: false — enable after water_usage_today + 7d history
-input_number.water_predictive_fill_threshold_percent ← default: 50% — fill when level drops below this AND poor solar
-input_number.water_max_fill_hours_per_day            ← default: 2h — cap daily pump runtime during predictive fill
+input_boolean.water_predictive_fill_enabled          ← default: false — enable after ≥7d of water_usage_today history
+input_number.water_predictive_fill_threshold_percent ← default: 50% — fill when level drops below this AND conserve mode
+input_number.water_max_fill_hours_per_day            ← default: 2h — defined; NOT yet wired into automation (future V2)
 ```
 
-**Not yet wired into any automation** — Branch 4 (demand refill) is the current fill trigger. Predictive fill requires `sensor.water_usage_today` and `sensor.water_daily_usage_mean` (7-day stats) to be implemented first. Flag for a future water session.
+**Wired in E7 (2026-06-14)** — Branch 4.7 added to `water_tank_refill_control.yaml`. Fires when:
+- `water_predictive_fill_enabled = on`
+- `energy_orchestrator_state == 'conserve'`
+- `water_tank_level < water_predictive_fill_threshold_percent`
+- `water_tank_depth_validated < water_effective_fill_target` (avoids immediate stop)
+- NOT critical/safety state
+- `water_solar_window_active = on` AND `water_refill_allowed = on`
 
-**Future water session item**: implement `sensor.water_usage_today` (integration platform tracking daily tank depth change) and `sensor.water_daily_usage_mean` (statistics platform, 7-day rolling mean), then wire `water_predictive_fill_enabled` into Branch 4 as an additional trigger path.
+**Stop target**: `sensor.water_effective_fill_target` — returns `water_target_depth_full` (1.6m) in conserve+predictive mode; fills tank to maximum buffer capacity instead of demand-plan depth.
+
+**Threshold calibration**: Default 50% (0.975m) is BELOW all current demand targets (≥1.0m Normal). This makes Branch 4.7 rarely fire independently of Branch 4. For genuine proactive pre-fill when tank is comfortable but solar is poor, **set threshold to 70-80%** via Helpers dashboard. Branch 4 handles fills when tank < demand target; Branch 4.7 handles fills when tank is above demand target but below the 70-80% buffer threshold during conserve mode.
+
+**`water_max_fill_hours_per_day`** (daily pump runtime cap) remains unimplemented — deferred to V2 after data establishes typical fill duration.
 
 ### Telegram Direct Bypass
 
@@ -931,5 +972,5 @@ For improved reliability, consider adding a `for: "00:00:30"` delay to the no-ri
 
 ---
 
-*Last updated: 2026-04-13*  
-*Updated by: Deep audit — all 18 water package files read, lifecycle contract verified, safety system audited, Tuya sensor characterised, watchman cross-referenced, legacy automations checked (none found)*
+*Last updated: 2026-06-14 (E7)*  
+*Updated by: E7 — sensor.water_usage_today (utility_meter), sensor.water_tank_consumption_integral (integration), sensor.water_daily_usage_mean (statistics), sensor.water_effective_fill_target (template). Branch 4.7 predictive fill added. water_stop_at_daily_target updated to read water_effective_fill_target. Predictive fill enabled/wired — see Predictive Fill Helpers section above.*
