@@ -614,7 +614,7 @@ sensor.power_strategy_severity critical/warning/opportunity/normal
 # Gated by: input_boolean.orchestrator_enabled — when OFF, always returns 'normal'
 # Consumers: binary_sensor.water_refill_allowed (blocks on critical/loadshedding/loadshedding_critical)
 #            lighting_energy_saving.yaml (future — via input_boolean.energy_saving_mode)
-#            pool_pump_solar_control (future — direct orchestrator gate)
+#            pool_pump_solar_control ✅ E3 2026-06-14 — orchestrator is now primary gate
 sensor.energy_orchestrator_state        loadshedding_critical/loadshedding/critical/conserve/surplus/normal
 sensor.orchestrator_decision_reason     human-readable string explaining why current state was chosen
 #                                       e.g. "SOC 23% below critical threshold 25%" or "Load shedding active"
@@ -771,17 +771,26 @@ sensor.last_sun_soc_target                   %   season-aware (80% summer / 90% 
 sensor.geyser_target_run_hours_today         h   season-aware geyser target
 ```
 
-**Control logic summary:**
+**Control logic summary (updated E3 2026-06-14 — orchestrator as primary gate):**
+
+`sensor.energy_orchestrator_state` is the primary gate for all pool pump decisions from E3 onwards. This is the reference pattern all appliance automations will follow — geyser and borehole control will adopt the same structure.
+
 - Active window: 08:00–16:00. Gate: `input_boolean.load_control_pool_enabled = on`.
-- **Turn off (16:00 hard stop — Branch 0)**: unconditional shutdown at end of solar window — no minimum run time guard.
-- **Turn off (Branch 2a — grid offline + low SOC)**: immediately shuts off if grid is offline AND SOC < `grid_offline_soc_min_pool` (60%). Bypasses minimum run time — battery reserve protection takes priority. Triggers fire on `group.inverter_grid` state change and `sensor.inverter_battery_soc` crossing threshold.
-- **Turn off (Branch 2b — last sun slot)**: shuts off from `last_sun_slot_start_hour` (14:00) until 16:00 if SOC < `last_sun_soc_target` (80%/90% by season). Ensures battery charges to overnight target before sundown. Bypasses minimum run time.
-- **Turn off (load shedding)**: stage >= 2, or upcoming shed within 3h AND SOC < threshold — enforces minimum run time.
-- **Turn off (solar dropped)**: `solar_available_surplus < 800W` (hysteresis lower band) or battery low/critical — enforces minimum run time.
-- **Turn off (target met)**: daily run hours >= season target — enforces minimum run time.
-- **Turn on gates (Branch 5)**: requires grid-offline SOC threshold AND last-sun-slot SOC target in addition to existing surplus/battery/load-shedding conditions.
-- Minimum run time guards prevent short cycles (pump must run `pool_minimum_run_minutes` before any turn-off). Does NOT apply to 16:00 hard stop, grid-offline, or last-sun branches.
+- **Turn on (Branch 5)**: `energy_orchestrator_state in ['surplus', 'normal']` + headroom > 1200W + daily target not reached + local gates below. Replaces raw battery_state_health / load_shedding_stage / upcoming-shed SOC checks.
+- **Turn on local gates (preserved — not covered by orchestrator)**:
+  - Grid-offline SOC floor: `grid_offline_soc_min_pool` (60%) — blocks when grid down and SOC too low
+  - Last-sun-slot: blocks from `last_sun_slot_start_hour` (14:00) when SOC < `last_sun_soc_target` (80%/90% by season)
+  - Winter morning hold: `pool_winter_start_hour` (10:00) — no pool before 10:00 in winter
+- **Turn off (16:00 hard stop — Branch 0)**: unconditional — no minimum run time guard.
+- **Turn off (Branch 2a — grid offline + low SOC)**: immediately shuts off if grid is offline AND SOC < `grid_offline_soc_min_pool` (60%). Bypasses minimum run time.
+- **Turn off (Branch 2b — last sun slot)**: shuts off from `last_sun_slot_start_hour` when SOC < `last_sun_soc_target`. Bypasses minimum run time.
+- **Turn off (Branch 2 — orchestrator hard block)**: `energy_orchestrator_state in [loadshedding, loadshedding_critical, critical]`. Enforces minimum run time EXCEPT `loadshedding_critical` (emergency — turns off immediately). Replaces raw load_shedding_stage + upcoming-shed checks. Notifies at severity: warning.
+- **Turn off (Branch 3 — conserve / solar dropped)**: `energy_orchestrator_state == conserve` OR `solar_available_surplus < 800W` (hysteresis floor). Enforces minimum run time. Replaces raw battery_state_health low/critical + headroom checks.
+- **Turn off (target met — Branch 4)**: daily run hours >= season target — enforces minimum run time.
+- Minimum run time guards prevent short cycles (pump must run `pool_minimum_run_minutes` before most turn-offs). Does NOT apply to 16:00 hard stop, grid-offline, last-sun, or loadshedding_critical branches.
 - Season logic: `sensor.season == 'summer'` → summer target; all other seasons → winter target.
+- `sensor.pool_pump_control_status` updated E3: reads orchestrator state as primary reason string (priority 1→11 ordered display).
+- `sensor.solar_available_surplus` (power_state.yaml) is the canonical solar headroom sensor — Watts (pv_power − load_power). Note: `sensor.solar_surplus_available` (solar_core.yaml) is a boolean string True/False — NOT a Watts value. Use `solar_available_surplus` in all appliance automations.
 - All notifications via `script.notify_power_event` (severity: information/warning, subsystem: energy).
 - `mode: queued` — ensures Branch 1 (records `pool_pump_last_on`) is not dropped when Branch 5 turns on the pump.
 
