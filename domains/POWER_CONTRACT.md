@@ -834,23 +834,125 @@ Pool winter scheduling:
 input_number.pool_winter_start_hour                   h  10   — earliest hour to run pool pump in winter
 ```
 
-### Inverter Sync (power_helpers.yaml + power_automations.yaml — added E1 2026-06-14)
+### Inverter Sync (power_helpers.yaml + power_automations.yaml — E1 2026-06-14; expanded E5 2026-06-14)
+
+All programme entities confirmed in scenes.yaml E5 pre-flight. Now fully implemented.
 
 ```
-input_boolean.inverter_sync_status     ON = inverter 1 and 2 in sync; OFF = mismatch detected
-automation.inverter_sync_check         triggers on select.inverter_1_energy_pattern change; 90s delay;
-                                       compares confirmed entities; sets sync status; notifies on mismatch
-script.force_inverter_sync             copies inverter 1 energy_pattern to inverter 2; dashboard-callable
+input_boolean.inverter_sync_status     ON = in sync; OFF = mismatch; written by inverter_sync_check
+
+automation.inverter_sync_check         triggers on change to any of:
+                                         select.inverter_1_energy_pattern
+                                         select.inverter_1_program_1_charging through _6_charging
+                                       90s delay → compares energy_pattern + all 6 charging selects
+                                       sets sync status; notifies on mismatch with detail string
+
+script.force_inverter_sync             copies INV1 → INV2:
+                                         energy_pattern
+                                         program_1_charging through _6_charging (select)
+                                         program_1_soc through _6_soc (number)
+                                       dashboard-callable for manual re-sync; called by E5-2 after pattern changes
 ```
 
-**⚠️ Partially implemented** — currently only compares `select.inverter_1/2_energy_pattern` (confirmed entities).
-The following entities are referenced in the spec but NOT confirmed to exist in HA — verify in Developer Tools → States:
+### Inverter Programme Automation (power_helpers.yaml + power_automations.yaml — E5 2026-06-14)
+
+**Controls inverter programme settings dynamically. Writes to physical inverter registers.**
+Master gate: `input_boolean.inverter_programme_auto_enabled` — when OFF, makes no inverter changes.
+
+**Helpers:**
 ```
-select.inverter_1_work_mode / select.inverter_2_work_mode
-select.inverter_1_program_N_charging / select.inverter_2_program_N_charging  (N 1–6)
-number.inverter_2_program_N_soc  (N 1–6)  — inverter_1 versions confirmed; inverter_2 unverified
+input_boolean.inverter_programme_auto_enabled   default: true — master gate
+input_boolean.use_legacy_solar_scenes           default: false — when ON, solar_forecast.yaml scene
+                                                system resumes (rollback path for E5 automations)
+input_number.orchestrator_p4_charge_trigger_soc %  70  — future use (pre-flight SOC gate for P4)
+input_number.orchestrator_solar_gap_threshold  kWh  2.0 — P4 only enables if solar falls this far
+                                                         short of target; update to 5.0 after 45 kWh swap
+input_number.battery_capacity_kwh              kWh 30.0 — current 30 kWh; update to 45 after Tuesday swap
 ```
-Add confirmed entities to `inverter_sync_check` compare list and `force_inverter_sync` copy list.
+
+**Programme time slots (confirmed E5 pre-flight):**
+```
+P1: 01:00–05:00   P2: 05:00–09:00   P3: 09:00–14:00
+P4: 14:00–17:00   P5: 17:00–21:00   P6: 21:00–01:00
+```
+
+**E5-2: automation.inverter_energy_pattern_control**
+```
+Triggers: time_pattern /5min + orchestrator state change + homeassistant start + time 16:30
+Gate: inverter_programme_auto_enabled ON AND orchestrator_enabled ON
+
+Branch 1 (highest priority):
+  orchestrator in [loadshedding, loadshedding_critical, critical, conserve]
+  AND energy_pattern != 'Battery First'
+  → set Battery First; notify (warning for emergency states, info for conserve)
+  → call force_inverter_sync after 5s
+
+Branch 2 (morning below threshold, silent):
+  trigger != evening_return AND hour < 10 AND SOC < load_first_soc_threshold (65%)
+  AND energy_pattern != 'Battery First'
+  → set Battery First; logbook only
+
+Branch 3 (solar hours, threshold met):
+  trigger != evening_return AND orchestrator in [normal, surplus]
+  AND SOC >= load_first_soc_threshold AND 09:00–16:00
+  AND energy_pattern != 'Load First'
+  → set Load First; notify info
+  → call force_inverter_sync after 5s
+
+Branch 4 (evening return, 16:30 time trigger):
+  trigger == evening_return AND energy_pattern != 'Battery First'
+  → set Battery First; notify info
+  → call force_inverter_sync after 5s
+
+Default: logbook only (no change)
+mode: single (max_exceeded: silent — 5min ticks don't queue)
+```
+
+**E5-3: automation.inverter_p4_grid_charge_control**
+```
+Triggers: time 14:00, 14:30, 15:00 (evaluate) + time 17:00 (restore)
+Gate: inverter_programme_auto_enabled ON
+
+Branch 1 — Evaluate (14:00–15:00):
+  Calculates:
+    soc_gap = target_soc_by_sunset - current_soc  (floor 0)
+    kwh_needed = (soc_gap / 100) × battery_capacity_kwh
+    solar_for_battery = solcast_remaining - (house_load_24h_mean_kW × hours_to_17)
+    kwh_shortfall = kwh_needed - solar_for_battery
+
+  Enable P4 Grid (both INV1 + INV2 directly) if:
+    soc_gap > 5%  AND  kwh_shortfall > orchestrator_solar_gap_threshold
+    AND P4 not already Grid
+
+  Disable P4 Grid if:
+    P4 is currently Grid AND (soc_gap ≤ 5% OR shortfall ≤ threshold)
+
+  Sets both inverters directly (not via force_inverter_sync — P4 only change).
+
+Branch 2 — Restore 17:00 (always):
+  Set P4 = Disabled on both INV1 and INV2.
+  P5 window begins; grid charging in P5 may be active per existing programme.
+
+Note: sensor.house_load_24h_mean (W, 24h rolling mean) used for load estimate —
+more stable than instantaneous load_power for multi-hour heuristic.
+
+Functional check (E5 2026-06-14):
+  energy_pattern changed Load First → Battery First immediately on reload (orchestrator=conserve).
+  P4=Disabled (17:00 window already closed, correct).
+```
+
+**Solar scene legacy gate:**
+`input_boolean.use_legacy_solar_scenes = off` (default) → solar_forecast.yaml automation is disabled.
+Flip to `on` to restore the scene-based system (Low/Medium/High Solar Forecast scenes). E5 automations
+continue to run but solar_forecast.yaml resumes overriding them every 3 hours.
+
+**Confirmed select entity option strings (from scenes.yaml):**
+```
+select.inverter_1_energy_pattern:       "Battery First" | "Load First"
+select.inverter_1_program_N_charging:   "Disabled" | "Grid" | "Generator" | "Both"
+select.inverter_1_work_mode:            "Export First" | "Zero Export To Load" | "Zero Export To CT"
+Service call: select.select_option with option: "<exact string>"
+```
 
 ### Geyser Scheduling (power_helpers.yaml + geyser_automations.yaml — E2 2026-06-14, upgraded E4 2026-06-14)
 
@@ -1364,10 +1466,11 @@ Add a binary_sensor that checks if `group.known_power_loads` has any members. If
 - [ ] Add auto-reconciliation trigger when drift exceeds threshold + meter reading entered
 - [ ] Add pyscript load group health check + restart trigger
 
-### Sprint 5 — Geyser Solar Control (PENDING — design review needed before implementation)
+### Sprint 5 — Geyser Solar Control ✅ IMPLEMENTED E2+E4 2026-06-14
 
-**Context:** Added 2026-05-25. Helpers and template sensors are already in place. Automation NOT yet
-implemented — geyser is critical for morning/evening showers and requires careful design review.
+**Context:** Added 2026-05-25. Helpers and template sensors were already in place. Automation
+implemented in E2 (migration) and upgraded in E4 (orchestrator gate + midday solar gate).
+See Geyser Scheduling section in Section 8 for full documentation.
 
 **Helpers already added:**
 ```
