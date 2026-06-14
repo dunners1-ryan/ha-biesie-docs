@@ -1603,13 +1603,13 @@ Add a binary_sensor that checks if `group.known_power_loads` has any members. If
 - [x] Update dashboard references to `input_number.prepaid_total_spent` — ✅ fixed 2026-06-14: two plotly graph cards (Prepaid Usage & Cost + Solar Savings vs Cost) were still referencing non-existent `sensor.prepaid_total_spent`; corrected to `input_number.prepaid_total_spent`
 - [x] Remove stale `ssa_*` sensor references from automations.yaml — ✅ none found
 
-### Sprint 4 — Strategy Improvements ✅ MOSTLY DONE (verified 2026-06-14)
+### Sprint 4 — Strategy Improvements (4/5 done — verified 2026-06-15)
 
 - [x] Implement `sensor.prepaid_balance_confidence` — ✅ implemented (prepaid_core.yaml:370)
 - [x] Implement `sensor.prepaid_net_position_this_month` — ✅ implemented (prepaid_strategy.yaml:230)
 - [x] Build Buy Score v2 — ✅ `sensor.prepaid_buy_score` implemented with multi-factor scoring (days, solar, burn_rate, fixed_remaining); `sensor.prepaid_buy_decision` downstream (prepaid_strategy.yaml:149)
-- [ ] Add auto-reconciliation trigger when drift exceeds threshold + meter reading entered
-- [ ] Add pyscript load group health check + restart trigger
+- [x] Add auto-reconciliation trigger — ✅ `automation.prepaid_auto_reconcile` (prepaid_core.yaml:524): triggers on `prepaid_meter_lifetime_import` change; gates on `prepaid_drift_percentage > prepaid_drift_threshold`; calls `script.prepaid_realign_offset` + notify
+- [ ] Add pyscript load group health check + restart trigger — ⬜ OPEN: `sync_power_groups.py` only maintains `real_power_loads` on startup; no health check or restart trigger implemented
 
 ### Sprint 5 — Geyser Solar Control ✅ IMPLEMENTED E2+E4 2026-06-14
 
