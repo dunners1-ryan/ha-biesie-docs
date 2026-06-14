@@ -114,10 +114,10 @@
 | File | Role | Layer |
 |---|---|---|
 | `power_core.yaml` | Dual-inverter aggregation — all unified sensors | Aggregation |
-| `power_helpers.yaml` | Load groups (groups) + area/load power templates | Mixed (violates layering) |
+| `power_helpers.yaml` | Load groups (groups) + area/load power templates + solar season factor helpers (P6) | Mixed (violates layering) |
 | `power_templates.yaml` | Per-inverter PV, battery, grid sub-sensors | Derived |
 | `power_state.yaml` | house_power_health, power_state, inverter health, freq/temp | State |
-| `power_statistics.yaml` | Rolling average sensors + weather correlation (added 2026-04-22) | Derived |
+| `power_statistics.yaml` | Rolling average sensors + solar forecast accuracy + 4-state weather correlation + season factor (P6 2026-06-14) | Derived |
 | `power_strategy.yaml` | power_strategy, power_strategy_status, severity | Decision |
 | `power_automations.yaml` | Power domain automations — migrated from automations.yaml | Automation |
 | `geyser_automations.yaml` | Geyser heat pump scheduling — 4 automations + script.geyser_manual_run (E2 2026-06-14; E4 retrofit: orchestrator gate, midday solar-gated, at-temp proxy, window helpers, emergency off) | Automation |
@@ -134,11 +134,11 @@
 | `prepaid_core.yaml` | Prepaid balance, drift model, utility meters, automations | Core + Derived |
 | `prepaid_helpers.yaml` | All prepaid input_number helpers | Helpers |
 | `prepaid_strategy.yaml` | Buy score, buy decision, depletion date, net position | Decision |
-| `solar_clipping.yaml` | Unused power, opportunity level, efficiency loss, clipping | Derived |
+| `solar_clipping.yaml` | Unused power, opportunity level, efficiency loss, clipping; solar_production_vs_capacity (P6) | Derived |
 | `solar_core.yaml` | Solar export potential, surplus sensor + binary_sensor | Core |
 | `solar_forecast.yaml` | Forecast sensors, inverter mode automation (3h) | Derived + Automation |
 | `solar_helpers.yaml` | solar_surplus_threshold, solar_export_tariff | Helpers |
-| `solar_state.yaml` | Solar status, ramp rate, confidence, stability, window | State |
+| `solar_state.yaml` | Solar status, ramp rate, confidence, stability, window; solar_vs_forecast_ratio_today (P6) | State |
 
 **Load shedding package path:** `packages/load_shedding/` — 1 file (new 2026-04-21, requires restart)
 
@@ -643,14 +643,44 @@ sensor.grid_state_health      stable/risk/unstable/offline
 # Battery state (battery_state.yaml)
 sensor.battery_state_health   strong/healthy/low/critical
 
-# Rolling averages & weather correlation (power_statistics.yaml — added 2026-04-22)
-sensor.inverter_production_7d_mean    kWh  7-day rolling mean of daily PV production
-sensor.inverter_production_30d_mean   kWh  30-day rolling mean of daily PV production
-sensor.house_load_24h_mean            W    24h rolling mean load power
-sensor.solar_vs_forecast_ratio_7d     %    7d mean actual vs today's Solcast forecast
-sensor.solar_weather_correlation           normal/degraded — degraded when ratio < 70%
-# Source entities: inverter_today_production, inverter_load_power, solcast_pv_forecast_forecast_today
-# All five sensors are excluded from the recorder.
+# Rolling averages & weather correlation (power_statistics.yaml — added 2026-04-22; upgraded P6 2026-06-14)
+sensor.inverter_production_7d_mean    kWh  7-day rolling mean of daily PV production (max_age 8d)
+sensor.inverter_production_30d_mean   kWh  30-day rolling mean of daily PV production (max_age 32d)
+sensor.inverter_production_7d_stdev   kWh  7-day std dev of daily production (CV signal for solar_weather_correlation)
+sensor.house_load_24h_mean            W    24h rolling mean load power (used by P4 grid charge heuristic)
+sensor.house_load_7d_mean             kWh  7-day mean of daily load consumption (seasonal comparison)
+sensor.solar_vs_forecast_ratio_today  %    Today actual / Solcast forecast today. 10am guard: returns 100 before 10am.
+                                           Distinct from solar_vs_forecast_ratio_7d (7d mean/forecast) and
+                                           solar_vs_forecast_ratio in energy_helpers.yaml (no 10am guard).
+sensor.solar_forecast_accuracy_7d     %    7-day statistics mean of solar_vs_forecast_ratio_today.
+                                           Primary ratio_7d input to solar_weather_correlation.
+sensor.solar_vs_forecast_ratio_7d     %    Legacy: 7d_mean / today's Solcast forecast. Retained for
+                                           backward compat — dashboards may reference it.
+sensor.solar_weather_correlation           4-state: excellent / good / poor / degraded
+                                           Classification (worst-match-wins):
+                                             degraded:   ratio_7d < 65 OR (ratio_today < 50 AND hour ≥ 14) OR cv > 40
+                                             poor:       ratio_7d < 80 OR (ratio_today < 65 AND hour ≥ 12) OR cv > 25
+                                             excellent:  ratio_7d ≥ 95 AND ratio_today ≥ 90 AND cv < 15
+                                             good:       default
+                                           Consumers: energy_state.yaml checks (== 'degraded') → conserve branch.
+                                           'ratio' attribute kept for energy_state.yaml decision_reason string.
+                                           Backward compat: 'degraded' state preserved from 2-state (2026-04-22) version.
+sensor.solar_season_efficiency_factor      Float multiplier (dimensionless). Season from sensor.season:
+                                             summer 1.0, autumn 0.75, winter 0.55, spring 0.85 (JHB defaults)
+                                           UI-adjustable via input_number.solar_factor_{summer|autumn|winter|spring}.
+                                           Review after 3+ months: calibrate to actual winter/summer production ratio.
+                                           Used by P4 logbook context (expected_daily = 30d_mean × season_factor).
+
+# Solar real-time efficiency (solar_clipping.yaml — added P6 2026-06-14)
+sensor.solar_production_vs_capacity   %    PV output / system rated capacity. Sustained >95% peak = clipping risk.
+                                           Capacity from input_number.system_solar_capacity_w (default 10800W).
+
+# Solar forecast daily ratio (solar_state.yaml — added P6 2026-06-14)
+sensor.solar_vs_forecast_ratio_today  %    (See above — also defined in this section for cross-reference)
+
+# All statistics/correlation sensors excluded from recorder (diagnostic — recalculated from history).
+# Source entities: inverter_today_production, inverter_load_power, inverter_today_load_consumption,
+#                  inverter_pv_power, solcast_pv_forecast_forecast_today, sensor.season
 
 # Solar decision (solar_forecast.yaml)
 sensor.solar_forecast_available_conservative  kWh  conservative day forecast
@@ -707,6 +737,18 @@ input_number.inverter_battery_soc_warning_trigger
 ```
 input_number.solar_surplus_threshold    W  threshold for surplus opportunity (default: 800)
 input_number.solar_export_tariff        R/kWh  notional export value (default: 1.30)
+```
+
+### Solar Statistics + Season Factor Helpers (power_helpers.yaml — added P6 2026-06-14)
+
+```
+input_number.system_solar_capacity_w      W  10800  rated PV capacity — used by solar_production_vs_capacity
+input_number.solar_factor_summer          ×   1.00  JHB summer production factor (Dec–Feb)
+input_number.solar_factor_autumn          ×   0.75  JHB autumn production factor (Mar–May)
+input_number.solar_factor_winter          ×   0.55  JHB winter production factor (Jun–Aug)
+input_number.solar_factor_spring          ×   0.85  JHB spring production factor (Sep–Nov)
+# Calibrate season factors after 3+ months of data by comparing actual winter/summer production.
+# All factors are UI-adjustable from dashboard without editing YAML.
 ```
 
 ### Solar Available Surplus (power_state.yaml — added 2026-04-22)

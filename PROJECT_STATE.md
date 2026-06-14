@@ -269,6 +269,26 @@ sensor.inverter_today_production group.inverter_grid
 group.inverter_battery_state     sensor.prepaid_units_left_safe
 ```
 
+### Power Statistics + Weather Correlation (power_statistics.yaml — P6 2026-06-14)
+```
+sensor.inverter_production_7d_mean        kWh  7-day rolling mean of daily PV production
+sensor.inverter_production_30d_mean       kWh  30-day rolling mean
+sensor.inverter_production_7d_stdev       kWh  7-day std dev (feeds CV → solar_weather_correlation)
+sensor.house_load_24h_mean                W    24h mean load (used by P4 grid charge)
+sensor.house_load_7d_mean                 kWh  7-day mean daily load
+sensor.solar_vs_forecast_ratio_today      %    today actual/forecast; 100 before 10am (neutral guard)
+sensor.solar_forecast_accuracy_7d         %    7d stats mean of solar_vs_forecast_ratio_today
+sensor.solar_vs_forecast_ratio_7d         %    legacy: 7d_mean / today's Solcast (retained)
+sensor.solar_weather_correlation               4-state: excellent/good/poor/degraded
+                                               degraded triggers energy_state conserve branch
+                                               'ratio' attribute preserved for energy_state decision_reason
+sensor.solar_season_efficiency_factor          float: summer 1.0 / autumn 0.75 / winter 0.55 / spring 0.85
+                                               calibrate after 3+ months of data
+sensor.solar_production_vs_capacity       %    PV output / system capacity (solar_clipping.yaml)
+input_number.system_solar_capacity_w      W    10800 — rated system capacity (update after upgrades)
+input_number.solar_factor_{summer|autumn|winter|spring}  UI-adjustable season multipliers
+```
+
 ### Power Runtime & Battery Sensors (battery_runtime.yaml)
 ```
 sensor.ss_battery_capacity             ← program-aware target SOC
@@ -852,6 +872,8 @@ U3. [DEFERRED] Apple device battery pipeline — two options (decide at implemen
 | `icloud` (built-in) | **Removed end of 2025.** Monthly 2FA session expiry requires manual `.storage/icloud` delete + HA restart + code entry. Non-primary Apple ID (family members) unsupported. Broke entirely on HA 2025.11.0 (`dict has no attribute user_info`). Value lost: GPS away-from-home location + Apple device battery/charging state for all family devices. | High | **DEFERRED** — monitor upstream fixes (Issue #155933 for 2025.11 breakage). Re-add only when auth is stable. Recovery automation + Apple device battery pipeline planned: see Group U. |
 
 ---
+
+*2026-06-14 session (power Session P6 — Solar Statistics + Weather Correlation): Standalone session, no E-series dependency. Pre-flight: power_statistics.yaml existed with 5 sensors (3 statistics, 2 templates) but was missing stdev, today ratio, 7d accuracy, season factor, and had only 2-state weather correlation. Recorder 90-day history confirmed. ha.core check passed before and after. Changes made: (1) power_statistics.yaml fully rewritten — added sensor.inverter_production_7d_stdev (7d stdev, CV signal for weather correlation), sensor.house_load_7d_mean (7d load mean kWh), sensor.solar_forecast_accuracy_7d (7d statistics mean of ratio_today), sensor.solar_season_efficiency_factor (JHB season multipliers: summer 1.0/autumn 0.75/winter 0.55/spring 0.85, UI-adjustable); upgraded sensor.solar_weather_correlation from 2-state (normal/degraded) to 4-state (excellent/good/poor/degraded — worst-match-wins); added max_age to existing stats sensors; retained solar_vs_forecast_ratio_7d and backward-compat 'ratio' attribute (energy_state.yaml reads it). (2) solar_state.yaml: added sensor.solar_vs_forecast_ratio_today — today's actual/forecast with 10am neutral guard (returns 100 before 10am). (3) solar_clipping.yaml: added sensor.solar_production_vs_capacity — PV output as % of system capacity (input_number.system_solar_capacity_w default 10800W). (4) power_helpers.yaml: added input_number.system_solar_capacity_w + 4 solar season factor helpers (solar_factor_summer/autumn/winter/spring). (5) power_automations.yaml: P4 evaluation variables block updated with season_factor + expected_daily context variables (context-only — not used in enable/disable condition, only in logbook message). (6) pyscript/power_snapshot.py: STATISTICS dict added with 10 new sensors; renders as separate section in snapshot output. (7) configuration.yaml: 6 new sensors added to recorder excludes. Backward compat verified: energy_state.yaml 'degraded' check preserved; 'ratio' attribute kept. HA restart required (new platform:statistics sensors + configuration.yaml recorder exclude change). ha core check passed. No errors in HA logs after restart. NOTE: statistics sensors (7d_mean, stdev, 7d accuracy) will show 'unknown' for first 7 days — insufficient history samples; this is expected and normal. Season factors need calibration after 3+ months of winter+summer data. Dashboard additions flagged for next dashboard session: solar_forecast_accuracy_7d, solar_season_efficiency_factor, solar_production_vs_capacity to Solar Performance panel; 7d bar chart for solar_vs_forecast_ratio_today.*
 
 *2026-06-14 session (dashboard re-enable — home overview): Three cards in lovelace.dashboard_overview that had been placeholder-disabled "for testing" were restored from the backup (lovelace.dashboard_overview.bak). Re-enabled: (1) custom:power-flow-card-plus at sections[2].cards[2] — animated solar/battery/grid/load flow diagram with pool/geyser/water/borehole individual consumers; (2) load shedding vertical-stack at sections[2].cards[5] — custom:html-template-card 2-day slot timeline + stage chips + API quota display, visibility-gated to load shedding active; (3) borehole history vertical-stack at sections[2].cards[10] — water stats horizontal panels + history-graph for switch.borehole_pump. Restoration method: Python script replaced placeholder markdown cards with backup originals; WebSocket API (lovelace/config/save, url_path=dashboard-overview) pushed to HA in-memory state (no HA restart required). Dashboard change only — .storage/ is gitignored, no package YAML changed. Confirmed working in Chrome.*
 
