@@ -1794,5 +1794,54 @@ Before modifying any of these files, audit the listed dependents:
 
 ---
 
-*Last updated: 2026-04-13*  
+*Last updated: 2026-06-14 (Session F — dashboard pass)*  
+
+---
+
+## 16. Dashboard Architecture (Session F — 2026-06-14)
+
+All power dashboards are in HA storage mode (`lovelace: mode: storage`). Files live in `/config/.storage/lovelace.*`. Edit via JSON while HA is stopped (stop → edit → start); the WebSocket API is the preferred method but requires a browser-based LLAT.
+
+### Dashboard File Map
+
+| Storage File | Dashboard | URL | Views |
+|---|---|---|---|
+| `lovelace.dashboard_operations` | Operations | /dashboard-operations | Power, Power Control, Appliance Control, Geyser Control, Inverter Control, Prepaid, Security, Presence, Lights, Water, Network, Media, Weather, Office, Mobile |
+| `lovelace.operations_debug` | Debug | /operations-debug | Energy (power-history), Water debug, Energy Cost, Presence debug, Security debug |
+| `lovelace.dashboard_overview` | Overview | /dashboard-overview | Home overview (power flow, water, presence, alerts) |
+| `lovelace.dashboard_system` | System | /dashboard-system | System health, alerts |
+
+### Power-Relevant Views
+
+| View | Path | Purpose | Last Updated |
+|---|---|---|---|
+| Power Control | /dashboard-operations#power-control | Orchestrator brain, geyser+pool+borehole controls, inverter sync, forecast, load shedding | F 2026-06-14 |
+| Appliance Control | /dashboard-operations#appliance-control | Pool pump detail (mushroom + 4-card grid + controls) | F 2026-06-14 |
+| Geyser Control | /dashboard-operations#geyser-control | Geyser status, 4-card grid, controls with sliders, 48h logbook | F 2026-06-14 |
+| Inverter Control | /dashboard-operations#inverter-control | Inv1 programme, Inv2 sync, load shedding scenes, orchestrator context, diagnostics, solar stats, season calibration | F 2026-06-14 |
+| Energy / Power History | /operations-debug#power-history | Load vs SOC apexchart, solar vs weather charts, solar performance H1-H4, simulator panel, orchestrator debug | F 2026-06-14 |
+
+### Entity Name Corrections (spec vs actual)
+
+| Spec Name | Actual Entity | Notes |
+|---|---|---|
+| `sensor.house_known_load_power` | `sensor.known_load_power` | In power_templates.yaml |
+| `sensor.house_unknown_load_power` | `sensor.unknown_load_power` | In power_templates.yaml |
+| `sensor.house_load_visibility_percent` | `sensor.load_visibility_score` | In power_templates.yaml |
+| `sensor.water_tank_level_percent` | `sensor.water_tank_level` | In water package |
+| `sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark` | `sensor.load_shedding_area_za_gt_jhb_weltevredenpark_pa5c` | load_shedding integration entity ID |
+| `sensor.load_shedding_next_start` | `sensor.load_shedding_minutes_remaining` | No next_start entity in this integration version |
+
+### Navbar
+
+All power-related views use `custom:navbar-card` (footer position) with routes: Home → /dashboard-overview, Operations → /dashboard-operations, Debug → /operations-debug, System → /dashboard-system, Alerts → /dashboard-system/alerts.
+
+### Known P6 Statistics Sensor Issue
+
+Three statistics sensors defined in `power_statistics.yaml` are NOT appearing in the HA entity registry after two restarts:
+- `sensor.inverter_production_7d_stdev` (standard_deviation of inverter_today_production)
+- `sensor.house_load_7d_mean` (mean of inverter_today_load_consumption)
+- `sensor.solar_forecast_accuracy_7d` (mean of solar_vs_forecast_ratio_today)
+
+The YAML parses correctly. Pre-existing statistics sensors load as 'unavailable'. HA logs show no error. Investigation needed: check if statistics platform rejects standard_deviation characteristic in HA 2026.6, or if source entity incompatibility is the cause. Dashboard cards that reference these sensors will show "unavailable" — acceptable until resolved.
 *Updated by: Deep audit — all 22 power package files read, POWER_DEPENDENCY_ANALYSIS.md incorporated, watchman cross-referenced, legacy automations checked*
