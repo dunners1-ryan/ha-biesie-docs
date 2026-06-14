@@ -1285,6 +1285,57 @@ re-read (same pattern as `critical_intrusion` branch). The 4s wait gives
 
 ---
 
+### BUG-S48 — Arrival image shows cam07 (kitchen) instead of ipcam03 (driveway)
+**Priority: MEDIUM | Status: ✅ FIXED 2026-06-14 (S16)**
+
+**Symptom:** Stage 1 "Gate opened — vehicle entering" notification shows Front Kitchen camera image (cam07) instead of the driveway approach image (ipcam03). BUG-S41 fix (S13) was supposed to lock the driveway image, but kitchen images still appear.
+
+**Root cause:** `input_text.security_image_grounds_front` is a SHARED slot written by three cameras: ipcam03 (driveway), cam04 (carport), AND cam07 (kitchen side). The BUG-S41 lock at T+5s reads this shared slot. If cam07 fires in the 5-second window between gate-open and the lock (car pulls in, cam07 sees the side approach), the slot holds a kitchen image and that gets locked.
+
+**Fix:** Stage 1 arrival lock now reads `input_text.ipcam03_driveway_history` (the per-camera snapshot history written exclusively by ipcam03) preferentially, falling back to `security_image_grounds_front` only if the ipcam03 history is empty. `security_automations.yaml` modified.
+
+---
+
+### BUG-S49 — Departure confirmed time is +3.5min after actual departure
+**Priority: LOW | Status: ✅ FIXED 2026-06-14 (S16)**
+
+**Symptom:** Stage 2 "Departure confirmed — Ryan left at HH:MM" shows the time when the confirmation fires, not when the car actually left. 3.5 minute Stage 2 delay means the time is consistently wrong by ~3-4 minutes (e.g., "left at 17:55" when car left at 17:52).
+
+**Root cause:** Stage 2 used `now().strftime('%H:%M')` for the message timestamp, which reflects the moment Stage 2 fires (after its 3.5min delay).
+
+**Fix:** Stage 1 captures `depart_time: "{{ now().strftime('%H:%M') }}"` at T=0 (trigger time, before the 5s delay). Passes it in the event data as `left_at`. Stage 2 captures `left_at` from `trigger.event.data.left_at` in a variables block BEFORE its delay, then uses `{{ left_at }}` in the notification message. `security_automations.yaml` modified.
+
+---
+
+### BUG-S50 — RUNG 2.5 lounge false critical_intrusion from cam12 pond noise
+**Priority: HIGH | Status: ✅ FIXED 2026-06-14 (S16)**
+
+**Symptom:** Multiple CRITICAL INTRUDER — INSIDE (main house) notifications at night (~00:17, ~04:17) with `home: all`. Family all asleep. `zones: Grounds+Main` in reason — cam12 (back pond) fires first, then cam14 (lounge) fires from any light change.
+
+**Root cause:** RUNG 2.5 required `ext_recent` (any outdoor camera fired within 5min) as outdoor corroboration. `ext_recent` includes ALL outdoor cameras including cam12 (back pond, NVR, no AI, fires for frogs/moonlight/wind). cam12 fires → ext_recent ON for 5min → cam14 catches any light change from TV/monitor → RUNG 2.5 → critical_intrusion even with `home: all`. cam12 is NOT on any credible approach path to the lounge.
+
+**Fix:** New binary_sensor `binary_sensor.security_front_approach_recent` (delay_off: 5min) added to `security_logic.yaml`. Watches only front/side/rear-side cameras: `ipcam01/02` (street), `ipcam03` (driveway), `cam04` (carport), `cam07` (kitchen/side), `cam09` (rear bedroom side), `ipcam05` (rear boundary). Explicitly excludes cam12 (pond) and ipcam04 (pool bar). RUNG 2.5 now uses `front_approach_recent` instead of `ext_recent`. A genuine intruder reaching the lounge MUST cross at least one of these cameras. `ext_recent` (all-outdoor) retained for RUNG 8 (empty house — wider net appropriate when nobody home). `security_logic.yaml` modified.
+
+---
+
+### BUG-S51 — Inside alerts fire when Luke home (AP roaming drops anyone_connected_home)
+**Priority: HIGH | Status: ✅ FIXED 2026-06-14 (S16)**
+
+**Symptom:** cam15 (passage) critical_intrusion fires at 17:55 with Luke physically visible in the passage (and the dog). cam12 also fired at 17:55. Notification classified as `home: no`. Family confirmed home.
+
+**Root cause:** Luke's phone drops AP connection briefly (roaming between APs, switching to mobile data). With 2min delay_off on `anyone_connected_home`, a brief drop causes:
+1. AP drops → `anyone_connected_home` goes OFF after 2min
+2. Arming schedule fires → passage arms
+3. cam12 (pond) fires → ext_recent ON
+4. Luke/dog walks through passage → cam15 fires
+5. RUNG 8: `not anyhome AND ext_recent AND inside_armed_active` → critical_intrusion
+
+**Fix:** Increased `anyone_connected_home` delay_off from 2min to 5min in `presence_core.yaml`. Gives enough tolerance for AP roaming/handoff/mobile-data switching without immediately triggering nobody-home logic. Trade-off: arming delayed by an extra 3min after true departure — acceptable. `presence_core.yaml` modified.
+
+**Ongoing note:** If dogs are left home alone without `input_boolean.dogs_inside` being set to ON, a similar false alarm path exists (dog in passage = cam15 = RUNG 8). Always set `dogs_inside` before leaving dogs home alone.
+
+---
+
 ### BUG-S28 — ipcam02 AcuSense sensors absent (firmware incompatibility)
 **Priority: MEDIUM | Status: OPEN — awaiting firmware resolution**
 
