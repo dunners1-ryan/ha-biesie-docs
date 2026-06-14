@@ -427,7 +427,7 @@ sensor.load_shedding_minutes_remaining min  numeric countdown (0 = inactive/unkn
 **Source integration entities:**
 ```
 sensor.load_shedding_stage_eskom
-sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark
+sensor.load_shedding_area_za_gt_jhb_weltevredenpark_pa5c
 ```
 
 ### Load Power (power_helpers.yaml)
@@ -1302,7 +1302,7 @@ battery_charge_split_error = battery_charge_energy_today - (solar_to_batt + grid
 |---|---|---|
 | `sensor.solcast_pv_forecast_forecast_today` | Solcast (custom_component) | `solar_forecast.yaml` |
 | `sensor.load_shedding_stage_eskom` | Load Shedding integration | `load_shedding.yaml` |
-| `sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark` | Load Shedding | `load_shedding.yaml`, `prepaid_strategy.yaml` |
+| `sensor.load_shedding_area_za_gt_jhb_weltevredenpark_pa5c` | Load Shedding | `load_shedding_automations.yaml`, `prepaid_strategy.yaml` |
 | `binary_sensor.anyone_connected_home` | Presence | `energy_orchestrator_state` |
 | `binary_sensor.night_confirmed` | Context | `battery_runtime.yaml`, `grid_risk.yaml` |
 
