@@ -109,7 +109,7 @@
 
 ## 2. File Inventory
 
-**Package path:** `packages/power/` — 25 files
+**Package path:** `packages/power/` — 26 files
 
 | File | Role | Layer |
 |---|---|---|
@@ -120,6 +120,7 @@
 | `power_statistics.yaml` | Rolling average sensors + weather correlation (added 2026-04-22) | Derived |
 | `power_strategy.yaml` | power_strategy, power_strategy_status, severity | Decision |
 | `power_automations.yaml` | Power domain automations — migrated from automations.yaml | Automation |
+| `geyser_automations.yaml` | Geyser heat pump scheduling — 4 automations + script.geyser_manual_run (added E2 2026-06-14) | Automation |
 | `power_contract.yaml` | Documentation notes only — no executable YAML | Docs |
 | `battery_runtime.yaml` | Program-aware battery runtime, severity, confidence | Derived |
 | `battery_state.yaml` | battery_state_health (strong/healthy/low/critical) | State |
@@ -841,6 +842,59 @@ select.inverter_1_program_N_charging / select.inverter_2_program_N_charging  (N 
 number.inverter_2_program_N_soc  (N 1–6)  — inverter_1 versions confirmed; inverter_2 unverified
 ```
 Add confirmed entities to `inverter_sync_check` compare list and `force_inverter_sync` copy list.
+
+### Geyser Scheduling (power_helpers.yaml + geyser_automations.yaml — added E2 2026-06-14)
+
+Migrated from automations.yaml IDs 1742224800650 + 1744130174080. Switch entity confirmed: `switch.geyser_heat_pump_switch`.
+
+**Helpers (power_helpers.yaml):**
+```
+input_boolean.geyser_sports_night          ← Tue/Thu auto-set 17:00; OFF clears at 00:01 daily
+                                               When ON: turn-on delayed to 21:05, hard-off at 23:05
+input_boolean.geyser_morning_override      ← manual override flag (reserved for future logic)
+input_boolean.geyser_manual_run_active     ← ON while manual run is in progress (set/cleared by script)
+input_select.geyser_manual_run_duration    ← "30" or "60" minutes for manual run
+```
+
+**Automations (geyser_automations.yaml):**
+```
+automation.geyser_turn_on
+  Morning standard : 04:30 (spring/summer/autumn) — geyser off + grid on + stage < 4 + geyser_enabled
+  Morning winter   : 04:00 (winter only) — same conditions, 30 min earlier
+  Midday           : 12:05, 13:05, 14:05 — geyser off only (unconditional, matches original)
+  Evening standard : 20:05 if sports_night off — geyser off + grid on + stage < 4 + geyser_enabled
+  Evening sports   : 21:05 if sports_night on — same conditions, delayed start
+  Seasonal design  : dual triggers with IDs; both fire daily, branch condition filters by trigger.id + sensor.season
+  Gate             : input_boolean.load_control_geyser_enabled (defined in load_control.yaml)
+
+automation.geyser_turn_off
+  AM protection  : 05:30/06:30/07:30/08:30 — if grid off + SOC < number.inverter_1_program_2_soc + shedding active
+  Evening winter : 22:00 if winter and sports_night off (55 min later than standard)
+  Evening std    : 21:05 if not winter and sports_night off
+  Sports night   : 23:05 if sports_night on
+
+automation.geyser_sports_night_scheduler
+  ON  : Tue + Thu at 17:00 (conditional weekday trigger)
+  OFF : 00:01 daily if currently on (daily reset safety net)
+
+automation.geyser_manual_run
+  Triggered by: script.geyser_manual_run (sets geyser_manual_run_active to on)
+  Action: turns on geyser → waits selected duration (or until switch turns off) → turns off → clears flag
+  Duration: read from input_select.geyser_manual_run_duration ("30" or "60" min)
+  Notifies via script.notify_power_event on start and completion. mode: single.
+
+script.geyser_manual_run
+  Dashboard entry point. Sets geyser_manual_run_active to on → triggers automation.geyser_manual_run.
+```
+
+**Migration fixes applied (from automations.yaml originals):**
+- `device_id: 04313162c9b0bb48347b8002235c725d` → `switch.geyser_heat_pump_switch`
+- `sensor.inverter_power` → `sensor.inverter_load_power`
+- `notify.STD_Information` → `script.notify_power_event`
+- Direct Telegram `notify.send_message` → removed (script handles routing)
+- Load shedding check re-enabled: `state_attr('sensor.load_shedding_stage_eskom', 'stage') | int(0) < 4`
+  (original used string comparison `< 'Stage 4'` which was disabled due to unavailable sensor blocking)
+- Default "no change" notification removed (was very noisy — fires at every trigger time); replaced with logbook.log only
 
 **Missing solar helpers** (referenced in solar_forecast.yaml but not in solar_helpers.yaml):
 ```

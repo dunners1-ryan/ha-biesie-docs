@@ -75,22 +75,29 @@ Each active automation was read in full. The following flags are applied:
 
 ---
 
-### POWER — GEYSER
+### POWER — GEYSER ✅ MIGRATED 2026-06-14 (Session E2)
 
-> 🚫 **DO NOT TOUCH — geyser system not started.**
-> Both automations use `device_id` (hardware-bound, UI-managed). Migrating entity_id
-> requires confirming actual entity is `switch.geyser_heat_pump_switch`. The geyser
-> automation logic is complex and load-shedding aware; wait for a dedicated geyser session.
+| ID | Alias | Migration Target | Status |
+|---|---|---|---|
+| `1742224800650` | Geyser Heat Pump Turn On AM / PM | `packages/power/geyser_automations.yaml` → `automation.geyser_turn_on` | ✅ MIGRATED |
+| `1744130174080` | Geyser Heat Pump Turn Off PM | `packages/power/geyser_automations.yaml` → `automation.geyser_turn_off` | ✅ MIGRATED |
 
-| ID | Alias | Lines | Purpose | Complexity |
-|---|---|---|---|---|
-| `1742224800650` | Geyser Heat Pump Turn On AM / PM | 1895–2227 | Turns geyser on for morning (04:00–09:00), midday (12:00–15:00) and evening (20:00–22:00) runs; gated on grid + load shedding stage | complex 🚫 GEYSER |
-| `1744130174080` | Geyser Heat Pump Turn Off PM | 2696–2915 | Turns geyser off at 21:00; also turns off early if grid off + low SOC + load shedding in AM window | complex 🚫 GEYSER |
+**Fixes applied on migration:**
+- `device_id: 04313162c9b0bb48347b8002235c725d` → `switch.geyser_heat_pump_switch` (confirmed)
+- `sensor.inverter_power` → `sensor.inverter_load_power`
+- `notify.STD_Information` → `script.notify_power_event`
+- Load shedding check re-enabled: `state_attr | int(0) < 4` (was disabled — string comparison blocked on unavailable)
+- Sports night branch added: 21:05 delayed start (Tue/Thu), hard-off at 23:05
+- Winter extension added: morning 04:00 (was 04:30), evening off 22:00 (was 21:05)
+- Daily reset scheduler added: `automation.geyser_sports_night_scheduler`
+- Manual run added: `automation.geyser_manual_run` + `script.geyser_manual_run`
 
-**Flags — both:**
-- `⚠️ DEVICE_ID` → target is `device_id: 04313162c9b0bb48347b8002235c725d` not entity_id. Confirm entity is `switch.geyser_heat_pump_switch` before migrating.
-- `⚠️ DEAD ENTITY` → `sensor.inverter_power` in notification messages.
-- `⚠️ DIRECT NOTIFY` → `notify.STD_Information` throughout. Fix on migration: `script.notify_power_event`.
+**New automations in packages/power/geyser_automations.yaml:**
+- `automation.geyser_turn_on` — replaces 1742224800650
+- `automation.geyser_turn_off` — replaces 1744130174080
+- `automation.geyser_sports_night_scheduler` — new (Tue/Thu auto-set + daily clear)
+- `automation.geyser_manual_run` — new (timed manual run via script)
+- `script.geyser_manual_run` — new dashboard entry point
 
 ---
 
