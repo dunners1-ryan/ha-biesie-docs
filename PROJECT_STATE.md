@@ -323,12 +323,55 @@ input_number.orchestrator_pre_shed_hours_warning         ← default 3h
 input_number.pool_winter_start_hour                      ← default 10h (future use by pool automation)
 ```
 
-### Inverter Sync (power_helpers.yaml + power_automations.yaml — added E1 2026-06-14)
+### Inverter Sync (power_helpers.yaml + power_automations.yaml — added E1 2026-06-14; expanded E5)
 ```
 input_boolean.inverter_sync_status       ← ON=in sync; OFF=mismatch; written by inverter_sync_check
-automation.inverter_sync_check           ← triggers on select.inverter_1_energy_pattern change; 90s delay
-script.force_inverter_sync               ← dashboard-callable; copies INV1 energy_pattern → INV2
-# ⚠️ Partial: only energy_pattern compared. work_mode/program_N_charging/inv2_soc entities unconfirmed.
+automation.inverter_sync_check           ← triggers on energy_pattern + all 6 program_N_charging changes;
+                                           90s delay; compares 7 entities (energy_pattern + 6 selects + SOC)
+script.force_inverter_sync               ← dashboard-callable; copies energy_pattern + 6 charging selects
+                                           + 6 SOC numbers from INV1 → INV2 (expanded E5 2026-06-14)
+```
+
+### Inverter Programme Automation (power_helpers.yaml + power_automations.yaml — added E5 2026-06-14)
+```
+# Gate toggles
+input_boolean.inverter_programme_auto_enabled  ← default true — enables automated Battery/Load First control
+input_boolean.use_legacy_solar_scenes          ← default false — gates solar_forecast.yaml scenes (rollback)
+
+# P4 grid charge thresholds
+input_number.orchestrator_p4_charge_trigger_soc  ← default 70% — SOC gap trigger for P4 grid charge
+input_number.orchestrator_solar_gap_threshold    ← default 2 kWh — shortfall threshold for P4 grid charge
+input_number.battery_capacity_kwh               ← default 30 kWh (UPDATE TO 45 after battery swap)
+
+# Automations
+automation.inverter_energy_pattern_control      ← Battery First / Load First crossover; 4 branches:
+                                                  1. poor energy → Battery First
+                                                  2. morning low SOC → Battery First
+                                                  3. good solar 09–16h → Load First
+                                                  4. 16:30 evening → Battery First
+automation.inverter_p4_grid_charge_control      ← dynamic P4 grid charge 14:00–17:00 window;
+                                                  enables if SOC gap > 5% AND kWh shortfall > threshold;
+                                                  17:00 trigger always restores to Disabled
+```
+
+### Air Fryer + Unknown Draw Detection (power_helpers.yaml + power_automations.yaml — added E7 2026-06-14)
+```
+# Air fryer load control
+input_boolean.load_control_airfryer_enabled    ← default true — auto-cut gate for airfryer_critical_cut
+automation.airfryer_critical_cut               ← cuts switch.philips_airfryer_plug when grid OFF + SOC
+                                                 < orchestrator_critical_soc_threshold; NOT fired by
+                                                 orchestrator state alone — requires actual grid-off event
+automation.airfryer_restore_on_recovery        ← info notify on grid return; does NOT auto-restart
+
+# Unknown draw detection (Tier 4 alerts)
+input_boolean.tier4_warnings_enabled           ← default true — gate for unknown_draw_warning
+input_number.unknown_draw_warning_threshold    ← default 1500 W — warning threshold
+input_number.unknown_draw_critical_threshold   ← default 3000 W — critical threshold
+input_number.unknown_draw_duration_trigger     ← default 3 min — sustained draw before alert fires
+input_datetime.unknown_draw_last_alert         ← cooldown stamp; checked against 30-min window
+automation.unknown_draw_warning                ← dual-branch (critical/warning); fires when
+                                                 orchestrator in [conserve, critical, loadshedding*]
+                                                 + unknown_load_power_W > warning_threshold + 30-min cooldown
 ```
 
 ### Three-Zone Inside Arming (S2 2026-05-17; S9h 2026-05-20)
