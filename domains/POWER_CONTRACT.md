@@ -1600,7 +1600,7 @@ Add a binary_sensor that checks if `group.known_power_loads` has any members. If
 
 - [x] Migrate `grid_status_monitoring` — ✅ not in automations.yaml (migrated/removed)
 - [x] Migrate `inverter_pwer_monitoring` — ✅ not in automations.yaml
-- [ ] Update dashboard references to `input_number.prepaid_total_spent` — ⚠️ unverifiable (dashboards in .storage, git-ignored)
+- [x] Update dashboard references to `input_number.prepaid_total_spent` — ✅ fixed 2026-06-14: two plotly graph cards (Prepaid Usage & Cost + Solar Savings vs Cost) were still referencing non-existent `sensor.prepaid_total_spent`; corrected to `input_number.prepaid_total_spent`
 - [x] Remove stale `ssa_*` sensor references from automations.yaml — ✅ none found
 
 ### Sprint 4 — Strategy Improvements ✅ MOSTLY DONE (verified 2026-06-14)
