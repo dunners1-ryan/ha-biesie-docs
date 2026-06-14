@@ -139,9 +139,9 @@ Always-on (all scenarios): boundary_street_light, back_house_security_light
 
 | Scenario | Condition | Lights ON |
 |---|---|---|
-| Quiet mode | quiet_arrival_mode=on | garage_switch_3, main_entrance, entrance_down_lights, laundry |
-| Someone home | anyone_connected_home=on, not quiet | garage_switch_3, main_entrance, entrance_down_lights, pool_patio, front_security, laundry → pool_patio + front_security OFF after 5min if bar not occupied |
-| Nobody home | anyone_connected_home=off | garage_switch_3, main_entrance, entrance_down_lights, **front_house_security** (BUG-L13 fixed 2026-06-14), pool_patio, dining_room, laundry |
+| Quiet mode | quiet_arrival_mode=on | garage_light, main_entrance, entrance_down_lights, laundry |
+| Someone home | anyone_connected_home=on, not quiet | garage_light, main_entrance, entrance_down_lights, pool_patio, front_security, laundry → pool_patio + front_security OFF after 5min if bar not occupied |
+| Nobody home | anyone_connected_home=off | garage_light, main_entrance, entrance_down_lights, front_house_security, pool_patio, dining_room, laundry |
 
 ### Departure (`lighting_departure.yaml`)
 
