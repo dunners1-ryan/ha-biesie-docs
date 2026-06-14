@@ -429,6 +429,34 @@ The weekly summary in water_reporting.yaml also calls telegram directly.
 | `binary_sensor.water_tank_refilling` | Dashboard | Visual indicator |
 | `sensor.water_tank_depth_validated` | Dashboard | UI display |
 
+### Borehole Control Status Sensor (water_state_extensions.yaml — added E6 2026-06-14)
+
+`sensor.borehole_control_status` — 9-state priority display mirroring pool/geyser pattern:
+
+| Priority | State | Condition |
+|---|---|---|
+| 1 | `Disabled` | `load_control_borehole_enabled` off |
+| 2 | `Emergency fill — bypassing gates` | pump on AND water_state critical/safety (emergency bypass path — water_refill_allowed not consulted) |
+| 3 | `Blocked — <orch> state` | orchestrator in [critical, loadshedding, loadshedding_critical] |
+| 4 | `Blocked — grid off, SOC X% < Y%` | grid off AND SOC below water_battery_soc_sufficient |
+| 5 | `Filling (X%)` | pump on AND refill cycle active (normal managed fill) |
+| 6 | `Tank full (X%)` | water_state ok AND level ≥ 90% |
+| 7 | `Waiting — outside solar window` | solar window inactive |
+| 8 | `Ready to fill (X%)` | water_refill_allowed on AND water_state not ok |
+| 9 | `Monitoring (X%)` | default |
+
+### Predictive Fill Helpers (water_helpers.yaml — added E6 2026-06-14, disabled pending usage history)
+
+```
+input_boolean.water_predictive_fill_enabled          ← default: false — enable after water_usage_today + 7d history
+input_number.water_predictive_fill_threshold_percent ← default: 50% — fill when level drops below this AND poor solar
+input_number.water_max_fill_hours_per_day            ← default: 2h — cap daily pump runtime during predictive fill
+```
+
+**Not yet wired into any automation** — Branch 4 (demand refill) is the current fill trigger. Predictive fill requires `sensor.water_usage_today` and `sensor.water_daily_usage_mean` (7-day stats) to be implemented first. Flag for a future water session.
+
+**Future water session item**: implement `sensor.water_usage_today` (integration platform tracking daily tank depth change) and `sensor.water_daily_usage_mean` (statistics platform, 7-day rolling mean), then wire `water_predictive_fill_enabled` into Branch 4 as an additional trigger path.
+
 ### Telegram Direct Bypass
 
 `water_tank_refill_control.yaml` calls `notify.send_message` directly on `notify.telegram_bot_5527` for critical/emergency refills in addition to calling `script.notify_water_event`. This means emergency events send DUPLICATE notifications — once via the central script and once directly. This violates the CODING_STANDARDS requirement to use central scripts only.
