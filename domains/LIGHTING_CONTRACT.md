@@ -135,13 +135,13 @@ by evening routine. See BUG-L02.
 
 ### Night Arrival (`lighting_arrival_night.yaml`)
 
+Always-on (all scenarios): boundary_street_light, back_house_security_light
+
 | Scenario | Condition | Lights ON |
 |---|---|---|
 | Quiet mode | quiet_arrival_mode=on | garage_switch_3, main_entrance, entrance_down_lights, laundry |
 | Someone home | anyone_connected_home=on, not quiet | garage_switch_3, main_entrance, entrance_down_lights, pool_patio, front_security, laundry → pool_patio + front_security OFF after 5min if bar not occupied |
-| Nobody home | anyone_connected_home=off (BUG: uses anyone_home) | garage_switch_3, main_entrance, entrance_down_lights, pool_patio, dining_room, laundry |
-
-**Bug:** Scenario 3 checks `binary_sensor.anyone_home` (HA geo, unreliable) not `binary_sensor.anyone_connected_home`. See BUG-L03.
+| Nobody home | anyone_connected_home=off | garage_switch_3, main_entrance, entrance_down_lights, **front_house_security** (BUG-L13 fixed 2026-06-14), pool_patio, dining_room, laundry |
 
 ### Departure (`lighting_departure.yaml`)
 
@@ -342,6 +342,33 @@ see Section 4 ⚠️ note.
 
 ---
 
+### ~~BUG-L12~~ [HIGH] ✅ FIXED 2026-06-14 — Arrival lights never fire via presence-boundary path
+
+**File:** `packages/lighting/lighting_arrival_night.yaml`
+**Description:** The 60s cooldown condition checked `input_datetime.last_arrival_time`. But
+`presence_boundary_resolver` sets `last_arrival_time = now()` one step BEFORE setting
+`arrival_detected = on` in the same action sequence. When the lighting automation evaluated
+the cooldown, `(now - last_arrival_time) ≈ 0s > 60` → FALSE → always blocked.
+Only security Stage 1 arrivals bypassed this (Stage 1 never touches `last_arrival_time`).
+When ipcam01 didn't fire within 180s (Stage 1 condition fails), the sole path to arrival
+lighting was presence_boundary — which was always blocked. Dining room and entrance down
+lights never turned on in this common scenario.
+**Fix:** Removed the cooldown condition entirely. The `from: "off" to: "on"` trigger
+constraint already prevents re-fires within a single arrival cycle. The 5-min auto-clear
+(`presence_clear_arrival_flag`) ensures proper cycling.
+
+---
+
+### ~~BUG-L13~~ [LOW] ✅ FIXED 2026-06-14 — Nobody-home scenario missing front_house_security_light
+
+**File:** `packages/lighting/lighting_arrival_night.yaml`
+**Description:** Scenario 1 (nobody home) always-on block covered back_house_security_light
+but front_house_security_light was only in Scenario 2 (someone home). Arriving to an empty
+house at night left the front security light off.
+**Fix:** Added `switch.front_house_security_light` to Scenario 1 switch list.
+
+---
+
 ### ~~BUG-L11~~ [HIGH] ✅ FIXED 2026-06-14 — Morning wake fires at night (no noon ceiling)
 
 **File:** `packages/lighting/lighting_morning.yaml`
@@ -478,6 +505,10 @@ HARDENING NEEDED
     and kids_bedtime_weekend. Fixed 2026-04-29 (BUG-L10 session).
 
 DONE 2026-06-14
+[✅] BUG-L12: arrival lights blocked by cooldown — presence_boundary sets last_arrival_time=now()
+              immediately before arrival_detected=on; cooldown always evaluated 0>60=false.
+              Fixed: cooldown condition removed entirely. from:"off" to:"on" trigger is sufficient.
+[✅] BUG-L13: nobody-home scenario missing front_house_security_light. Fixed: added to switch list.
 [✅] BUG-L11: morning_wake_lights_on had no upper-bound time gate. Condition only checked
               now() >= morning_start — at 23:09 this was true, so cam14 lounge motion triggered
               the morning routine at night. Fixed: condition now checks
@@ -490,6 +521,6 @@ DONE 2026-06-14
 *Audit completed: 2026-04-16*
 *Updated: 2026-04-29 — BUG-L05/L07/L08 marked fixed; scene inventory corrected; helper inventory pruned;
 entertaining_mode entity name clarified; Sonoff outage (BUG-L10) documented; checklist updated.*
-*Updated: 2026-06-14 — BUG-L11 found and fixed (morning wake noon ceiling).*
+*Updated: 2026-06-14 — BUG-L11 (morning wake noon ceiling); BUG-L12 (arrival cooldown always-blocked); BUG-L13 (nobody-home missing front security light).*
 *Audited by: claude.ai session — live file review*
 *Next review: After new AI cameras installed (cam motion valid sensors change)*
