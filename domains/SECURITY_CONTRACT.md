@@ -1791,11 +1791,22 @@ SPRINT 9h+ — dogs_inside departure notification tap (2026-06-14)
       Purpose: allows departing family member to set dogs_inside from the departure
       notification without opening the app. Tap-to-enable UX.
 
-[✅] Departure Stage 1 notification updated (notify_security_events.yaml):
-      Dogs Inside prompt added to Stage 1 departure push notification.
-      Shows inline action button: "DOGS INSIDE 🐕" (action: DOGS_INSIDE_ON).
+[✅] Departure Stage 1 sequence updated (security_automations.yaml):
+      Dogs Inside prompt fires in the direction == 'departure' choose branch (triggered
+      by ipcam03_driveway_exit_valid — exiting, NOT the arrival gate sensor path).
+      Severity: CRITICAL (bypasses DND, full volume — must not be missed).
+      Telegram: SUPPRESSED — dogs_inside_prompt notifications are phone-action-only.
+      Action button: "🐕 Dogs Inside ON" (action: DOGS_INSIDE_ON) / "Dismiss" (IGNORE).
       Suppressed when: dogs_inside already ON, guest_mode ON, or staff_on_site ON.
-      Fires at Stage 1 (gate opened) so the person sees it while still in the car.
+      Fires immediately at Stage 1 so the person sees it while still in the car.
+
+[✅] notify_security_events.yaml updated with dogs_inside_prompt field:
+      New script field: dogs_inside_prompt (bool, default false).
+      When true: shows DOGS_INSIDE_ON / IGNORE action buttons in ALL severity levels.
+      When true + sev == 'critical': bypasses quiet hours (already bypassed for critical).
+      When true + sev == 'information': bypasses quiet hours explicitly (dogs prompt is
+        time-critical regardless of sleep mode).
+      Telegram suppressed when dogs = true (choose conditions use 'and not dogs').
 
 [❌] auto-off: dogs_inside has NO auto-off. Must be cleared manually on return
       (or the inside_cameras_arming disarm logic clears the arming booleans on return,

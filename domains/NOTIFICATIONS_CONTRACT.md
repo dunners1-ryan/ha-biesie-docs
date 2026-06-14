@@ -56,6 +56,12 @@ Domain State Change
 | warning | bypass | ✅ | ✅ |
 | critical | bypass | ✅ | ✅ |
 
+**Exception — `dogs_inside_prompt: true` in `notify_security_event`:**
+When `dogs_inside_prompt: true` is passed, Telegram is suppressed for ALL severity levels
+(the prompt is a phone-action notification — action buttons don't work on Telegram). The
+information severity quiet-hours check is also bypassed so the dogs prompt fires even during
+sleep hours (departure can happen at any time). Added 2026-06-14.
+
 ---
 
 ## 3. NOTIFICATION SCRIPTS — CONFORMANCE TABLE
@@ -144,7 +150,7 @@ Quiet hours: 22:00–06:00, managed by time-based automations in
 |--------|------------------|-----------|
 | notify_power_event.yaml | ✅ | information suppressed |
 | notify_water_events.yaml | ✅ | information escalated to warning |
-| notify_security_event.yaml | ✅ | information suppressed |
+| notify_security_event.yaml | ✅ | information suppressed (exception: dogs_inside_prompt bypasses quiet hours + Telegram) |
 | notify_presence_event.yaml | ✅ | information suppressed |
 | notify_system_event.yaml | ✅ | information suppressed |
 | notify_lighting_event.yaml | ✅ | information suppressed |
@@ -154,6 +160,19 @@ Quiet hours: 22:00–06:00, managed by time-based automations in
 | alerts_device_power.yaml | ✅ alert entity only (route automation removed) | no bypass (verified 2026-04-15) |
 
 Warning and Critical notifications bypass quiet hours in all scripts (correct behavior).
+
+### script.notify_security_event — Extended Fields (2026-06-14)
+
+Standard fields: `severity`, `title`, `message`, `image`, `source`, `gate_control`
+
+**`dogs_inside_prompt` (bool, default false) — added 2026-06-14:**
+When true, replaces gate action buttons with `DOGS_INSIDE_ON` / `IGNORE` in all severity levels.
+Telegram is suppressed (the mobile action button pattern doesn't work via Telegram).
+Information severity bypasses quiet hours (departure can happen at any time).
+Used by Stage 1 departure sequence — fires after "🚗 Departure — vehicle leaving" notification
+when `dogs_inside = off AND NOT guest_mode AND NOT staff_on_site`.
+Handler: `automation.dogs_inside_from_notification` (security_automations.yaml) — turns on
+`input_boolean.dogs_inside` when DOGS_INSIDE_ON action is tapped.
 
 ---
 

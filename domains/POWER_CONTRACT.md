@@ -878,13 +878,21 @@ P4: 14:00–17:00   P5: 17:00–21:00   P6: 21:00–01:00
 
 **E5-2: automation.inverter_energy_pattern_control**
 ```
-Triggers: time_pattern /5min + orchestrator state change + homeassistant start + time 16:30
+Triggers: time_pattern /30min + orchestrator state change + homeassistant start + time 16:30
+  (was /5min — reduced E8 fix 2026-06-14: 5min polling caused notification floods when
+   inverter reverted to own schedule between polls; 30min is sufficient re-enforcement cadence)
 Gate: inverter_programme_auto_enabled ON AND orchestrator_enabled ON
+
+Notification behaviour (E8 fix 2026-06-14):
+  Notifications suppressed on periodic trigger (trigger.id == 'periodic').
+  Battery First and Load First push notifications only fire on REAL TRANSITIONS
+  (orchestrator_changed, homeassistant start, evening_return triggers).
+  Logbook entries still written on periodic re-enforcement for auditability.
 
 Branch 1 (highest priority):
   orchestrator in [loadshedding, loadshedding_critical, critical, conserve]
   AND energy_pattern != 'Battery First'
-  → set Battery First; notify (warning for emergency states, info for conserve)
+  → set Battery First; notify if trigger != periodic (warning for emergency states, info for conserve)
   → call force_inverter_sync after 5s
 
 Branch 2 (morning below threshold, silent):
