@@ -574,7 +574,7 @@ script.water_demand_set_winter_profile
 | 🔔 Alerts | Updated 2026-05-27 | alert.camera_health added 2026-04-29 (alerts/ = 14 files). **2026-05-27:** alerts_batteries.yaml added (15th file) — full battery alert pipeline for Honor 10 Dash + Honor X7 Dash. Pipeline: per-device low + overcharge binary sensors → dash_battery_alert_context → alert.dash_battery_alert → aggregator. Screen brightness management added in packages/admin/tablets.yaml (night dim, away dim, morning/arrival restore). ⚠️ Requires HA restart (alert: entity). |
 | 🔔 Notifications | Scripts correct | All C-series bypasses resolved. BUG-N02 counter entity correct. |
 | 🧭 Presence | Alert pipeline live | Unknown AP alert + occupancy anomaly implemented. Trust chain intact. |
-| 💡 Lighting | Stable | All L01–L13 fixed. BUG-L11/L12/L13 (2026-06-14): morning_wake noon ceiling; arrival cooldown always-blocked fix; nobody-home front security light added. M1/M2/M3 implemented. SOC-based energy saving trigger remains future work (power session). |
+| 💡 Lighting | Stable | All L01–L14 fixed. BUG-L11–L14 (2026-06-14): morning_wake noon ceiling; arrival cooldown always-blocked fix; nobody-home front security light added; wrong garage entity (stw_3gang→garage_light) in all 3 arrival scenarios. M1/M2/M3 implemented. SOC-based energy saving trigger remains future work (power session). |
 | 🌐 Network | Updated 2026-05-28 | **2026-05-28:** sensor.ups_accessories_power (sum of USB1/2/3 + TypeC + DC out) and sensor.ups_visibility_score (accessories / total × 100) added to network_ups.yaml — mirrors load_visibility_score pattern from power domain. **2026-05-27:** network_ups.yaml added — EcoFlow River Pro UPS monitoring (packages/network/). Sensors: ups_on_battery, ups_runtime_seconds/friendly/eta, ups_status_card, ups_runtime_severity, ups_load_percent/status, ups_load_markdown. Helpers: 6 input_numbers + 1 input_boolean. Automations: AC Always On enforcement, on-battery notify, grid restore notify, battery warning/critical, load warning. All alerts via script.notify_power_event. | BUG-NET01 fixed 2026-04-28: unifi_cpu_5m_max availability → has_value(unifi_gateway_cpu_utilization). BUG-NET02 fixed 2026-04-28: unifi_memory_5m_max availability was self-referencing → has_value(unifi_gateway_memory_utilization). BUG-NET03 fixed 2026-04-28: packet loss removed from wan_health_score (ping_sum_5min is latency sum not pass count); score now uses latency + jitter only. BUG-NET04 fixed 2026-04-21. All verified live in network_helpers.yaml. |
 | 🏗️ Context | All fixed | BUG-CTX01 fixed 2026-04-30: context_presence.yaml → presence/presence_trust.yaml. BUG-CTX02 fixed 2026-04-28: context_schedules.yaml deleted, bedtime_mode in lighting_helpers. BUG-CTX03 fixed 2026-04-30: home_context now derives from security_nobody_home + night_confirmed, no longer imports sensor.security_mode from security/. |
 | 🔧 Infra | All fixed 2026-04-28 | BUG-CORE01 fixed (ha_events_per_second removed). BUG-INF01 fixed (printer_cartridge_low dangling }}). BUG-BKP01 fixed (github.yaml routed through notify_system_event). BUG-WEA01 confirmed already fixed. |
@@ -713,6 +713,13 @@ B2. Implement alerts_security.yaml — done 2026-04-14 (already complete)
       the morning routine at 23:09 because now() >= morning_start is true all evening. Fixed 2026-06-14:
       condition now rejects any trigger at or after noon (today_at('12:00:00')). Both weekday and weekend
       paths updated. lighting_morning.yaml.
+✅ BUG-L12 [HIGH]: arrival lighting always blocked via presence_boundary path — presence_boundary_resolver
+      sets last_arrival_time=now() one step before arrival_detected=on; cooldown 0s>60=false always.
+      Fixed 2026-06-14: cooldown condition removed. lighting_arrival_night.yaml.
+✅ BUG-L13 [LOW]: nobody-home arrival scenario missing switch.front_house_security_light.
+      Fixed 2026-06-14: added to Scenario 1 switch list. lighting_arrival_night.yaml.
+✅ BUG-L14 [MED]: all 3 arrival scenarios used switch.stw_3gang_garage_switch_3 (wrong entity) instead
+      of switch.garage_light. Fixed 2026-06-14: replaced across all 3 scenarios. lighting_arrival_night.yaml.
       GAP ANALYSIS (2026-04-29):
       --- Entertainment mode ---
       • input_button.entertainment_mode_on exists (defined); input_boolean.entertainment_mode does NOT exist

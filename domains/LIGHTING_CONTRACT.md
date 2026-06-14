@@ -342,6 +342,18 @@ see Section 4 ⚠️ note.
 
 ---
 
+### ~~BUG-L14~~ [MEDIUM] ✅ FIXED 2026-06-14 — Wrong garage entity in all arrival scenarios
+
+**File:** `packages/lighting/lighting_arrival_night.yaml`
+**Description:** All three arrival scenarios (quiet, someone home, nobody home) used
+`switch.stw_3gang_garage_switch_3` instead of `switch.garage_light`. The correct entity
+is `switch.garage_light`, which is the main garage interior light also managed by
+`lighting_garage.yaml` presence detection.
+**Fix:** Replaced `switch.stw_3gang_garage_switch_3` → `switch.garage_light` across all
+three scenarios. Confirmed no other occurrences in config.
+
+---
+
 ### ~~BUG-L12~~ [HIGH] ✅ FIXED 2026-06-14 — Arrival lights never fire via presence-boundary path
 
 **File:** `packages/lighting/lighting_arrival_night.yaml`
@@ -505,6 +517,8 @@ HARDENING NEEDED
     and kids_bedtime_weekend. Fixed 2026-04-29 (BUG-L10 session).
 
 DONE 2026-06-14
+[✅] BUG-L14: all 3 arrival scenarios used switch.stw_3gang_garage_switch_3 (wrong). Fixed:
+              replaced with switch.garage_light across quiet/someone-home/nobody-home scenarios.
 [✅] BUG-L12: arrival lights blocked by cooldown — presence_boundary sets last_arrival_time=now()
               immediately before arrival_detected=on; cooldown always evaluated 0>60=false.
               Fixed: cooldown condition removed entirely. from:"off" to:"on" trigger is sufficient.
@@ -521,6 +535,6 @@ DONE 2026-06-14
 *Audit completed: 2026-04-16*
 *Updated: 2026-04-29 — BUG-L05/L07/L08 marked fixed; scene inventory corrected; helper inventory pruned;
 entertaining_mode entity name clarified; Sonoff outage (BUG-L10) documented; checklist updated.*
-*Updated: 2026-06-14 — BUG-L11 (morning wake noon ceiling); BUG-L12 (arrival cooldown always-blocked); BUG-L13 (nobody-home missing front security light).*
+*Updated: 2026-06-14 — BUG-L11 (morning wake noon ceiling); BUG-L12 (arrival cooldown always-blocked); BUG-L13 (nobody-home missing front security light); BUG-L14 (wrong garage entity in arrival scenarios).*
 *Audited by: claude.ai session — live file review*
 *Next review: After new AI cameras installed (cam motion valid sensors change)*
