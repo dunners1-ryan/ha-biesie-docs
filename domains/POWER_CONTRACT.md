@@ -1074,14 +1074,20 @@ input_boolean.geyser_manual_run_active     ← ON while manual run in progress
 input_select.geyser_manual_run_duration    ← "30" or "60" minutes for manual run
 
 # Window timing (added E4) — triggers are fixed at default values; see TRIGGER FLOOR NOTE
-input_number.geyser_morning_start_weekday  h  4.0  (trigger 04:00 non-winter, 03:30 winter)
-input_number.geyser_morning_start_weekend  h  5.0  (trigger 05:00 non-winter, 04:30 winter)
+input_number.geyser_morning_start_weekday  h  4.5  (Mon–Sat trigger 04:30 non-winter, 04:00 winter)
+input_number.geyser_morning_start_weekend  h  5.5  (Sunday trigger 05:30 non-winter, 05:00 winter)
 input_number.geyser_morning_end_weekday    h  7.5  (trigger 07:30 non-winter, 08:00 winter)
 input_number.geyser_morning_end_weekend    h  8.5  (trigger 08:30 non-winter, 09:00 winter)
 input_number.geyser_winter_start_offset    min 30  (subtracts from start, adds to end in winter)
 
 # Midday solar gate (added E4)
 input_number.geyser_midday_surplus_threshold W 300  (geyser draws 1.25 kW; 300W = solar covers most)
+input_number.geyser_last_heat_up_minutes    min  0  elapsed minutes from switch-on to at-temperature
+                                                     per session (minus 5-min debounce). Written by
+                                                     geyser_heat_up_duration_capture automation.
+                                                     Build 1–2 weeks of data; add statistics sensor
+                                                     for rolling average. Feed into Option B start-time
+                                                     calc: start = target_ready_hour - avg_heat_up/60.
 ```
 
 **Derived sensors (power_state.yaml — added E4):**
@@ -1097,8 +1103,8 @@ binary_sensor.geyser_at_temperature  ON after 5 min sustained geyser_heat_pump_p
 **Automations (geyser_automations.yaml):**
 ```
 automation.geyser_turn_on  (5 branches)
-  Morning     : weekday non-winter 04:00 / winter 03:30
-                weekend non-winter 05:00 / winter 04:30
+  Morning     : Mon–Sat non-winter 04:30 / winter 04:00
+                Sunday  non-winter 05:30 / winter 05:00
                 NON-NEGOTIABLE — only blocked at loadshedding_critical
                 geyser_morning_override bypasses load_control_geyser_enabled
   Midday      : 12:00, 13:00, 14:00 — SOLAR-GATED (E4 upgrade from unconditional)
@@ -1123,6 +1129,13 @@ automation.geyser_turn_off  (7 branches + default, mode: queued)
   Emergency off    : sensor.energy_orchestrator_state → loadshedding_critical
                      ONLY fires outside morning window (morning window is sacred)
                      Notifies at severity: critical
+
+automation.geyser_heat_up_duration_capture  (added 2026-06-15)
+  Trigger: binary_sensor.geyser_at_temperature → on
+  Condition: switch.geyser_heat_pump_switch state = on
+  Action: calculate (now() - switch.last_changed)/60 - 5min debounce → int minutes
+          → input_number.geyser_last_heat_up_minutes + logbook (season/SOC/solar)
+  mode: single
 
 automation.geyser_sports_night_scheduler  (unchanged from E2)
   ON: Tue + Thu 17:00. OFF: 00:01 daily if on.

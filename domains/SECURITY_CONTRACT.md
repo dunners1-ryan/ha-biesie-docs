@@ -1797,7 +1797,9 @@ SPRINT 9h+ — dogs_inside departure notification tap (2026-06-14)
       Severity: CRITICAL (bypasses DND, full volume — must not be missed).
       Telegram: SUPPRESSED — dogs_inside_prompt notifications are phone-action-only.
       Action button: "🐕 Dogs Inside ON" (action: DOGS_INSIDE_ON) / "Dismiss" (IGNORE).
-      Suppressed when: dogs_inside already ON, guest_mode ON, or staff_on_site ON.
+      Suppressed when: dogs_inside already ON, guest_mode ON, entertaining_mode ON,
+      low_trust_present ON (maid/gardener/contractor), or other family members are still
+      home at departure time (home_count >= 2 at T=0).
       Fires immediately at Stage 1 so the person sees it while still in the car.
 
 [✅] notify_security_events.yaml updated with dogs_inside_prompt field:
