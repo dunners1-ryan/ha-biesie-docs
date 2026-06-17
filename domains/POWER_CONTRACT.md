@@ -1034,10 +1034,15 @@ input_datetime.unknown_draw_last_alert           cooldown stamp (30 min between 
 ```
 automation.airfryer_critical_cut
   Trigger: group.inverter_grid → off  OR  sensor.inverter_battery_soc below orchestrator_critical_soc_threshold
-  Condition: load_control_airfryer_enabled ON + switch ON + grid OFF + SOC < critical_threshold
+  Condition: load_control_airfryer_enabled ON + switch ON + grid OFF
+             + SOC < critical_threshold + SOC > 5%
   Action: turn off switch + notify warning "Grid offline + low battery — air fryer cut"
   Design rule: grid ON → air fryer always allowed regardless of orchestrator state.
-               grid OFF + SOC low → cut immediately (air fryer draws from battery only).
+               grid OFF + SOC genuinely low (6–20%) → cut immediately.
+               SOC ≤ 5% is treated as a startup/BMS-init glitch and is IGNORED — BMS
+               physically shuts down at 10% so any reading ≤5% is sensor noise during
+               inverter restart or battery swap. Guard added 2026-06-17 after confirmed
+               false cuts during battery swap (SOC showed 0% with inverters in bypass).
   No auto-restart: cooking appliance safety rule.
 
 automation.airfryer_restore_on_recovery
