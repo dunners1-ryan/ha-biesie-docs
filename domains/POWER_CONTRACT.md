@@ -364,7 +364,7 @@ number.inverter_battery_capacity  Ah  average of inverter_1 and inverter_2 batte
 ```
 sensor.inverter_battery_voltage  V   (inv1_voltage via primary; inv2_voltage fallback)
 sensor.inverter_battery_current  A
-sensor.inverter_battery_capacity Wh  (31776 * SOC/100, rough estimate)
+sensor.inverter_battery_capacity Wh  (48230 * SOC/100, rough estimate)
 sensor.inverter_1_pv_voltage     V   max of pv1/pv2 strings (BUG: elif uses wrong entity)
 sensor.inverter_2_pv_voltage     V   max of pv1/pv2 strings
 sensor.inverter_grid_l1_current  A   grid line current
@@ -575,7 +575,7 @@ sensor.prepaid_daily_burn_avg_3d         kWh/day  statistics sensor (3-day mean)
 ### Battery (battery_runtime.yaml, battery_state.yaml)
 
 ```
-sensor.ss_battery_capacity              Wh   program-aware target SOC × 31776
+sensor.ss_battery_capacity              Wh   program-aware target SOC × 48230
 sensor.ss_soc_battery_time_left         s    seconds of runtime at current load
 sensor.ss_soc_battery_time_left_friendly     human readable (Xh Ym)
 sensor.battery_minutes_remaining_safe   min  conservative estimate
@@ -1058,20 +1058,22 @@ automation.unknown_draw_warning
 
 **Honor tablet notifications**: no separate chime/TTS mechanism exists. Tablets (Honor 10 Dash, Honor X7 Dash) receive push notifications via `mobile_app_honor10_dash` / `mobile_app_honorx7_dash` which are members of all STD_* groups. `script.notify_power_event` at severity critical already reaches both tablets. Individual services available: `notify.honor_10_dash_mobile_app`, `notify.honor_x7_dash_mobile_app`.
 
-### Geyser Scheduling (power_helpers.yaml + geyser_automations.yaml — E2 2026-06-14, upgraded E4 2026-06-14)
+### Geyser Scheduling (power_helpers.yaml + geyser_automations.yaml — E2 2026-06-14; upgraded E4, timing/minimum-check 2026-06-17)
 
-Migrated E2 from automations.yaml IDs 1742224800650 + 1744130174080. E4 retrofit: orchestrator gate, midday solar gate, at-temperature proxy, window time helpers, morning hard-off, emergency off.
+Migrated E2 from automations.yaml. E4 retrofit: orchestrator gate, midday solar gate, at-temperature proxy, window time helpers, morning hard-off, emergency off. 2026-06-17: all hard-off times shifted earlier; adaptive evening start added; daily minimum check added; battery SOC thresholds recalibrated for 48 kWh bank.
 
 Switch entity: `switch.geyser_heat_pump_switch` (~1.25 kW draw).
 
 **Helpers (power_helpers.yaml):**
 ```
 # Control booleans
-input_boolean.geyser_sports_night          ← Tue/Thu auto-set 17:00; clears 00:01 daily
-                                               ON: evening delayed to 21:00, hard-off at 23:00/23:30
-input_boolean.geyser_morning_override      ← bypasses load_control_geyser_enabled for morning window
-input_boolean.geyser_manual_run_active     ← ON while manual run in progress
-input_select.geyser_manual_run_duration    ← "30" or "60" minutes for manual run
+input_boolean.geyser_sports_night              ← Tue/Thu auto-set 17:00; clears 00:01 daily
+                                                  sports_night only extends evening hard-off
+input_boolean.geyser_morning_override          ← bypasses load_control_geyser_enabled for morning
+input_boolean.geyser_manual_run_active         ← ON while manual run in progress
+input_boolean.geyser_reached_temp_today        ← set when geyser_at_temperature → on; reset midnight
+                                                  Used by geyser_daily_minimum_check (2026-06-17)
+input_select.geyser_manual_run_duration        ← "30" or "60" minutes for manual run
 
 # Window timing (added E4) — triggers are fixed at default values; see TRIGGER FLOOR NOTE
 input_number.geyser_morning_start_weekday  h  4.5  (Mon–Sat trigger 04:30 non-winter, 04:00 winter)
@@ -1083,78 +1085,95 @@ input_number.geyser_winter_start_offset    min 30  (subtracts from start, adds t
 # Midday solar gate (added E4)
 input_number.geyser_midday_surplus_threshold W 300  (geyser draws 1.25 kW; 300W = solar covers most)
 input_number.geyser_last_heat_up_minutes    min  0  elapsed minutes from switch-on to at-temperature
-                                                     per session (minus 5-min debounce). Written by
-                                                     geyser_heat_up_duration_capture automation.
-                                                     Build 1–2 weeks of data; add statistics sensor
-                                                     for rolling average. Feed into Option B start-time
-                                                     calc: start = target_ready_hour - avg_heat_up/60.
+
+# Daily minimum and adaptive evening (added 2026-06-17)
+input_number.geyser_adequate_daily_energy_by_midday  kWh 1.5  gate for 17:30 early start:
+                                                              if energy_at_midday_end < this → start
+                                                              early (poor midday, accept cooking overlap)
+input_number.geyser_min_daily_energy_kwh             kWh 2.0  trigger threshold for 20:00 backup check
+input_number.geyser_energy_at_morning_end            kWh      snapshot of energy_day at morning hard-off
+input_number.geyser_energy_at_midday_end             kWh      snapshot at 15:00 (midday hard-off)
 ```
 
-**Derived sensors (power_state.yaml — added E4):**
+**Derived sensors (power_state.yaml):**
 ```
-sensor.geyser_control_status         13-state priority display (see priority order in code)
-                                     Manual run / Morning override / Disabled / Critical forced off /
-                                     Running morning+midday+evening+sports / At temperature /
-                                     Midday blocked / Waiting morning+evening / Outside active windows
+sensor.geyser_control_status         13-state priority display
 binary_sensor.geyser_at_temperature  ON after 5 min sustained geyser_heat_pump_power < 50W while switch on
-                                     Power proxy — no temperature sensor available
+sensor.geyser_daily_status           reached_temp / heating / low_energy / no_run  (added 2026-06-17)
+                                     Attributes: energy_today_kwh, morning/midday/evening_kwh,
+                                     reached_temp_today, at_temperature_now, min_energy_kwh
+```
+
+**Full evening schedule (updated 2026-06-17):**
+```
+Evening turn-on — ADAPTIVE (replaces fixed 19:30/20:00):
+  17:30 (evening_early)   if NOT at_temperature AND energy_at_midday_end < adequate_threshold
+                          → start early, accept 17:30–18:30 cooking-peak overlap
+  18:30 (evening_late)    if NOT at_temperature AND switch off — all-seasons fallback
+                          → standard start when midday was adequate
+
+Evening hard-off:
+  Normal winter     : 21:00 (9pm)
+  Normal non-winter : 20:30 (8:30pm)
+  Sports winter     : 22:00 (10pm)   ← sports_night extends by 1h
+  Sports non-winter : 21:30 (9:30pm) ← sports_night extends by 1h
+```
+
+**Full schedule (all windows):**
+```
+Morning  Mon–Sat winter    : 04:00 on / 08:00 off
+         Mon–Sat non-winter: 04:30 on / 07:30 off
+         Sunday winter     : 05:00 on / 09:00 off
+         Sunday non-winter : 05:30 on / 09:00 off
+Midday   (solar-gated)     : 12:00/13:00/14:00 on → 15:00 off
+Evening  (adaptive)        : 17:30 or 18:30 on (see above) → hard-off varies by season/sports
 ```
 
 **Automations (geyser_automations.yaml):**
 ```
-automation.geyser_turn_on  (5 branches)
-  Morning     : Mon–Sat non-winter 04:30 / winter 04:00
-                Sunday  non-winter 05:30 / winter 05:00
-                NON-NEGOTIABLE — only blocked at loadshedding_critical
+automation.geyser_turn_on  (5 branches — morning ×3, midday, evening_early, evening_late)
+  Morning     : NON-NEGOTIABLE — only blocked at loadshedding_critical
                 geyser_morning_override bypasses load_control_geyser_enabled
-  Midday      : 12:00, 13:00, 14:00 — SOLAR-GATED (E4 upgrade from unconditional)
-                orchestrator in [surplus, normal]
-                solar_available_surplus > geyser_midday_surplus_threshold (300W default)
-                binary_sensor.geyser_at_temperature must be OFF (skip if already hot)
-                Before 15:00. load_control_geyser_enabled must be ON.
-  Evening std : 20:00 non-winter — non-negotiable (loadshedding_critical only block)
-                fires all evenings including sports nights
-  Evening win : 19:30 winter — 30 min earlier in winter
-                fires all evenings including sports nights
-  Sports night: no delayed 21:00 start — 21:00 branch removed 2026-06-16
-                sports_night only extends hard-off (22:30 winter / 22:00 non-winter)
+  Midday      : SOLAR-GATED — orchestrator [surplus, normal], solar > 300W, NOT at temp, before 15:00
+  Evening early (17:30): fires if NOT at_temperature AND energy_at_midday_end < adequate_threshold
+  Evening late (18:30) : fires if NOT at_temperature AND switch off (all-seasons fallback)
 
 automation.geyser_turn_off  (7 branches + default, mode: queued)
-  AM protection    : 05:30/06:30/07:30/08:30 — grid off + SOC < prog2_soc + shedding active
-                     (fires even in morning window — hard safety floor, not orchestrator gate)
-  Morning hard-off : weekday 07:30 non-winter / 08:00 winter
-                     weekend 08:30 non-winter / 09:00 winter
+  AM protection    : 05:30/06:30/07:30/08:30 — grid off + SOC < prog2_soc + shedding (safety floor)
+  Morning hard-off : weekday 07:30 non-winter / 08:00 winter; Sunday 09:00 both seasons
   Midday hard-off  : 15:00 unconditional
-  Evening winter   : 22:00 — winter + sports_night off
-  Evening standard : 21:30 — non-winter + sports_night off
-  Sports night win : 22:30 — winter + sports_night on (was 23:30)
-  Sports night std : 22:00 — non-winter + sports_night on (was 23:00)
-  Emergency off    : sensor.energy_orchestrator_state → loadshedding_critical
-                     ONLY fires outside morning window (morning window is sacred)
-                     Notifies at severity: critical
+  Evening winter   : 21:00 — winter + sports_night off
+  Evening standard : 20:30 — non-winter + sports_night off
+  Sports night win : 22:00 — winter + sports_night on
+  Sports night std : 21:30 — non-winter + sports_night on
+  Emergency off    : orchestrator → loadshedding_critical (outside morning window only)
 
-automation.geyser_heat_up_duration_capture  (added 2026-06-15)
-  Trigger: binary_sensor.geyser_at_temperature → on
-  Condition: switch.geyser_heat_pump_switch state = on
-  Action: calculate (now() - switch.last_changed)/60 - 5min debounce → int minutes
-          → input_number.geyser_last_heat_up_minutes + logbook (season/SOC/solar)
-  mode: single
+automation.geyser_reached_temp_tracker  (added 2026-06-17)
+  Trigger: geyser_at_temperature → on → set geyser_reached_temp_today ON
+  Trigger: 00:01 daily → reset geyser_reached_temp_today OFF
 
-automation.geyser_sports_night_scheduler  (unchanged from E2)
-  ON: Tue + Thu 17:00. OFF: 00:01 daily if on.
+automation.geyser_period_energy_snapshot  (added 2026-06-17)
+  Captures geyser_heat_pump_energy_day into:
+    geyser_energy_at_morning_end at morning hard-off (08:00 winter / 07:30 non-winter)
+    geyser_energy_at_midday_end at 15:00
+  Feeds per-period breakdown in sensor.geyser_daily_status
 
-automation.geyser_manual_run  (unchanged from E2)
-  Triggered by script.geyser_manual_run. Timed run (30 or 60 min). mode: single.
+automation.geyser_daily_minimum_check  (added 2026-06-17)
+  Trigger: 20:00 daily
+  If NOT reached_temp AND energy_day < min_daily_energy_kwh AND switch off → turn on + notify warning
+  If NOT reached_temp AND switch already on → notify info (still heating, runs to hard-off)
+  If reached_temp → logbook only (all good)
 
-script.geyser_manual_run  (unchanged from E2)
-  Dashboard entry point.
+automation.geyser_heat_up_duration_capture  (added 2026-06-15 — unchanged)
+automation.geyser_sports_night_scheduler    (ON: Tue + Thu 17:00. OFF: 00:01 daily)
+automation.geyser_manual_run               (timed 30/60 min run via script.geyser_manual_run)
 ```
 
 **Orchestrator gate policy:**
-- Morning + evening windows: blocked ONLY at `loadshedding_critical` (battery emergency floor). All other orchestrator states (loadshedding, critical, conserve) do NOT block — hot water is essential for household function.
-- Midday: blocked when orchestrator is NOT in `[surplus, normal]` — discretionary solar run, so conserve/critical/loadshedding all block it.
-- Emergency off: fires on any `loadshedding_critical` transition OUTSIDE morning window.
-- This is the second appliance to adopt the orchestrator gate pattern (after pool). Geyser + pool patterns are now consistent.
+- Morning + evening windows: blocked ONLY at `loadshedding_critical`.
+- Midday: blocked when orchestrator NOT in `[surplus, normal]`.
+- Emergency off: fires on `loadshedding_critical` OUTSIDE morning window.
+- 20:00 minimum check: NOT blocked by orchestrator (hot water essential) — only skips on `loadshedding_critical`.
 
 **Canonical entity — solar surplus:**
 `sensor.solar_available_surplus` (Watts, power_state.yaml) — used for midday solar gate.

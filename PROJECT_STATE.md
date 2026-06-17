@@ -319,6 +319,37 @@ Devices: switch.geyser_heat_pump_switch, switch.pool_pump_switch, switch.borehol
 # Renamed 2026-04-22: _switch_1 → _switch for both geyser and pool pump (HA entity registry + all YAML + dashboards)
 ✅ DONE 2026-04-29: load_control_borehole_enabled added to binary_sensor.water_refill_allowed state condition (water_templates.yaml:299)
 
+### Geyser Entities (power_helpers.yaml + power_state.yaml + geyser_automations.yaml)
+```
+# Control booleans
+input_boolean.geyser_sports_night              ← Tue/Thu auto-set 17:00; clears 00:01 daily
+input_boolean.geyser_morning_override          ← bypasses load_control_geyser_enabled for morning
+input_boolean.geyser_manual_run_active         ← ON while manual run in progress
+input_boolean.geyser_reached_temp_today        ← set on at_temperature → on; reset midnight (2026-06-17)
+
+# Window timing helpers
+input_number.geyser_morning_start_weekday      h  4.5  Mon–Sat
+input_number.geyser_morning_start_weekend      h  5.5  Sunday
+input_number.geyser_morning_end_weekday        h  7.5  Mon–Sat (triggers 07:30/08:00)
+input_number.geyser_morning_end_weekend        h  8.5  Sunday (trigger 09:00)
+input_number.geyser_winter_start_offset        min 30
+input_number.geyser_midday_surplus_threshold   W  300
+input_number.geyser_last_heat_up_minutes       min    elapsed time at-temperature per session
+
+# Daily minimum / adaptive evening (added 2026-06-17)
+input_number.geyser_adequate_daily_energy_by_midday  kWh 1.5  gate for 17:30 early start
+input_number.geyser_min_daily_energy_kwh             kWh 2.0  20:00 check minimum
+input_number.geyser_energy_at_morning_end            kWh      snapshot at morning hard-off
+input_number.geyser_energy_at_midday_end             kWh      snapshot at 15:00
+input_number.geyser_grid_offline_critical_soc  %  20   critical window SOC floor when grid offline
+
+# Sensors
+sensor.geyser_control_status         ← 13-state priority display (power_state.yaml)
+binary_sensor.geyser_at_temperature  ← ON when power < 50W sustained 5 min while switch on
+sensor.geyser_daily_status           ← reached_temp/heating/low_energy/no_run (added 2026-06-17)
+sensor.geyser_target_run_hours_today ← season-aware daily target (2.0h summer / 3.5h winter)
+```
+
 ### Energy Orchestrator (power_helpers.yaml + energy_state.yaml — added E1 2026-06-14)
 ```
 # State sensor — 6-state priority ladder
@@ -885,6 +916,8 @@ U3. [DEFERRED] Apple device battery pipeline — two options (decide at implemen
 ---
 
 *2026-06-16 session (security — dogs inside prompt suppression fix): `security_automations.yaml` dogs_inside_prompt `if` condition tightened. Three suppressions added/corrected: (1) `home_count <= 1` guard — `who_home_now` (AP snapshot captured at T=0 before departure) split and counted; prompt suppressed when 2+ family members home at trigger time (someone stays to supervise dogs). (2) `binary_sensor.staff_on_site` replaced with `binary_sensor.low_trust_present` — `staff_on_site` only covers maid + gardener; `low_trust_present` additionally covers `contractor_on_site`. (3) `input_boolean.entertaining_mode` added — suppresses prompt when guests are over for a party. Full suppression set is now: dogs_inside ON / guest_mode ON / entertaining_mode ON / low_trust_present ON / home_count ≥ 2. No new entities. SECURITY_CONTRACT.md dogs_inside_prompt suppression line updated.*
+
+*2026-06-17 session (geyser adaptive evening + SOC recalibration): [Continuation of battery-swap session] (1) All SOC thresholds recalibrated from 30 kWh → 48 kWh bank keeping same absolute kWh targets: orchestrator emergency 15→12%, critical 25→20%, conserve 50→30%, pre_shed 80→65%, load_first 65→45%, conserve_degraded 60→40%; energy_saving threshold 25→20%, recovery 40→30%; grid_offline pool 60→40%, borehole 50→30%, geyser 45→25%, geyser_critical 35→20%; last_sun summer 80→70%, winter 90→80%; pool_pre_shed 80→55%; water_battery_soc_sufficient 50→30%. Applied via one-shot pyscript (pyscript/apply_48kwh_thresholds.py — deleted after use). (2) Geyser hard-off times shifted: normal winter 22:00→21:00, non-winter 21:30→20:30, sports winter 22:30→22:00, sports non-winter 22:00→21:30. (3) Geyser daily minimum check system added: input_boolean.geyser_reached_temp_today (set/reset by geyser_reached_temp_tracker), input_number.geyser_min_daily_energy_kwh (2.0 kWh), input_number.geyser_energy_at_morning_end, input_number.geyser_energy_at_midday_end (captured by geyser_period_energy_snapshot), sensor.geyser_daily_status (power_state.yaml — 4-state + per-period kWh attributes), automation.geyser_daily_minimum_check (20:00 daily — starts geyser if energy < min AND not at temp). (4) Adaptive evening start replaces fixed 19:30/20:00: input_number.geyser_adequate_daily_energy_by_midday (1.5 kWh threshold); 17:30 trigger fires if NOT at_temp AND midday energy < threshold (poor-day early start, accepts cooking-peak overlap); 18:30 trigger fires if NOT at_temp AND switch off (all-seasons fallback). (5) statistics sensors solar_forecast_accuracy_7d and inverter_production_7d_stdev fixed — entity_ids were wrong (7_day not 7d, std_dev not stdev); power_statistics.yaml names corrected; user renamed entity_ids in Settings → Entities. (6) Inverter programme SOC updated manually: P1 40→30%, P3 100→50%, P4 100→90%, P4 Grid→Disabled (HA manages P4 dynamically). force_inverter_sync run to push to INV2. POWER_CONTRACT geyser section fully rewritten. MANUAL DONE: all 16 input_number live values applied.*
 
 *2026-06-17 session (battery swap — 2× Freedom Won Lite 15/13 → 3× Greenrich AF1600): Hardware replaced. New battery specs: 3× Greenrich AF1600, GFM052-314-N00-A, 51.2V nominal, 314Ah each, 16kWh nominal each, 16S1P cell config. Total bank: 3 × 314Ah × 51.2V = 48,230 Wh (48.2 kWh). YAML changes: (1) packages/power/battery_runtime.yaml — total_wh constant 31776 → 48230; header comment updated. (2) packages/power/energy_state.yaml — battery_energy_available sensor 31776 → 48230. (3) packages/power/power_helpers.yaml — battery_capacity_kwh initial 30 → 48; orchestrator_solar_gap_threshold initial 2 → 5 (P4 grid charge gap proportionally scaled). (4) packages/power/power_automations.yaml — P4 automation header comment updated. MANUAL ACTIONS REQUIRED: In HA UI or Developer Tools → Services, set input_number.battery_capacity_kwh to 48 and input_number.orchestrator_solar_gap_threshold to 5 (YAML initial only applies to new entities — stored values still reflect old settings). POWER_CONTRACT + PROJECT_STATE docs updated. Inverter screen settings: Lithium/CAN/BMS_Err_Stop; Batt capacity 900Ah (note: should be 942Ah = 3×314Ah); Charge 80A, Discharge 100A; Float/Absorption/Equalization all 55.0V (BMS controls via CAN — voltage params likely overridden); Shutdown 10% / Low Batt 15% / Restart 20%. System Mode: P1 01:00–05:00 40%; P2 05:00–09:00 40% Grid; P3 09:00–14:00 100%; P4 14:00–17:00 100% Grid (HA-managed dynamically); P5 17:00–21:00 40%; P6 21:00–01:00 40%. Consider reviewing P4 SOC target (currently 100% — may want 80–90% in winter). NOTE: ha core check + reloads required. NOTE: orchestrator SOC thresholds (emergency 15%, critical 25%, conserve 50%) may warrant recalibration for 48kWh bank — 50% conserve = 24kWh which is very conservative.*
 
