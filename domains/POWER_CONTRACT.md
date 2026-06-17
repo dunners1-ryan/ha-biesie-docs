@@ -100,7 +100,7 @@
 | Inverter 1 (Master) | Sunsynk — measures grid, losses, BMS |
 | Inverter 2 (Slave) | Sunsynk — measures PV, load, battery |
 | PV strings | 4× MPPT (2 per inverter), max ~10.8 kW |
-| Battery bank | ~31,776 Wh total (31.8 kWh) |
+| Battery bank | ~48,230 Wh total (48.2 kWh) — 3× Greenrich AF1600 (314Ah, 51.2V, 16S1P) |
 | Grid | Eskom prepaid meter — **Empire CIU EV-KP**, Johannesburg City Power Area 3-11 Weltevredenpark |
 | Solar forecast | Solcast integration |
 | Load shedding | SePush/load_shedding integration |
@@ -907,9 +907,9 @@ input_boolean.inverter_programme_auto_enabled   default: true — master gate
 input_boolean.use_legacy_solar_scenes           default: false — when ON, solar_forecast.yaml scene
                                                 system resumes (rollback path for E5 automations)
 input_number.orchestrator_p4_charge_trigger_soc %  70  — future use (pre-flight SOC gate for P4)
-input_number.orchestrator_solar_gap_threshold  kWh  2.0 — P4 only enables if solar falls this far
-                                                         short of target; update to 5.0 after 45 kWh swap
-input_number.battery_capacity_kwh              kWh 30.0 — current 30 kWh; update to 45 after Tuesday swap
+input_number.orchestrator_solar_gap_threshold  kWh  5.0 — P4 only enables if solar falls this far
+                                                         short of target (updated from 2.0 on 2026-06-17 for 48 kWh bank)
+input_number.battery_capacity_kwh              kWh 48.0 — 3× Greenrich AF1600 (48.23 kWh nominal — updated 2026-06-17)
 ```
 
 **Programme time slots (confirmed E5 pre-flight):**
@@ -1112,9 +1112,12 @@ automation.geyser_turn_on  (5 branches)
                 solar_available_surplus > geyser_midday_surplus_threshold (300W default)
                 binary_sensor.geyser_at_temperature must be OFF (skip if already hot)
                 Before 15:00. load_control_geyser_enabled must be ON.
-  Evening std : 20:00 non-winter, sports_night off — non-negotiable (loadshedding_critical only block)
-  Evening win : 19:30 winter, sports_night off — 30 min earlier in winter
-  Sports night: 21:00 any season, sports_night on
+  Evening std : 20:00 non-winter — non-negotiable (loadshedding_critical only block)
+                fires all evenings including sports nights
+  Evening win : 19:30 winter — 30 min earlier in winter
+                fires all evenings including sports nights
+  Sports night: no delayed 21:00 start — 21:00 branch removed 2026-06-16
+                sports_night only extends hard-off (22:30 winter / 22:00 non-winter)
 
 automation.geyser_turn_off  (7 branches + default, mode: queued)
   AM protection    : 05:30/06:30/07:30/08:30 — grid off + SOC < prog2_soc + shedding active
@@ -1124,8 +1127,8 @@ automation.geyser_turn_off  (7 branches + default, mode: queued)
   Midday hard-off  : 15:00 unconditional
   Evening winter   : 22:00 — winter + sports_night off
   Evening standard : 21:30 — non-winter + sports_night off
-  Sports night win : 23:30 — winter + sports_night on
-  Sports night std : 23:00 — non-winter + sports_night on
+  Sports night win : 22:30 — winter + sports_night on (was 23:30)
+  Sports night std : 22:00 — non-winter + sports_night on (was 23:00)
   Emergency off    : sensor.energy_orchestrator_state → loadshedding_critical
                      ONLY fires outside morning window (morning window is sacred)
                      Notifies at severity: critical
@@ -1684,7 +1687,7 @@ These decisions are intentional and must NOT be changed without explicit review:
 | `prepaid_units_left_safe` switches to manual when drift > 1% | Manual meter reading is authoritative; inverter cumulative drifts and resets |
 | `solar_max_power_safe` hardcoded at 8640 W (not 10.8 kW) | Safety margin; actual achievable peak is below nameplate capacity |
 | Energy flow sensors use `max(0, x)` clamps | Prevents negative flow values from contaminating integration sensors |
-| Battery capacity = 31,776 Wh (not 31,800) | Physical measurement; do not adjust to round number |
+| Battery capacity = 48,230 Wh (3 × 314Ah × 51.2V) | Calculated from label specs; used in battery_runtime.yaml + energy_state.yaml |
 | `inverter_battery_power` positive = discharge, negative = charge | Consistent with Solarman sign convention — do not invert |
 | `house_grid_power` positive = import, negative = export | Standard HA convention |
 | Load groups populated by pyscript, not static YAML | Labels-based dynamic grouping allows easy device reclassification |
