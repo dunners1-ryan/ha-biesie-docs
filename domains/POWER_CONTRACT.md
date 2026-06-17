@@ -633,8 +633,14 @@ sensor.energy_model_integrity               ok/warning/error (consistency check)
 
 # Grid risk (grid_risk.yaml)
 sensor.grid_risk_level        unknown/critical/warning/moderate/safe
-sensor.grid_risk_status       emoji + text status
-sensor.grid_dependency_eta    h  estimated time until critical grid dependency
+                              Classification logic (updated 2026-06-17):
+                              Grid ON  branch: <30min=warning, <120min=moderate, else=safe
+                                        Critical is suppressed when grid is available —
+                                        runtime to SOC floor is not a genuine emergency.
+                              Grid OFF branch: battery_runtime_severity==critical→critical,
+                                        <180min→warning, <360min→moderate, else safe.
+sensor.grid_risk_status       emoji + text status (🟢/🟡/🟠/🔴)
+sensor.grid_dependency_eta    clock ETA (HH:MM) when battery reaches target SOC floor
 sensor.grid_risk_severity     normal/critical/warning/information
 
 # Grid state (grid_state.yaml)
