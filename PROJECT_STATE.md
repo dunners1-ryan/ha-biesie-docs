@@ -3,6 +3,8 @@
 > Last full audit: 2026-04-13 (Claude Code deep audit — all domains verified against live files)
 > Update after every meaningful change. Commit: `./gitupdate.sh "docs: update PROJECT_STATE"`
 
+*2026-06-19: Stale P1/P2 bug audit — all previously-listed broken sensors verified ALREADY FIXED in code, docs were stale. battery_night_survival: both sensor.battery_energy_available (SOC×capacity formula) and sensor.average_night_consumption (platform:statistics, sampling_size removed) are implemented and reference real entities. grid_charging_while_solar: references inverter_pv_power + grid_to_battery_power — both exist. security_correlation: unique_id present at security_logic.yaml:414. average_night_consumption sampling_size:20 bug: already removed per in-code comment. prepaid_buy_decision automation: already checks ['buy_now','buy_soon'] not 'hold'. Entertainment mode M1: fully wired (button_on, scene_on/off, daily_clear at 06:00). M2 energy_saving_mode auto-trigger: IMPLEMENTED — automation.energy_saving_mode_auto_enable (SOC < threshold OR orchestrator critical/loadshedding) + automation.energy_saving_mode_auto_disable (both SOC > recovery AND orchestrator normal/surplus required before clearing). Added to power_automations.yaml.*
+
 *2026-06-18 (Power/Geyser/Water/Dashboard session):*
 *GEYSER BUG FIX — Evening early start never fired: `geyser_energy_at_midday_end` stores cumulative daily total (includes morning run); condition was comparing total (3+ kWh) against 1.5 kWh threshold → always false → 17:30 never fired. Fixed: condition now computes delta = `midday_end − morning_end` (midday-window energy only). Threshold lowered 1.5→1.25 kWh (~1h runtime). Season-aware timing added: winter triggers `evening_early_winter` at 17:00; non-winter keeps `evening_early` at 17:30. Helper renamed: `geyser_adequate_daily_energy_by_midday` → "Geyser Adequate Midday-Window Energy".*
 *FORCE CHARGE: script.force_charge_batteries — saves all P1–P6 charging/SOC settings, enables Grid on all programs, pauses inverter_programme_auto. automation.force_charge_monitor auto-restores at target SOC. script.force_charge_restore restores with 2s inter-write delays and correct order (sync INV1→INV2 before re-enabling programme auto). script.force_charge_cancel dashboard button. New helpers: input_boolean.force_charge_active, input_number.force_charge_target_soc, input_text.force_charge_saved_charging.*
@@ -132,7 +134,7 @@ binary_sensor.camXX_location_motion_valid     debounced output
 ```
 sensor.security_trigger_camera
 sensor.security_event_classification
-sensor.security_correlation            ← BUG: missing unique_id
+sensor.security_correlation            ← unique_id: security_correlation (BUG was stale — verified present 2026-06-19)
 sensor.security_threat_level
 sensor.security_threat_score
 sensor.security_movement_confidence
@@ -847,13 +849,14 @@ B2. Implement alerts_security.yaml — done 2026-04-14 (already complete)
         b. kids_bedtime_week + kids_bedtime_weekend: entertaining_mode guard added — if ON, skip
            pool_light_switch in scene; turn off other 4 lights individually instead.
 
-✅ M2. Energy saving mode — power side helpers (power package) [2026-04-29]
-        a. input_boolean.energy_saving_mode added to power_helpers.yaml (icon: mdi:lightning-bolt-outline, initial: false)
-        b. input_number.energy_saving_soc_threshold (default 25%) added to power_helpers.yaml
-        c. input_number.energy_saving_soc_recovery (default 40%) added to power_helpers.yaml
-        OPEN: power_automations.yaml SOC trigger + orchestrator trigger not yet wired (future M2 work)
-        Manual override buttons (energy_saving_mode_on/off) now wired via lighting_energy_saving.yaml.
-        Morning wake routine clears energy_saving_mode (lighting_morning.yaml morning_wake_lights_on).
+✅ M2. Energy saving mode — power side helpers + auto-trigger (power package) [2026-04-29; auto-trigger 2026-06-19]
+        a. input_boolean.energy_saving_mode added to power_helpers.yaml
+        b. input_number.energy_saving_soc_threshold (default 25%) + energy_saving_soc_recovery (default 40%)
+        c. automation.energy_saving_mode_auto_enable (power_automations.yaml):
+           triggers on SOC < threshold OR orchestrator in [critical, loadshedding, loadshedding_critical]
+        d. automation.energy_saving_mode_auto_disable:
+           clears when BOTH SOC > recovery AND orchestrator in [normal, surplus]
+        Manual buttons still work as override at any time.
 
 ✅ M3. Energy saving mode — lighting side (lighting package) [2026-04-29]
         a. lighting_energy_saving.yaml populated:

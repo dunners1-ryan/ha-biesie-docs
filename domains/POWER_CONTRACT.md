@@ -322,7 +322,7 @@ Daily reconciliation is required because:
 | OPERATIONAL | `grid_energy_import_total`, `inverter_battery_soc`, `house_solar_power` | High | High frequency, reset risk |
 | DERIVED/RELIABLE | `prepaid_units_used_authoritative`, `prepaid_drift_percentage`, `energy_independence` | High | Clean formulas, verified |
 | ESTIMATED | `prepaid_estimated_days_remaining`, `prepaid_adaptive_burn_rate`, `battery_runtime` | Medium | Depends on rolling averages + thresholds |
-| BROKEN | `battery_night_survival` | None | References non-existent entities |
+| OPERATIONAL | `battery_night_survival` | Medium | Verified working 2026-06-19 — battery_energy_available + average_night_consumption both implemented |
 | FIXED 2026-04-21 | `grid_charging_while_solar`, `grid_to_house_power`, `grid_used_by_house_today` | High | grid_to_house now subtracts battery charge; daily today sensors use inverter-native totals |
 
 ---
@@ -613,7 +613,9 @@ sensor.power_strategy_severity critical/warning/opportunity/normal
 #   normal                 default
 # Gated by: input_boolean.orchestrator_enabled — when OFF, always returns 'normal'
 # Consumers: binary_sensor.water_refill_allowed (blocks on critical/loadshedding/loadshedding_critical)
-#            lighting_energy_saving.yaml (future — via input_boolean.energy_saving_mode)
+#            lighting_energy_saving.yaml ✅ 2026-06-19 — auto_enable/disable automations wired
+#            automation.energy_saving_mode_auto_enable: SOC < threshold OR orchestrator critical/loadshedding
+#            automation.energy_saving_mode_auto_disable: clears when BOTH SOC > recovery AND orch normal/surplus
 #            pool_pump_solar_control ✅ E3 2026-06-14 — orchestrator is now primary gate
 sensor.energy_orchestrator_state        loadshedding_critical/loadshedding/critical/conserve/surplus/normal
 sensor.orchestrator_decision_reason     human-readable string explaining why current state was chosen
@@ -625,10 +627,12 @@ sensor.energy_loss_percent_today        %
 sensor.energy_loss_root_cause               text diagnosis
 sensor.power_loss_root_cause_live           live version
 sensor.energy_loss_state                    ok/minor_loss/significant_loss/major_loss
-sensor.battery_night_survival               BROKEN (references missing entities)
+sensor.battery_night_survival               % battery_energy_available / (average_night_consumption × 10h) × 100
+                                              VERIFIED WORKING 2026-06-19 (was stale BROKEN label)
 sensor.solar_sufficiency_tomorrow           based on solcast forecast
-binary_sensor.grid_charging_while_solar     BROKEN (references missing entities)
-sensor.grid_charging_while_solar            BROKEN (references missing entities)
+binary_sensor.grid_charging_while_solar     not a binary_sensor — see sensor below
+sensor.grid_charging_while_solar            True when pv_power > 1000W AND grid_to_battery_power > 200W
+                                              VERIFIED WORKING 2026-06-19 (was stale BROKEN label)
 sensor.energy_model_integrity               ok/warning/error (consistency check)
 
 # Grid risk (grid_risk.yaml)
@@ -1443,13 +1447,10 @@ Issues ordered by risk/impact. **P1 = breaks functionality. P2 = incorrect data.
 
 ---
 
-### Issue 1 — BROKEN: `battery_night_survival` References Non-Existent Entities
-**Priority:** P1 — Sensor always unavailable  
-**File:** `packages/power/energy_state.yaml:171`  
-**Root cause:** References `sensor.battery_energy_available` and `sensor.average_night_consumption` — neither exists in any package file. These were never implemented or were removed.  
-**Watchman:** Both confirmed missing.  
-**Fix:** Either implement the underlying sensors (battery energy available = SOC% × 31776 Wh; average night consumption = statistics sensor over night hours) or remove this sensor and dashboard references.  
-**Risk if left:** Always shows unavailable; dashboard cards that depend on it will fail.
+### Issue 1 — ✅ RESOLVED 2026-06-19: `battery_night_survival` stale BROKEN label
+**Priority:** P1 — was believed unavailable  
+**File:** `packages/power/energy_state.yaml`  
+**Resolution:** Both dependency sensors ARE implemented in energy_state.yaml: `sensor.battery_energy_available` (SOC% − shutdown%) × 48,230 Wh and `sensor.average_night_consumption` (platform:statistics mean 24h on inverter_load_power, sampling_size removed). Bug label was stale — sensors implemented in Session A 2026-04-21 and sampling_size bug fixed subsequently. Sensor is operational.
 
 ---
 
