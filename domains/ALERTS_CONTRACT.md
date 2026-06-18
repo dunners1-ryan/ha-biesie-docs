@@ -16,9 +16,7 @@
 
 The alert system is a multi-layer pipeline that aggregates domain-level
 conditions into a unified global severity sensor. The design is sound and
-largely correct. Remaining open issue:
-
-1. **Temperature domain bypasses central notification script** — direct `notify.STD_*` calls with no Telegram delivery and no quiet-hours enforcement (BUG-A03)
+fully correct. All domains route through the central notification script.
 
 ---
 
@@ -206,10 +204,10 @@ from `sensor.door_alert_context`.
 | Context sensors | 4 (trigger-based) | ✅ with devices list |
 | Alert entities | 4 (`alert.wan_temp`, etc.) | ✅ |
 | In aggregator trigger | All 4 in trigger list | ✅ |
-| Notification | **Direct `notify.STD_*` calls** | ⚠️ Violation |
+| Notification | Via `script.notify_system_event` | ✅ Fixed BUG-A03 2026-06-19 |
 
-**PARTIAL PASS — notification violation.** Pipeline is correct but 4 routing
-automations bypass the central script (see BUG-A03).
+**PASS.** All 4 routing automations (`Route WAN Temp Alert`, `Route LAN Temp Alert`,
+`Route Device Temp Alert`, `Route Storage Temp Alert`) now call `script.notify_system_event`.
 
 ### Device Power Domain — `alerts_device_power.yaml`
 
@@ -495,7 +493,7 @@ automation, not an alert entity. No pipeline entry.
 | Doors | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | — |
 | Network | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A05 |
 | Power | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A07 |
-| Temperature | ✅ (x4) | ✅ (x4) | ✅ (x4) | ✅ (triggered) | PARTIAL (notify bypass) | — |
+| Temperature | ✅ (x4) | ✅ (x4) | ✅ (x4) | ✅ (triggered) | PASS | 2026-06-19 BUG-A03 |
 | Device Power | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A04 |
 | Media | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A05 |
 | System Health | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | — |
@@ -513,7 +511,7 @@ automation, not an alert entity. No pipeline entry.
 |---|---|---|---|---|
 | BUG-A01 | **Critical** | ✅ Fixed 2026-04-14 | `alerts_water.yaml` empty — water never in global alert context | alerts_water.yaml |
 | BUG-A02 | **High** | ✅ Fixed 2026-04-14 | `alerts_security.yaml` empty — security never in global alert context | alerts_security.yaml |
-| BUG-A03 | **High** | ⏳ Open | Temperature routing calls `notify.STD_*` directly (no Telegram, no quiet hours) | alerts_temperature.yaml |
+| BUG-A03 | **High** | ✅ Fixed 2026-06-19 | Temperature routing calls `notify.STD_*` directly (no Telegram, no quiet hours) | alerts_temperature.yaml |
 | BUG-A04 | **High** | ✅ Fixed 2026-04-14 | Device power: direct notify call + alert entity = duplicate delivery | alerts_device_power.yaml |
 | BUG-A05 | **Medium** | ✅ Fixed 2026-04-14 | `alert.network_alert` and `alert.media_alert` missing from aggregator trigger list (and others added over time) | alerts_summary.yaml |
 | BUG-A06 | **Medium** | ✅ Fixed 2026-04-16 | Two door severity engines unified — `sensor.doors_open_alert_severity` deleted | alerts_doors.yaml |
@@ -521,13 +519,15 @@ automation, not an alert entity. No pipeline entry.
 | BUG-A08 | **Low** | ✅ Fixed 2026-04-16 | `alerts_presence.yaml` implemented — unknown AP + occupancy anomaly pipeline | alerts_presence.yaml |
 | BUG-A09 | **High** | ✅ Fixed 2026-04-22 | `sensor.critical_sensor_health_alert_context` devices attribute rendered as string — inline `# comment` after Jinja2 expression in YAML `>` block scalar; `#` is not stripped by Jinja2, appended to list output, broke `ast.literal_eval`, aggregator `devs is not string` failed silently → alert never surfaced in global summary | alerts_system_health.yaml |
 
-**Open: 1 issue (BUG-A03)**  
+**Open: 0 issues**  
+**Fixed 2026-06-19: BUG-A03**  
 **Fixed 2026-04-22: BUG-A09**  
 **Fixed 2026-04-16: BUG-A06, A08**
 
 ---
 
 *Contract generated: 2026-04-13*
+*Last updated: 2026-06-19 — BUG-A03 closed (temperature alerts now use script.notify_system_event; verified in code)*  
 *Last updated: 2026-05-27 — alerts_batteries.yaml added; dash battery + screen brightness domain documented; aggregator trigger list updated*  
 *Last updated: 2026-04-29 — alerts_garden.yaml added; garden domain pipeline audit added; aggregator trigger list corrected to full current state*  
 *Based on: 13 alerts package files + cross-domain dependency trace*

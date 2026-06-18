@@ -629,22 +629,13 @@ sensor:
 
 ---
 
-### Issue 7 — BUG: `binary_sensor.water_refill_allowed` is simplified vs spec
+### Issue 7 — ✅ FIXED 2026-06-19: `binary_sensor.water_refill_allowed` now includes master switch check
 **Priority:** P2 — Missing checks allow refill in conditions the spec prohibits  
-**File:** `packages/water/water_templates.yaml:296`  
-**Root cause:** The actual gate checks: `grid = on AND battery_soc >= min_soc`. It does NOT check:
-- `input_boolean.water_tank_refill_enabled` (checked separately in control, not in the gate)
-- Current safety abort state
-- Solar window (separate binary_sensor)
-**Effect:** `binary_sensor.water_refill_allowed` = true even when `water_tank_refill_enabled = off`. The enabled check is in the control automation's outer condition, but any external code that checks `water_refill_allowed` directly (dashboard, future automations) will get an incorrect answer.  
-**Fix:** Update `water_refill_allowed` to include `water_tank_refill_enabled`:
-```yaml
-{{
-  is_state('input_boolean.water_tank_refill_enabled', 'on')
-  and is_state('group.inverter_grid','on')
-  and soc >= min_soc
-}}
-```
+**File:** `packages/water/water_templates.yaml`  
+**Resolution:** `is_state('input_boolean.water_tank_refill_enabled', 'on')` added as the first
+condition in `binary_sensor.water_refill_allowed`. The gate now correctly returns false when the
+master switch is off, matching what any external consumer (dashboard, future automations) would expect.
+Solar window and safety abort state remain as separate binary_sensors by design.
 
 ---
 
@@ -795,7 +786,7 @@ The lifecycle contract implies Idle → Running → Completed/Aborted. Currently
 
 ### Sprint 4 — Design Clean-up (Issues 7 + 10 + 11)
 
-- [ ] Update `binary_sensor.water_refill_allowed` to include `water_tank_refill_enabled` check
+- [✅] Update `binary_sensor.water_refill_allowed` to include `water_tank_refill_enabled` check — fixed 2026-06-19
 - [ ] Remove direct Telegram calls from `water_tank_refill_control.yaml` (use central script only)
 - [ ] Decide: wire `water_policy_helpers.yaml` into templates OR delete file
 

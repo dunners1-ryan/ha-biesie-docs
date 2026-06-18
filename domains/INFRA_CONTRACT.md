@@ -84,14 +84,12 @@ script.run_github_backup              — executes gitupdate.sh with reason para
 
 ### Known Issues
 
-**BUG-BKP01 [MEDIUM] — Direct Telegram call bypasses notification pipeline**
-`backup/github.yaml` calls `notify.send_message` on `notify.telegram_bot_5527` directly
-instead of routing through `script.notify_system_event`. This bypasses quiet hours and
-the centralised notification system.
-**Fix:** Replace both notify calls with `script.notify_system_event` — use severity `info`
-for success and `warning` for failure. Note: backup runs at 05:00 which IS quiet hours,
-so the current direct-Telegram approach means backup failures ARE delivered even if
-quiet hours are active. Decide if that is intentional before changing.
+~~**BUG-BKP01 [MEDIUM] — Direct Telegram call bypasses notification pipeline**~~
+**✅ Fixed 2026-06-19.** `backup/github.yaml` now calls `script.notify_system_event` for
+both success (severity: info) and failure (severity: warning) branches. The direct
+`notify.send_message` calls were replaced. Backup still runs at 05:00 (quiet hours) —
+`notify_system_event` will respect quiet hours for the success notification but failure
+is severity `warning` which bypasses quiet hours, preserving the original intent.
 
 ---
 
@@ -115,35 +113,9 @@ Cartridge attributes on `sensor.printer_cartridge_state`:
 
 ### Known Bugs
 
-**BUG-INF01 [HIGH] — `binary_sensor.printer_cartridge_low` has dangling `}}`**
-
-```yaml
-state: >
-  {{ expand('group.printer_cartridges_sensors')
-    | map(attribute='state')
-    | map('float', 100)
-    | select('<', 25)
-    | list | count > 0 }}
-  }}        # ← extra }} on separate line
-```
-
-The YAML folded scalar joins the lines with a space, producing:
-`{{ ... | count > 0 }} }}`
-
-In Jinja2, the first `}}` closes the expression; the remaining ` }}` is literal
-text appended to the result. The binary sensor state becomes e.g. `True }}` which
-HA cannot interpret as on/off → sensor is always unavailable or incorrect.
-
-**Fix:** Remove the trailing `}}` line.
-
-```yaml
-state: >
-  {{ expand('group.printer_cartridges_sensors')
-    | map(attribute='state')
-    | map('float', 100)
-    | select('<', 25)
-    | list | count > 0 }}
-```
+~~**BUG-INF01 [HIGH] — `binary_sensor.printer_cartridge_low` has dangling `}}`**~~
+**✅ Fixed 2026-06-19.** Trailing `}}` line removed. `binary_sensor.printer_cartridge_low` now
+evaluates correctly — state is a clean boolean expression with no appended literal text.
 
 ---
 
@@ -321,6 +293,7 @@ Dashboard exposure recommended for operators.
 
 ---
 
+*Last updated: 2026-06-19 — BUG-BKP01 closed (github.yaml uses notify_system_event); BUG-INF01 closed (printer_cartridge_low trailing }} removed); verified in code*
 *Last updated: 2026-04-16*
 *Sources: packages/core/, packages/backup/, packages/office/, packages/weather/,*
 *packages/sensors/, packages/integrations/, custom_components/*

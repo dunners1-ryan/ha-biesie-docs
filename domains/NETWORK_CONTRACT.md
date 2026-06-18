@@ -158,36 +158,20 @@ alert being active. Same gap in the `devices` attribute list.
 **Fix applied:** `selectattr('state','in',['off','unavailable'])` in both the severity sensor
 and the context devices list. Unavailable devices now show as "Unavailable" in the summary.
 
-### BUG-NET01 [MEDIUM] — `sensor.unifi_cpu_5m_max` availability self-reference
-**File:** `packages/network/network_helpers.yaml`
-**Problem:** The availability template reads `has_value('sensor.unifi_cpu')` but
-the entity is `sensor.unifi_gateway_cpu_utilization`. There is no `sensor.unifi_cpu` —
-this availability check always returns false, rendering the sensor unavailable.
-**Fix:** Change availability to `{{ has_value('sensor.unifi_gateway_cpu_utilization') }}`
-or remove the availability block entirely (state already reads the correct entity).
+### ~~BUG-NET01~~ [MEDIUM] — ✅ Fixed 2026-06-19
+`sensor.unifi_cpu_5m_max` availability now reads `has_value('sensor.unifi_gateway_cpu_utilization')`.
+The self-referencing `has_value('sensor.unifi_cpu')` has been corrected.
 
-### BUG-NET02 [MEDIUM] — `sensor.unifi_memory_5m_max` circular availability
-**File:** `packages/network/network_helpers.yaml`
-**Problem:** The availability template reads `has_value('sensor.unifi_memory_5m_max')`
-(itself!) — circular reference, always unavailable until manually cleared.
-**Fix:** Change to `{{ has_value('sensor.unifi_gateway_memory_utilization') }}` or
-remove the availability block.
+### ~~BUG-NET02~~ [MEDIUM] — ✅ Fixed 2026-06-19
+`sensor.unifi_memory_5m_max` availability now reads `has_value('sensor.unifi_gateway_memory_utilization')`.
+The circular `has_value('sensor.unifi_memory_5m_max')` has been corrected.
 
-### BUG-NET03 [HIGH] — WAN packet loss formula is mathematically wrong
-**File:** `packages/network/network_helpers.yaml`
-**Problem:** Packet loss is computed as `(count - sum) / count` where `count` =
-number of state changes in 5 min and `sum` = sum of latency ms values. This produces
-a nonsensical result (e.g. 5 pings × 20ms latency → sum=100, count=5, loss=−19).
-The formula was likely copied from a binary pass/fail sensor pattern but applied to
-a continuous latency sensor.
-**Real impact:** `sensor.wan_health_score` and `sensor.wan_noc_status` work
-despite this because the latency score alone is a reasonable quality proxy.
-Packet loss component contributes noise rather than signal.
-**Fix options:**
-  1. Remove packet loss component from health score (simplest)
-  2. Replace with dedicated binary ping sensors and use count/available approach
-  3. Use `state_characteristic: count` vs `state_characteristic: count` on a
-     binary availability sensor (requires separate binary ping entities)
+### ~~BUG-NET03~~ [HIGH] — ✅ Fixed 2026-06-19
+WAN packet loss formula rewritten using ping pass/fail binary count approach.
+`wan_*_packet_loss` sensors now use `state_characteristic: count` (successful pings) and
+`state_characteristic: sum` (total pings) on binary ping sensors, producing a valid
+`(total - successful) / total` loss percentage. `wan_health_score` packet loss
+component now contributes real signal.
 
 ---
 
@@ -336,13 +320,14 @@ DSM → Control Panel → Hardware & Power → General:
 | ID | Priority | Description |
 |----|----------|-------------|
 | ~~BUG-NET04~~ | ~~High~~ | ~~Alert fires but summary empty when APs unavailable~~ — **FIXED 2026-04-21** |
-| BUG-NET01 | Medium | Fix `sensor.unifi_cpu_5m_max` availability |
-| BUG-NET02 | Medium | Fix `sensor.unifi_memory_5m_max` self-referencing availability |
-| BUG-NET03 | High | Fix WAN packet loss formula (currently meaningless) |
+| ~~BUG-NET01~~ | ~~Medium~~ | ~~Fix `sensor.unifi_cpu_5m_max` availability~~ — **FIXED 2026-06-19** |
+| ~~BUG-NET02~~ | ~~Medium~~ | ~~Fix `sensor.unifi_memory_5m_max` self-referencing availability~~ — **FIXED 2026-06-19** |
+| ~~BUG-NET03~~ | ~~High~~ | ~~Fix WAN packet loss formula (currently meaningless)~~ — **FIXED 2026-06-19** |
 | IMP-NET01 | Low | Add `sensor.network_alert_context` to `sensor.alert_device_entities` aggregator (verify wired — B3 done 2026-04-14) |
 | IMP-NET02 | Low | Add ISP name/plan to a descriptive input_text for context on dashboard |
 
 ---
 
+*Last updated: 2026-06-19 — BUG-NET01/02/03 closed (CPU/memory availability and packet loss formula all corrected; verified in code)*
 *Last updated: 2026-05-28 — network_nas.yaml added; NAS graceful shutdown + WoL restore pipeline documented (Section 10)*
 *Source: packages/network/network_helpers.yaml, packages/alerts/alerts_network.yaml, packages/network/network_ups.yaml, packages/network/network_nas.yaml*

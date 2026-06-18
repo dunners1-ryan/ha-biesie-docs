@@ -1054,21 +1054,20 @@ Also added mutual 120s suppression condition to Stage 1: the second sensor of a 
 ---
 
 ### BUG-S29 — ipcam03 regionentrance and regionexiting zones overlap (direction confusion)
-**Priority: HIGH | Status: ✅ HA workaround applied 2026-05-20 (S9) | Camera fix: OPEN**
+**Priority: HIGH | Status: ✅ Resolved 2026-05-20 — HA workaround (S9) + camera zones repositioned in iVMS**
 
 **Symptom:** Vehicle departing triggers "Arrival — vehicle entering" notification. Vehicle arriving triggers both arrival and departure Stage 1 simultaneously, or just the wrong one. Both `ipcam03_driveway_entrance_valid` and `ipcam03_driveway_exit_valid` fire for any vehicle movement in the driveway regardless of actual direction.
 
-**Root cause:** Camera zone configuration — the Region Entrance and Region Exiting detection zones on ipcam03 are positioned in overlapping areas (both mid-driveway near gate). Any vehicle traversing the driveway crosses both zones. Confirmed from iVMS camera web UI (10.10.1.12) 2026-05-20.
+**Root cause:** Camera zone configuration — the Region Entrance and Region Exiting detection zones on ipcam03 were positioned in overlapping areas (both mid-driveway near gate). Any vehicle traversing the driveway crossed both zones. Confirmed from iVMS camera web UI (10.10.1.12) 2026-05-20.
 
 **HA workaround (applied S9):** Merged Stage 1 automation (`security_gate_vehicle_stage1`) replaces separate arrival/departure Stage 1s. Waits 90s after ipcam03 trigger, then reads `family_arriving`/`family_departing` (AP snapshot-delta) to determine direction. Only the correct branch fires. `mode: single` prevents dual-fire when both sensors trigger together.
 
-**Camera fix (pending — access required to iVMS):**
-- Region Entrance: reposition to gate-mouth only (narrow strip at top of frame, right where gate opens)
-- Region Exiting: reposition to mid-driveway (lower 40% of frame, between garage and gate)
-- Zero overlap between the two zones — see camera table in Section 1 for geometry diagram
-- Line Crossing: change Direction from A↔B to A→B (one direction only)
-- Intrusion (Field): add Vehicle to detection targets (currently Human only on ipcam03)
-- On ipcam01: Region Exiting — consider disabling (unused in HA); Line Crossing A↔B → A→B
+**Camera fix (applied 2026-05-20 — see Section 1 "Updated ipcam03 config"):**
+- Region Entrance: repositioned to gate-mouth area (upper-right of frame, small zone) — no longer overlapping
+- Region Exiting: repositioned to lower driveway near garage end (larger zone) — separate from entrance zone
+- Line Crossing: kept A↔B, positioned between the two zones
+- Intrusion (Field): threshold reduced 2s→1s; Vehicle NOT added — entrance/exit cover vehicles
+- ipcam01: Region Exiting disabled; Line Crossing changed A↔B → A→B
 
 ---
 
