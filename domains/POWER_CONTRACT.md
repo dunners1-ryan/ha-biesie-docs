@@ -649,9 +649,15 @@ sensor.grid_state_health      stable/risk/unstable/offline
 # Battery state (battery_state.yaml)
 sensor.battery_state_health   strong/healthy/low/critical
 
-# Rolling averages & weather correlation (power_statistics.yaml — added 2026-04-22; upgraded P6 2026-06-14)
-sensor.inverter_production_7d_mean    kWh  7-day rolling mean of daily PV production (max_age 8d)
-sensor.inverter_production_30d_mean   kWh  30-day rolling mean of daily PV production (max_age 32d)
+# Rolling averages & weather correlation (power_statistics.yaml — added 2026-04-22; upgraded P6 2026-06-14; fixed 2026-06-18)
+# NOTE (2026-06-18): 7d/30d_mean rewritten as template sensors. Old implementation used platform:statistics
+# on inverter_today_production with sampling_size:7 = mean of last 3.5 minutes of readings (wrong).
+# New implementation: change statistic on inverter_total_production (lifetime, no resets) ÷ days.
+# Both _mean sensors now INCLUDED in recorder. Intermediate _total sensors EXCLUDED.
+sensor.inverter_production_7d_total   kWh  intermediate: change/7d on inverter_total_production (EXCLUDED recorder)
+sensor.inverter_production_30d_total  kWh  intermediate: change/30d on inverter_total_production (EXCLUDED recorder)
+sensor.inverter_production_7d_mean    kWh  7-day rolling mean of daily PV production (template: 7d_total/7)
+sensor.inverter_production_30d_mean   kWh  30-day rolling mean of daily PV production (template: 30d_total/30)
 sensor.inverter_production_7d_stdev   kWh  7-day std dev of daily production (CV signal for solar_weather_correlation)
 sensor.house_load_24h_mean            W    24h rolling mean load power (used by P4 grid charge heuristic)
 sensor.house_load_7d_mean             kWh  7-day mean of daily load consumption (seasonal comparison)
@@ -882,6 +888,41 @@ Pool winter scheduling:
 input_number.pool_winter_start_hour                   h  10   — earliest hour to run pool pump in winter
 ```
 
+### Force Charge (power_helpers.yaml + power_automations.yaml — added 2026-06-18)
+
+Temporarily enables Grid charging on all P1–P6 programs to force battery to a target SOC without
+manually changing inverter programme settings. Saves and fully restores previous settings on completion.
+
+```
+input_boolean.force_charge_active        ON while a force charge run is in progress; gates restore automation
+input_number.force_charge_target_soc     target SOC % (50–100, step 5, default 100)
+input_text.force_charge_saved_charging   JSON: saved P1–P6 charging options + SOC numbers from INV1
+
+script.force_charge_batteries            Entry point. Fields: target_soc (optional, default reads input_number).
+                                           1. Saves P1–P6 charging+SOC as JSON to force_charge_saved_charging
+                                           2. Pauses inverter_programme_auto_enabled
+                                           3. Sets Battery First on INV1+INV2
+                                           4. Sets Grid on P1–P6 INV1; SOC targets = target_soc
+                                           5. Calls force_inverter_sync (INV1→INV2)
+                                           6. Notifies warning
+
+script.force_charge_restore              Internal restore (called by monitor + cancel).
+                                           Restores P1–P6 options + SOC numbers on INV1 with 2s inter-write
+                                           delays (Sunsynk drops rapid register writes). Syncs INV2 before
+                                           re-enabling programme_auto (prevents race with pattern automation).
+
+script.force_charge_cancel               Dashboard cancel → calls force_charge_restore immediately.
+
+automation.force_charge_monitor          Template trigger: SOC ≥ force_charge_target_soc AND force_charge_active=on
+                                           → calls force_charge_restore automatically.
+```
+
+Design notes:
+- `inverter_programme_auto_enabled` is paused during force charge so the pattern automation doesn't fight the override.
+- Restore order: restore INV1 → sync INV2 → wait 10s → re-enable programme auto (prevents pattern automation racing the sync).
+- All restore actions have `continue_on_error: true` — partial restore preferred over full stop.
+- JSON in force_charge_saved_charging includes both charging select states AND SOC number values.
+
 ### Inverter Sync (power_helpers.yaml + power_automations.yaml — E1 2026-06-14; expanded E5 2026-06-14)
 
 All programme entities confirmed in scenes.yaml E5 pre-flight. Now fully implemented.
@@ -1097,10 +1138,14 @@ input_number.geyser_winter_start_offset    min 30  (subtracts from start, adds t
 input_number.geyser_midday_surplus_threshold W 300  (geyser draws 1.25 kW; 300W = solar covers most)
 input_number.geyser_last_heat_up_minutes    min  0  elapsed minutes from switch-on to at-temperature
 
-# Daily minimum and adaptive evening (added 2026-06-17)
-input_number.geyser_adequate_daily_energy_by_midday  kWh 1.5  gate for 17:30 early start:
-                                                              if energy_at_midday_end < this → start
-                                                              early (poor midday, accept cooking overlap)
+# Daily minimum and adaptive evening (added 2026-06-17; fixed 2026-06-18)
+input_number.geyser_adequate_daily_energy_by_midday  kWh 1.25  gate for evening early start.
+                                                               IMPORTANT: condition compares DELTA
+                                                               (midday_end − morning_end), not raw midday_end.
+                                                               Raw midday_end includes morning run energy →
+                                                               condition was always false on normal days.
+                                                               Fixed 2026-06-18. Threshold lowered 1.5→1.25 kWh
+                                                               (~1h geyser runtime at 1.25 kW).
 input_number.geyser_min_daily_energy_kwh             kWh 2.0  trigger threshold for 20:00 backup check
 input_number.geyser_energy_at_morning_end            kWh      snapshot of energy_day at morning hard-off
 input_number.geyser_energy_at_midday_end             kWh      snapshot at 15:00 (midday hard-off)
@@ -1115,13 +1160,19 @@ sensor.geyser_daily_status           reached_temp / heating / low_energy / no_ru
                                      reached_temp_today, at_temperature_now, min_energy_kwh
 ```
 
-**Full evening schedule (updated 2026-06-17):**
+**Full evening schedule (updated 2026-06-18):**
 ```
-Evening turn-on — ADAPTIVE (replaces fixed 19:30/20:00):
-  17:30 (evening_early)   if NOT at_temperature AND energy_at_midday_end < adequate_threshold
-                          → start early, accept 17:30–18:30 cooking-peak overlap
-  18:30 (evening_late)    if NOT at_temperature AND switch off — all-seasons fallback
-                          → standard start when midday was adequate
+Evening turn-on — ADAPTIVE + SEASON-AWARE (updated 2026-06-18):
+  Condition: (midday_end − morning_end) < adequate_threshold (1.25 kWh)
+    BUG FIX 2026-06-18: was comparing raw midday_end (cumulative daily) → morning run alone
+    exceeded threshold → 17:00/17:30 never fired. Now compares midday-window DELTA only.
+
+  17:00 (evening_early_winter)  WINTER only: if NOT at_temperature AND midday delta < threshold
+                                → extra time needed: showers at 19:30 require 2.5h heat-up
+  17:30 (evening_early)         NON-WINTER: if NOT at_temperature AND midday delta < threshold
+                                → start early, accept 17:30–18:30 cooking-peak overlap
+  18:30 (evening_late)          ALL seasons: if NOT at_temperature AND switch off — fallback
+                                → fires if 17:00/17:30 branch didn't run (adequate midday)
 
 Evening hard-off:
   Normal winter     : 21:00 (9pm)
@@ -1137,16 +1188,17 @@ Morning  Mon–Sat winter    : 04:00 on / 08:00 off
          Sunday winter     : 05:00 on / 09:00 off
          Sunday non-winter : 05:30 on / 09:00 off
 Midday   (solar-gated)     : 12:00/13:00/14:00 on → 15:00 off
-Evening  (adaptive)        : 17:30 or 18:30 on (see above) → hard-off varies by season/sports
+Evening  (adaptive)        : 17:00 winter / 17:30 non-winter / 18:30 fallback → hard-off varies by season/sports
 ```
 
 **Automations (geyser_automations.yaml):**
 ```
-automation.geyser_turn_on  (5 branches — morning ×3, midday, evening_early, evening_late)
-  Morning     : NON-NEGOTIABLE — only blocked at loadshedding_critical
-                geyser_morning_override bypasses load_control_geyser_enabled
-  Midday      : SOLAR-GATED — orchestrator [surplus, normal], solar > 300W, NOT at temp, before 15:00
-  Evening early (17:30): fires if NOT at_temperature AND energy_at_midday_end < adequate_threshold
+automation.geyser_turn_on  (6 branches — morning ×3, midday, evening_early_winter, evening_early, evening_late)
+  Morning          : NON-NEGOTIABLE — only blocked at loadshedding_critical
+                     geyser_morning_override bypasses load_control_geyser_enabled
+  Midday           : SOLAR-GATED — orchestrator [surplus, normal], solar > 300W, NOT at temp, before 15:00
+  Evening early winter (17:00): winter only — fires if NOT at_temp AND midday delta < 1.25 kWh
+  Evening early (17:30): non-winter — fires if NOT at_temp AND midday delta < 1.25 kWh
   Evening late (18:30) : fires if NOT at_temperature AND switch off (all-seasons fallback)
 
 automation.geyser_turn_off  (7 branches + default, mode: queued)
