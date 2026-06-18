@@ -10,6 +10,8 @@
 *MONTHLY PRODUCTION CHART: statistic:sum on _today sensors gives cumulative lifetime total, not monthly delta. Fix: switch to monthly utility meters with statistic:state (per HA rules for total_increasing sensors, only state/sum are valid — change not supported). Added battery_discharge_monthly + battery_charge_monthly utility meters to energy_helpers.yaml.*
 *BOREHOLE STATUS: sensor.borehole_control_status updated — "Waiting — outside solar window" now shows solar surplus (Xw) as context.*
 *DASHBOARD: multiple plotly-graph and apexcharts-card fixes applied directly in .storage. See session notes for detail.*
+*GEYSER RUN ALERTS (added to geyser_period_energy_snapshot): morning alert if < 0.5 kWh produced AND not at temperature (severity: warning — tells user tank cold, early start firing); midday alert if midday-window delta < adequate_threshold AND not at temperature (severity: information — confirms which time early start will use). Both alerts fire at 08:00/15:00 snapshot points.*
+*LEGACY AUTOMATIONS CLEANUP: automations.yaml reduced from 7 active automations to 0. Deleted: Load Shedding Inverter Scene Switcher (superseded by orchestrator); 4× Solar Forecast Update automations (all select actions were enabled:false, scene targets never existed, superseded by E5-2 inverter_energy_pattern_control); Solar Forecast Check Appliances 8am-2pm (dead scenes). Migrated: Grid Usage Warning per day → automation.grid_import_daily_warning in power_automations.yaml with numeric_state triggers (no repeat-fire), script.notify_power_event routing, dead entity refs cleaned.*
 
 ---
 

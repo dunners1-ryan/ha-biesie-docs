@@ -738,10 +738,23 @@ input_datetime.prepaid_notify_end           quiet hours end for prepaid alerts
 ### Grid Thresholds (power_helpers.yaml via power package)
 
 ```
-input_number.grid_import_usage_low_warning_trigger
-input_number.grid_import_usage_medium_warning_trigger
-input_number.grid_import_usage_high_warning_trigger
+input_number.grid_import_usage_low_warning_trigger    ← UI helper (Settings → Helpers)
+input_number.grid_import_usage_medium_warning_trigger ← UI helper
+input_number.grid_import_usage_high_warning_trigger   ← UI helper
 input_number.inverter_battery_soc_warning_trigger
+```
+
+**Grid Import Daily Warning** (migrated 2026-06-18 from automations.yaml id 1742385109757):
+```
+automation.grid_import_daily_warning    power_automations.yaml
+  Triggers: numeric_state above each threshold (low / medium / high)
+  Fires: once per threshold crossing per day (sensor resets at midnight)
+  Severity: information (low) / warning (medium) / warning (high)
+  Route: script.notify_power_event — quiet hours respected
+  Message: grid_kwh, SOC, solar_today, orchestrator_state, solar_weather_correlation
+  Fix vs original: numeric_state triggers replace state-change+choose (original
+    re-fired on every state update while within a band). Dead entity refs removed
+    (inverter_solar_appliance_mode_helper, accuweather_hours_of_sun_day_0).
 ```
 
 ### Solar Controls (solar_helpers.yaml)
@@ -1215,11 +1228,17 @@ automation.geyser_reached_temp_tracker  (added 2026-06-17)
   Trigger: geyser_at_temperature → on → set geyser_reached_temp_today ON
   Trigger: 00:01 daily → reset geyser_reached_temp_today OFF
 
-automation.geyser_period_energy_snapshot  (added 2026-06-17)
+automation.geyser_period_energy_snapshot  (added 2026-06-17; alerts added 2026-06-18)
   Captures geyser_heat_pump_energy_day into:
     geyser_energy_at_morning_end at morning hard-off (08:00 winter / 07:30 non-winter)
     geyser_energy_at_midday_end at 15:00
   Feeds per-period breakdown in sensor.geyser_daily_status
+  Morning alert (added 2026-06-18): if morning_kwh < 0.5 AND NOT reached_temp_today
+    → severity: warning "Geyser morning run produced almost nothing (X kWh)"
+    → tells user tank is cold and evening early start will fire
+  Midday alert (added 2026-06-18): if midday_delta < adequate_threshold AND NOT reached_temp_today
+    → severity: information "Poor midday — early evening start at 17:00/17:30"
+    → midday_delta = midday_end − morning_end (midday-window energy only)
 
 automation.geyser_daily_minimum_check  (added 2026-06-17)
   Trigger: 20:00 daily
