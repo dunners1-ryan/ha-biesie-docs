@@ -294,7 +294,14 @@ input_text.force_charge_saved_charging   ← JSON snapshot of P1–P6 charging+S
 script.force_charge_batteries            ← starts force charge; saves settings, enables Grid all programs
 script.force_charge_cancel               ← dashboard cancel button → calls force_charge_restore
 script.force_charge_restore              ← internal restore: INV1 settings → sync INV2 → re-enable auto
-automation.force_charge_monitor          ← template trigger: SOC ≥ target → calls force_charge_restore
+                                           FIXED 2026-06-19: re-enable inverter_programme_auto_enabled and
+                                           clear force_charge_active NOW run BEFORE the guard condition.
+                                           Previously guard abort left programme_auto OFF indefinitely.
+automation.force_charge_monitor          ← template trigger: fires when force_charge_active=on AND SOC ≥ target
+                                           BUG FIXED 2026-06-19: original SOC-only trigger missed case where
+                                           SOC was already AT target when force charge activated. force_charge_active
+                                           is now embedded in the trigger template so it fires on both SOC change
+                                           AND force_charge_active transition to ON.
 ```
 
 ### Power Statistics Sensors (revised 2026-06-18)
