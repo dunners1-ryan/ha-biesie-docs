@@ -996,17 +996,17 @@ Entity `binary_sensor.security_visibility_low` does NOT exist. The correct entit
 ---
 
 ### BUG-S41 — Stage 2 arrival notification shows carport NVR image (cam04 overwrites driveway slot)
-**Priority: MEDIUM | Status: ✅ FIXED 2026-05-23 (S13)**
+**Priority: MEDIUM | Status: ✅ ACTUALLY FIXED 2026-06-20 — previous "FIXED 2026-05-23 (S13)" status was stale/incorrect; cam04 still outranked ipcam03 in code until this session.**
 
-**Symptom:** Stage 2 arrival confirmations consistently show a dark NVR carport image (cam04) instead of the driveway approach image (ipcam03). Screenshot confirmed: Arrival Stage 1 and "Arrival confirmed Ryan" both showed cam04 carport frame.
+**Symptom:** Stage 2 arrival confirmations consistently show a dark NVR carport image (cam04) instead of the driveway approach image (ipcam03). Screenshot confirmed: Arrival Stage 1 and "Arrival confirmed Ryan" both showed cam04 carport frame. Same pattern recurred 2026-06-20 with carport flagged for "Perimeter activity" and kitchen images appearing for grounds events.
 
 **Root cause (two factors):**
-1. **Shared slot overwritten:** Stage 1 fires on gate open → car drives up driveway → cam04 (carport) fires as car enters → writes `input_text.security_image_grounds_front`. Stage 2 fires 3.5 minutes later and reads this slot — which now holds the carport frame, not the driveway approach.
-2. **cam04 ranks above ipcam03:** `security_trigger_camera` priority list: cam14 > cam15 > **cam04** > **ipcam03** > cam07 > ... cam04 (NVR, no AI, dark at night) outranks ipcam03 (IP, AcuSense, daylight quality), so the trigger camera recorded for the event is also cam04.
+1. **Shared slot overwritten:** ipcam03/cam04/cam07 all write to `input_text.security_image_grounds_front`; ipcam04/cam09/cam12 all write to `security_image_grounds_rear`. Whichever camera fires last wins the slot, with no IP-over-NVR precedence.
+2. **`security_trigger_camera` was recency-based, not priority-based:** the template `sort(attribute='last_changed', reverse=True)` over all active cameras picked whichever camera most recently turned on, regardless of list order. The list order existing in the code (and the misleading comment claiming priority) had zero effect on selection. So a flickering NVR camera (cam04 pixel-diff motion, cam07) firing after the real IP camera would become the trigger camera.
 
-**Fix plan:**
-- security_automations.yaml Stage 1: lock current `security_image_grounds_front` value into new `input_text.security_image_arrival_locked` at Stage 1 fire time
-- Stage 2: read `security_image_arrival_locked` instead of live `security_image_grounds_front`
+**Fix applied 2026-06-20 (security_logic.yaml `sensor.security_trigger_camera`):** Rewrote as a true first-match priority list (`cams | select('is_state','on') | list`, take first match) instead of sort-by-recency. All 5 IP cameras now rank above their NVR zone counterpart: ipcam03 > cam04/cam07; ipcam04/ipcam05 > cam12/cam09. Inside cameras with no IP equivalent (cam14 lounge, cam15 passage, cam05 garage) keep their original top/bottom priority since they're the sole signal for those zones. NVR cameras are only selected when no IP camera in that zone is currently active.
+
+**Not yet addressed:** the shared zone-image input_text slots (`security_image_grounds_front`/`_rear`) themselves still have no IP/NVR precedence baked in at the write step (`security_capture_best_snapshot`) — they rely entirely on `security_trigger_camera` picking the right camera upstream. If an NVR camera fires alone (no simultaneous IP signal), it still legitimately writes the shared slot — this is correct/expected behavior, not a bug.
 - security_logic.yaml trigger camera priority: promote ipcam03 above cam04
 
 ---

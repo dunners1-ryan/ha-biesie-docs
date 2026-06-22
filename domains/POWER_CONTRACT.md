@@ -1166,6 +1166,17 @@ input_number.geyser_adequate_daily_energy_by_midday  kWh 1.25  gate for evening 
 input_number.geyser_min_daily_energy_kwh             kWh 2.0  trigger threshold for 20:00 backup check
 input_number.geyser_energy_at_morning_end            kWh      snapshot of energy_day at morning hard-off
 input_number.geyser_energy_at_midday_end             kWh      snapshot at 15:00 (midday hard-off)
+
+# Midday forced minimum (added 2026-06-20) — see "Midday forced minimum" note below
+input_number.geyser_midday_forced_minutes_winter           min  60  winter, normal weekday
+input_number.geyser_midday_forced_minutes_winter_extended  min  90  winter, staff_on_site OR weekend
+input_number.geyser_midday_forced_minutes_summer           min  30  any non-winter day
+
+# Morning extension (added 2026-06-21) — see "Morning extension" note below
+input_boolean.geyser_morning_extend_enabled    master toggle, default on
+input_number.geyser_morning_extend_minutes     min  60  default
+input_number.geyser_cold_ambient_threshold_c   °C   14  default
+input_boolean.geyser_morning_extended_today    internal flag — reset 00:01
 ```
 
 **Derived sensors (power_state.yaml):**
@@ -1257,9 +1268,27 @@ automation.geyser_manual_run               (timed 30/60 min run via script.geyse
 
 **Orchestrator gate policy:**
 - Morning + evening windows: blocked ONLY at `loadshedding_critical`.
-- Midday: blocked when orchestrator NOT in `[surplus, normal]`.
+- Midday: blocked when orchestrator NOT in `[surplus, normal]`. Forced-minimum branch (below) ignores this gate — only blocked at `loadshedding_critical`, same as morning/evening.
 - Emergency off: fires on `loadshedding_critical` OUTSIDE morning window.
 - 20:00 minimum check: NOT blocked by orchestrator (hot water essential) — only skips on `loadshedding_critical`.
+
+**Midday forced minimum (added 2026-06-20):** Incident — poor-solar winter day (2026-06-20) left the tank cold; manual run needed at ~15:30. Branch 2 (solar-gated) can go all midday without firing on bad-solar days. Branch 2b backstops this: fixed triggers at 13:30/14:00/14:30 force the geyser on (bypassing the solar gate) if, by the time needed to guarantee the required runtime before the 15:00 hard-off, the switch is still off and not at temperature.
+
+Required minutes (`input_number.geyser_midday_forced_minutes_*`, power_helpers.yaml):
+```
+geyser_midday_forced_minutes_winter            min  60  default — winter, normal weekday
+geyser_midday_forced_minutes_winter_extended   min  90  default — winter AND (staff_on_site OR weekend)
+geyser_midday_forced_minutes_summer            min  30  default — any non-winter day (raise to 60 via UI if needed)
+```
+Force-on time = 15:00 − required minutes (90→13:30, 60→14:00, 30→14:30), matched against the fixed trigger slots with ±15 min tolerance (TRIGGER FLOOR pattern). Uses `binary_sensor.staff_on_site` (derived, never the manual `input_boolean`) and `now().weekday() >= 5` for weekend. Notifies severity: warning (explicitly flags solar gate was bypassed).
+
+**Sticky-flag bug fix (same day, 2026-06-20):** `geyser_period_energy_snapshot`'s midday alert and `geyser_daily_minimum_check`'s 20:00 "all good" branch both used to gate on `input_boolean.geyser_reached_temp_today`, which only resets at midnight. A geyser that reached temperature once overnight/early-morning stayed flagged on for the rest of the day even after the tank cooled from daytime use — silently suppressing both checks (root cause of a missing midday notification despite the tank being cold by 15:30). Both now use `binary_sensor.geyser_at_temperature` (real-time) for the actual decision; the sticky flag is kept only in log/notification text for context.
+
+**Midday safety-net auto-trigger (added 2026-06-20):** The midday alert in `geyser_period_energy_snapshot` (15:00) is escalated from severity `information` to `critical` and now auto-triggers a forced 60-minute run — via the existing manual-run mechanism (`input_select.geyser_manual_run_duration` = "60" + `input_boolean.geyser_manual_run_active` → on) — when the tank is not at temperature and the midday delta is below threshold. This is a backstop for the case where Branch 2b (forced minimum, above) doesn't end up running the geyser. Gated by: switch off, `load_control_geyser_enabled` on, `geyser_manual_run_active` off, orchestrator not `loadshedding_critical`.
+
+**Morning extension (added 2026-06-21):** Incident — cold (11°C), heavily overcast winter day (`solar_weather_correlation` degraded, Solcast `forecast_today` 6.9 kWh vs ~30-50 kWh normal), whole family home all day (`binary_sensor.all_family_home`) — the morning run alone wasn't enough; tank cold again by 11am showers. `geyser_turn_off` Branch 1 now checks, at the normal morning hard-off, whether ALL of: `sensor.season == 'winter'`, `state_attr('weather.openweathermap','temperature') < input_number.geyser_cold_ambient_threshold_c` (14°C default), `sensor.solar_weather_correlation in ['poor','degraded']`, `binary_sensor.all_family_home == 'on'`. If so (and `input_boolean.geyser_morning_extend_enabled` is on), it skips the turn-off, sets `input_boolean.geyser_morning_extended_today`, and the actual turn-off happens `input_number.geyser_morning_extend_minutes` (60 default) later via new Branch 1b, triggered at fixed times 08:30 (standard weekday extension)/09:00 (winter weekday extension)/10:00 (Sunday extension). `geyser_morning_extended_today` resets at 00:01 alongside `geyser_reached_temp_today`. The extended window is NOT treated as "sacred" by the orchestrator-emergency branch (Branch 7) — a `loadshedding_critical` event during the extension still cuts power, unlike the true morning window.
+
+**Earlier opportunistic midday trigger (added 2026-06-21):** Added an 11:00 trigger to `geyser_turn_on`'s midday triggers (alongside existing 12:00/13:00/14:00), reusing Branch 2's solar-gate logic unchanged — on bad winter days the Solcast peak can land ~10-11am rather than midday, so this catches a brief surplus window that the original 12:00 start would miss.
 
 **Canonical entity — solar surplus:**
 `sensor.solar_available_surplus` (Watts, power_state.yaml) — used for midday solar gate.

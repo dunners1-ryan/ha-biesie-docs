@@ -84,17 +84,33 @@ binary_sensor.water_refill_allowed = ON when:
   )
   AND sensor.energy_orchestrator_state NOT IN                      ← orchestrator gate (added E1 2026-06-14)
       ['critical', 'loadshedding', 'loadshedding_critical']
+  AND (                                                            ← conserve gate (added 2026-06-21)
+    sensor.energy_orchestrator_state != 'conserve'
+    OR sensor.water_tank_level <= 20                               ← tank-critical override still applies
+  )
 
 Last-sun-slot gate added 2026-05-25: during the last ~2h of peak sun (default 14:00 onwards),
 borehole is blocked unless SOC has reached the overnight charge target (80% summer / 90% winter).
 
 Orchestrator gate added 2026-06-14 (Session E1): when the energy orchestrator enters critical,
-loadshedding, or loadshedding_critical state, normal refills are blocked. The 'conserve' and
-'surplus' states do NOT block refill — the existing SOC floor already handles conserve, and
-surplus means solar is ample. Emergency branches (Branch 1 safety, Branch 2 critical+grid,
-Branch 3 critical+limited) in water_tank_refill_control.yaml bypass this sensor entirely and
-are unaffected by the orchestrator gate.
-Tank-critical override (≤20%) bypasses this gate so essential water supply is never blocked.
+loadshedding, or loadshedding_critical state, normal refills are blocked. Emergency branches
+(Branch 1 safety, Branch 2 critical+grid, Branch 3 critical+limited) in
+water_tank_refill_control.yaml bypass this sensor entirely and are unaffected by the
+orchestrator gate.
+
+**Conserve gate (added 2026-06-21):** Previously 'conserve' and 'surplus' did NOT block
+refill — the existing 50% SOC floor was assumed to already cover conserve days. Incident
+2026-06-21: a poor-solar winter day (Solcast forecast_today 6.9 kWh vs ~30-50 kWh normal,
+solar_weather_correlation = degraded) with dishwasher/washing machine running most of the day
+left SOC at 45% — above the 50% floor in absolute terms wasn't even reached, but the user
+flagged that borehole shouldn't run on days like this "unless really necessary." Conserve now
+also blocks refill, UNLESS `sensor.water_tank_level <= 20` (tank-critical override — water
+supply itself never gets blocked). 'surplus' is unaffected (ample solar = fine to run).
+New blocked-reason: `water_refill_blocked_reason` priority 3b — "Conserving battery — poor
+solar/high load today, tank not yet critical". New attribute on `water_refill_allowed`:
+`conserve_blocked` (bool, diagnostic).
+Tank-critical override (≤20%) bypasses both the orchestrator gate and the conserve gate so
+essential water supply is never blocked.
 
 ⚠️ IMPORTANT — Branch 2 (critical + grid on) does NOT use this gate (fixed 2026-06-14):
 Branch 2 directly checks `group.inverter_grid = on` + `load_control_borehole_enabled = on`.
