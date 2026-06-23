@@ -974,6 +974,9 @@ input_number.orchestrator_p4_charge_trigger_soc %  70  — future use (pre-fligh
 input_number.orchestrator_solar_gap_threshold  kWh  5.0 — P4 only enables if solar falls this far
                                                          short of target (updated from 2.0 on 2026-06-17 for 48 kWh bank)
 input_number.battery_capacity_kwh              kWh 48.0 — 3× Greenrich AF1600 (48.23 kWh nominal — updated 2026-06-17)
+input_number.p4_grid_charge_solar_gate_w       W   1500 — added 2026-06-23. Grid only enables if current
+                                                         solar has dropped below this, even when the
+                                                         forecast-shortfall math says it's needed.
 ```
 
 **Programme time slots (confirmed E5 pre-flight):**
@@ -1022,24 +1025,51 @@ Default: logbook only (no change)
 mode: single (max_exceeded: silent — 5min ticks don't queue)
 ```
 
-**E5-3: automation.inverter_p4_grid_charge_control**
+**E5-3: automation.inverter_p4_grid_charge_control** (solar-aware delay + real-time release added 2026-06-23)
 ```
-Triggers: time 14:00, 14:30, 15:00 (evaluate) + time 17:00 (restore)
+Triggers: time 14:00/14:30/15:00/15:30/16:00/16:30 (evaluate) + time 17:00 (restore, unconditional)
+          + numeric_state sensor.inverter_battery_soc above orchestrator_target_soc_by_sunset (target_reached, real-time)
 Gate: inverter_programme_auto_enabled ON
 
-Branch 1 — Evaluate (14:00–15:00):
+Branch 0 — Target reached (real-time, added 2026-06-23):
+  Fires the INSTANT SOC crosses target_soc_by_sunset while P4 = Grid.
+  → Disable P4 Grid immediately on both inverters. Does not wait for the
+    next 30-min evaluate checkpoint or the 17:00 restore.
+  Reason: previously grid charging could continue well past target SOC until
+  the next fixed checkpoint — user flagged heavy grid consumption from this gap.
+
+Branch 1 — Evaluate (14:00–16:30, every 30 min):
   Calculates:
     soc_gap = target_soc_by_sunset - current_soc  (floor 0)
     kwh_needed = (soc_gap / 100) × battery_capacity_kwh
     solar_for_battery = solcast_remaining - (house_load_24h_mean_kW × hours_to_17)
     kwh_shortfall = kwh_needed - solar_for_battery
+    solar_tapered = sensor.inverter_pv_power < input_number.p4_grid_charge_solar_gate_w (1500W default)
 
   Enable P4 Grid (both INV1 + INV2 directly) if:
     soc_gap > 5%  AND  kwh_shortfall > orchestrator_solar_gap_threshold
-    AND P4 not already Grid
+    AND solar_tapered  AND  P4 not already Grid
+    — added 2026-06-23: solar_tapered gate. Previously enabled purely on the
+    forecast-shortfall projection, which could fire at 14:00 while solar was
+    still producing strongly (observed: grid importing 6.8kW while solar
+    produced 4kW simultaneously). Now grid charging is delayed until current
+    production has actually dropped below the gate, even if the forecast
+    says the day overall won't be enough — trades a small risk of missing
+    the sunset target for materially less grid usage.
+
+  Hold off (added 2026-06-23) if:
+    soc_gap > 5% AND kwh_shortfall > threshold AND NOT solar_tapered AND P4 != Grid
+    → logbook only, re-evaluated at the next 30-min checkpoint.
 
   Disable P4 Grid if:
-    P4 is currently Grid AND (soc_gap ≤ 5% OR shortfall ≤ threshold)
+    P4 is currently Grid AND (soc_gap ≤ 5% OR shortfall ≤ threshold OR NOT solar_tapered)
+    — `OR NOT solar_tapered` added 2026-06-23: NOT sticky. Even if Grid was
+    enabled at one 30-min checkpoint, if solar recovers above the gate by the
+    next checkpoint (typically true 14:00-15:00 when sun is normally still
+    strong), it releases back to solar immediately rather than staying on
+    Grid until the shortfall math alone says so. Re-toggles every 30 min
+    based on current conditions, not a one-shot decision for the rest of
+    the window.
 
   Sets both inverters directly (not via force_inverter_sync — P4 only change).
 
@@ -1048,7 +1078,15 @@ Branch 2 — Restore 17:00 (always):
   P5 window begins; grid charging in P5 may be active per existing programme.
 
 Note: sensor.house_load_24h_mean (W, 24h rolling mean) used for load estimate —
-more stable than instantaneous load_power for multi-hour heuristic.
+more stable than instantaneous load_power for multi-hour heuristic. This sensor
+was silently broken (returned `unavailable`) from a YAML structural bug in
+power_statistics.yaml until fixed 2026-06-23 — see Known Issues. While broken,
+the load term defaulted to 0 via `|float(0)`, making solar_for_battery slightly
+optimistic (shortfall computed smaller than true value).
+
+input_number.p4_grid_charge_solar_gate_w  W  1500 default (power_helpers.yaml)
+  Lower = waits longer/closer to sunset before resorting to grid (more
+  efficient, more risk of not closing the gap in time).
 
 Functional check (E5 2026-06-14):
   energy_pattern changed Load First → Battery First immediately on reload (orchestrator=conserve).
@@ -1474,6 +1512,17 @@ All legacy power automations were migrated or deleted in the 2026-06-18 session:
 ## 11. Known Issues
 
 Issues ordered by risk/impact. **P1 = breaks functionality. P2 = incorrect data. P3 = performance/cleanup.**
+
+---
+
+### Issue 0 — ✅ RESOLVED 2026-06-23: `power_statistics.yaml` duplicate `template:` key silently dropped 6 sensors
+**Priority:** P1 — silently broke functionality with no config-check error  
+**File:** `packages/power/power_statistics.yaml`  
+**Symptom:** Dashboard "Solar Performance Stats" card showed `Unavailable` for 7-Day Accuracy %, 7d Mean Production, 30d Mean Production, 7d Std Dev. Initially misdiagnosed as a post-restart warm-up delay (entities had `restored: true` and a stale `last_changed` timestamp matching a recent reload) — turned out to be permanent, not transient.  
+**Root cause:** The file had **two top-level `template:` keys**. PyYAML (and HA's loader) silently keeps only the **last** value for a duplicate mapping key — the entire first `template:` block was dropped from the loaded config on every reload, with no validation error since the YAML was syntactically valid. Casualties: `sensor.inverter_production_7d_mean` / `30d_mean` (defined in the dropped block), plus four `platform: statistics` sensors (`inverter_production_7d_stdev`, `house_load_24h_mean`, `house_load_7d_mean`, `solar_forecast_accuracy_7d`) that were **also** incorrectly nested inside that same dropped `template:` list using `platform:` keys — invalid under the `template:` integration schema (that syntax belongs to the legacy `sensor:` platform-list, used correctly elsewhere in the same file).  
+**Downstream impact:** `sensor.solar_weather_correlation`'s 7-day trend inputs (`ratio_7d`, `stdev`, `cv`) all silently defaulted to neutral values (100/0/0) via Jinja `|float()` fallbacks — it could only ever reach `degraded` via the same-day `ratio_today` branch, never via sustained 7-day under-performance, for as long as this was broken. `house_load_24h_mean` being unavailable also fed directly into the P4 grid-charge shortfall calc (`inverter_p4_grid_charge_control`), defaulting load to 0 and making the shortfall estimate slightly optimistic. Unknown exact duration — file's changelog comments suggest the split happened across the 2026-06-14 P6 session and the 2026-06-18 daily-snapshot edit.  
+**Fix:** Restructured into ONE `sensor:` list (6 `platform: statistics` sensors) and ONE `template:` list (5 derived template sensors) — no behavioural change, just makes the config load as originally written. Verified via `yaml.safe_load()` that all 11 sensors now parse into the correct top-level key.  
+**Lesson:** A second `!include`'d file defining the same top-level key as an earlier one in the same package is fine (HA merges those at the package level) — but **within a single file**, a repeated top-level key is a silent data-loss bug, not a merge. `python3 -c "import yaml; yaml.safe_load(open(f))"` validates syntax but will NOT catch this — checking `len(d['template'])` / `len(d['sensor'])` against the expected sensor count would have caught it.
 
 ---
 
