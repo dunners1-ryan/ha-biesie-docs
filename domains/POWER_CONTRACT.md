@@ -977,6 +977,11 @@ input_number.battery_capacity_kwh              kWh 48.0 — 3× Greenrich AF1600
 input_number.p4_grid_charge_solar_gate_w       W   1500 — added 2026-06-23. Grid only enables if current
                                                          solar has dropped below this, even when the
                                                          forecast-shortfall math says it's needed.
+input_number.p4_deadline_zone_start_hour       h   16.0 — added 2026-06-24. From this hour, abandons the
+                                                         solar-aware/shortfall projection and forces Grid
+                                                         on if soc_gap still exceeds the deadline threshold.
+input_number.p4_deadline_gap_threshold         %   3   — added 2026-06-24. Gap to target below which the
+                                                         deadline push doesn't bother forcing grid.
 ```
 
 **Programme time slots (confirmed E5 pre-flight):**
@@ -1087,6 +1092,23 @@ optimistic (shortfall computed smaller than true value).
 input_number.p4_grid_charge_solar_gate_w  W  1500 default (power_helpers.yaml)
   Lower = waits longer/closer to sunset before resorting to grid (more
   efficient, more risk of not closing the gap in time).
+
+Deadline push (added 2026-06-24): incident — SOC plateaued ~78-80% on both
+2026-06-23 and 2026-06-24, never reaching the 90% target. Root cause: P4
+enabled Grid at 16:00 (SOC 72%), which itself pushed SOC to 78% by the 16:30
+checkpoint — that jump made the shortfall recalculation (using the same live
+SOC) dip just under threshold, so "Disable — solar on track" fired and
+cancelled grid for good, with no evaluate trigger between 16:30 and the
+unconditional 17:00 restore to catch the mistake. From
+`input_number.p4_deadline_zone_start_hour` (16:00 default) onwards, the
+automation stops trusting the solar-aware projection: if `soc_gap >
+input_number.p4_deadline_gap_threshold` (3% default), it forces/keeps Grid on
+regardless of `solar_tapered` or the shortfall calc. The "Disable — solar on
+track" branch is guarded with `and not (deadline_zone and soc_gap >
+deadline_gap_threshold)` so it can't undo the deadline push. Branch 0
+(real-time target-reached disable, added 2026-06-23) still takes priority and
+clears it immediately once SOC actually reaches target — the deadline push
+only matters for genuinely closing a real gap in the time remaining.
 
 Functional check (E5 2026-06-14):
   energy_pattern changed Load First → Battery First immediately on reload (orchestrator=conserve).
@@ -1522,7 +1544,18 @@ Issues ordered by risk/impact. **P1 = breaks functionality. P2 = incorrect data.
 **Root cause:** The file had **two top-level `template:` keys**. PyYAML (and HA's loader) silently keeps only the **last** value for a duplicate mapping key — the entire first `template:` block was dropped from the loaded config on every reload, with no validation error since the YAML was syntactically valid. Casualties: `sensor.inverter_production_7d_mean` / `30d_mean` (defined in the dropped block), plus four `platform: statistics` sensors (`inverter_production_7d_stdev`, `house_load_24h_mean`, `house_load_7d_mean`, `solar_forecast_accuracy_7d`) that were **also** incorrectly nested inside that same dropped `template:` list using `platform:` keys — invalid under the `template:` integration schema (that syntax belongs to the legacy `sensor:` platform-list, used correctly elsewhere in the same file).  
 **Downstream impact:** `sensor.solar_weather_correlation`'s 7-day trend inputs (`ratio_7d`, `stdev`, `cv`) all silently defaulted to neutral values (100/0/0) via Jinja `|float()` fallbacks — it could only ever reach `degraded` via the same-day `ratio_today` branch, never via sustained 7-day under-performance, for as long as this was broken. `house_load_24h_mean` being unavailable also fed directly into the P4 grid-charge shortfall calc (`inverter_p4_grid_charge_control`), defaulting load to 0 and making the shortfall estimate slightly optimistic. Unknown exact duration — file's changelog comments suggest the split happened across the 2026-06-14 P6 session and the 2026-06-18 daily-snapshot edit.  
 **Fix:** Restructured into ONE `sensor:` list (6 `platform: statistics` sensors) and ONE `template:` list (5 derived template sensors) — no behavioural change, just makes the config load as originally written. Verified via `yaml.safe_load()` that all 11 sensors now parse into the correct top-level key.  
-**Lesson:** A second `!include`'d file defining the same top-level key as an earlier one in the same package is fine (HA merges those at the package level) — but **within a single file**, a repeated top-level key is a silent data-loss bug, not a merge. `python3 -c "import yaml; yaml.safe_load(open(f))"` validates syntax but will NOT catch this — checking `len(d['template'])` / `len(d['sensor'])` against the expected sensor count would have caught it.
+**Lesson:** A second `!include`'d file defining the same top-level key as an earlier one in the same package is fine (HA merges those at the package level) — but **within a single file**, a repeated top-level key is a silent data-loss bug, not a merge. `python3 -c "import yaml; yaml.safe_load(open(f))"` validates syntax but will NOT catch this — checking `len(d['template'])` / `len(d['sensor'])` against the expected sensor count would have caught it.  
+**Deploy gotcha #1 (2026-06-23/24):** `platform: statistics` sensors (legacy `sensor:` syntax) are **not** in HA's hot-reloadable set (unlike `automation:`/`script:`/`template:`/`input_*:`) — they seed from recorder history at startup only, so a "Check Configuration" + partial reload left `7d_mean`/`30d_mean` stuck `unavailable` (with `restored: true` and a frozen `last_changed`) for over a day even though the fix was already on disk and validated. Needed a full HA restart to actually take effect.  
+**Deploy gotcha #2 (2026-06-24, user-fixed):** after the restart, the corrected `inverter_production_7d_mean`/`30d_mean` came back registered as `_2` duplicates (e.g. `sensor.inverter_production_7d_mean_2`) instead of reclaiming their original `entity_id`. Cause: moving a `unique_id` between platform sections (legacy `sensor:` ↔ `template:`) while the entity registry still has a row for that `unique_id` tied to the old platform can make HA register it as a new entity rather than reclaiming the old `entity_id`. Fixed by removing the orphaned registry entries (Settings → Devices & Services → Entities → search, delete the stale non-`_2` rows) so the correct entities reclaimed their proper names.
+
+---
+
+### Issue 0b — ✅ RESOLVED 2026-06-24: `battery_runtime_status_card` showed "Battery charging – target unknown%"
+**Priority:** P2 — wrong dashboard text, no functional impact  
+**File:** `packages/power/battery_runtime.yaml`  
+**Symptom:** Dashboard tile read "Battery charging – target unknown%" whenever the battery was charging.  
+**Root cause:** The "charging" branch read `{{ charge_eta }}%`, where `charge_eta = states('sensor.markdown_ss_battery_charge_time_left')` — an entity that doesn't exist, so it always resolved to `unknown`. The correct value, `target_soc` (= `sensor.ss_battery_capacity`, the program-aware target SOC — e.g. reads 90% during the P4 window if that's what's configured), was already computed one line above and used correctly in the *other* branch of the same template — just never wired into this one. Classic copy-paste/wrong-variable bug.  
+**Fix:** Changed to `{{ target_soc }}%`. Removed the now-dead `charge_eta` variable (its only consumer was this bug).
 
 ---
 
