@@ -1215,14 +1215,24 @@ input_number.geyser_winter_start_offset    min 30  (subtracts from start, adds t
 input_number.geyser_midday_surplus_threshold W 300  (geyser draws 1.25 kW; 300W = solar covers most)
 input_number.geyser_last_heat_up_minutes    min  0  elapsed minutes from switch-on to at-temperature
 
-# Daily minimum and adaptive evening (added 2026-06-17; fixed 2026-06-18)
-input_number.geyser_adequate_daily_energy_by_midday  kWh 1.25  gate for evening early start.
+# Daily minimum and adaptive evening (added 2026-06-17; fixed 2026-06-18; raised 2026-06-24)
+input_number.geyser_adequate_daily_energy_by_midday  kWh 3.0   gate for evening early start.
                                                                IMPORTANT: condition compares DELTA
                                                                (midday_end − morning_end), not raw midday_end.
                                                                Raw midday_end includes morning run energy →
                                                                condition was always false on normal days.
-                                                               Fixed 2026-06-18. Threshold lowered 1.5→1.25 kWh
-                                                               (~1h geyser runtime at 1.25 kW).
+                                                               Fixed 2026-06-18 (1.5→1.25 kWh, ~1h runtime).
+                                                               Raised 2026-06-24: 1.25 kWh was less than half
+                                                               a real reheat cost. geyser_last_heat_up_minutes
+                                                               history (5 days, excl. resets): median 136 min,
+                                                               mean 147 min → 1.25kW × ~2.3-2.45h = 2.8-3.1 kWh
+                                                               per full heat-up. Now 3.0 kWh — biases toward
+                                                               requiring midday (cheap/solar window) to do
+                                                               nearly all of that work before deferring to the
+                                                               likely grid-funded 18:30 evening fallback. Also
+                                                               relevant given 200L tank capacity vs 3-person
+                                                               shower blocks (morning + evening) already near
+                                                               capacity — see geyser_heat_up_duration_capture.
 input_number.geyser_min_daily_energy_kwh             kWh 2.0  trigger threshold for 20:00 backup check
 input_number.geyser_energy_at_morning_end            kWh      snapshot of energy_day at morning hard-off
 input_number.geyser_energy_at_midday_end             kWh      snapshot at 15:00 (midday hard-off)
@@ -1248,12 +1258,13 @@ sensor.geyser_daily_status           reached_temp / heating / low_energy / no_ru
                                      reached_temp_today, at_temperature_now, min_energy_kwh
 ```
 
-**Full evening schedule (updated 2026-06-18):**
+**Full evening schedule (updated 2026-06-24):**
 ```
-Evening turn-on — ADAPTIVE + SEASON-AWARE (updated 2026-06-18):
-  Condition: (midday_end − morning_end) < adequate_threshold (1.25 kWh)
+Evening turn-on — ADAPTIVE + SEASON-AWARE (updated 2026-06-24):
+  Condition: (midday_end − morning_end) < adequate_threshold (3.0 kWh)
     BUG FIX 2026-06-18: was comparing raw midday_end (cumulative daily) → morning run alone
     exceeded threshold → 17:00/17:30 never fired. Now compares midday-window DELTA only.
+    THRESHOLD RAISED 2026-06-24: 1.25→3.0 kWh — grounded in real heat-up cost (see helper note above).
 
   17:00 (evening_early_winter)  WINTER only: if NOT at_temperature AND midday delta < threshold
                                 → extra time needed: showers at 19:30 require 2.5h heat-up
@@ -1285,8 +1296,8 @@ automation.geyser_turn_on  (6 branches — morning ×3, midday, evening_early_wi
   Morning          : NON-NEGOTIABLE — only blocked at loadshedding_critical
                      geyser_morning_override bypasses load_control_geyser_enabled
   Midday           : SOLAR-GATED — orchestrator [surplus, normal], solar > 300W, NOT at temp, before 15:00
-  Evening early winter (17:00): winter only — fires if NOT at_temp AND midday delta < 1.25 kWh
-  Evening early (17:30): non-winter — fires if NOT at_temp AND midday delta < 1.25 kWh
+  Evening early winter (17:00): winter only — fires if NOT at_temp AND midday delta < 3.0 kWh
+  Evening early (17:30): non-winter — fires if NOT at_temp AND midday delta < 3.0 kWh
   Evening late (18:30) : fires if NOT at_temperature AND switch off (all-seasons fallback)
 
 automation.geyser_turn_off  (7 branches + default, mode: queued)
