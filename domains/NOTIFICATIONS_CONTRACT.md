@@ -219,34 +219,64 @@ fires at `hours: /3` (hitting midnight after restart) before Telegram service is
 ### Defined Notify Platforms
 
 ```
-notify.STD_Information    # Group: mobile apps (dev + family)
-notify.STD_Warning        # Group: mobile apps (dev + family)
-notify.STD_Critical       # Group: mobile apps (dev + family)
-notify.STD_Alerts         # Group: mobile apps + Telegram
-notify.telegram_bot_5527  # Telegram Chat Bot (dedicated service)
+notify.STD_Alerts         # Group: KNOWN BROKEN — see bug note below
+notify.telegram_bot_5527  # Telegram entity (NOT a bare service — see below)
 notify.ryan_iphone16_mobile_app, notify.ap_0223_1001,
 notify.honor_10_dash_mobile_app, notify.honor_x7_dash_mobile_app  # Individual mobile devices
 ```
 
-**BUG FIXED 2026-06-28:** all four `notify.STD_*` groups (configuration.yaml) were defined
-with legacy service names (`mobile_app_iphone16promax_ryan`, `mobile_app_ap_0223_1001`,
-`mobile_app_honor10_dash`, `mobile_app_honorx7_dash`) that stopped existing once the
-mobile_app integration migrated to per-device notify *entities* (entity registry shows
-the rename at 2026-05-12 — current names are the four listed above). Since none of those
-legacy services existed, **all four groups silently failed to set up**, surfacing as a
-recurring HA repair item ("unknown action: notify.std_warning") on whichever automation
-happened to fire through `script.notify_power_event`/`notify_*_event` with that severity
-first — e.g. `automation.prepaid_strategic_top_up_suggestion`. Not specific to that
-automation; any consumer of the STD_* groups was equally broken. `packages/admin/
-tablets.yaml` had the same dead-name bug directly (`notify.mobile_app_honor10_dash` /
-`notify.mobile_app_honorx7_dash`, 8 call sites) — fixed to the current entity names.
+**BUG FIXED 2026-06-28 (two-pass — first attempt was wrong):** all four `notify.STD_*`
+groups (configuration.yaml) originally referenced legacy mobile_app service names
+(`mobile_app_iphone16promax_ryan`, `mobile_app_ap_0223_1001`, `mobile_app_honor10_dash`,
+`mobile_app_honorx7_dash`) that stopped existing once the mobile_app integration migrated
+to per-device notify *entities* (entity registry shows the rename at 2026-05-12). First
+fix attempt just renamed the group members to the current entity slugs (e.g.
+`ryan_iphone16_mobile_app`) — **this did not work**, and the exact same "unknown action:
+notify.std_warning" repair item recurred. Confirmed via `ha core logs`: even
+`notify.telegram_bot_5527` as a bare service throws `ServiceNotFound` — mobile_app AND
+the Telegram integration are now **entity-only**, neither registers any bare `notify.<x>`
+service anymore. The legacy `platform: group` mechanism calls member services by name
+internally, so it cannot work with ANY current target, regardless of what name is used.
+
+**Real fix:** all 19 `notify.STD_Information` / `notify.STD_Warning` / `notify.STD_Critical`
+call sites, across `notify_power_event.yaml`, `notify_water_events.yaml`,
+`notify_system_event.yaml`, `notify_light_events.yaml`, `notify_presence_events.yaml`,
+`notify_security_events.yaml`, were converted to call `notify.send_message` directly with
+an explicit `target.entity_id` list of all 4 device entities (see Canonical Call Patterns
+below) — the only mechanism that still works post-migration. The three now-unused
+`STD_Information`/`STD_Warning`/`STD_Critical` group definitions were removed from
+configuration.yaml. `packages/admin/tablets.yaml` had the same dead-name bug directly in
+8 action calls (`notify.mobile_app_honor10_dash` / `notify.mobile_app_honorx7_dash`,
+then `notify.honor_10_dash_mobile_app` / `notify.honor_x7_dash_mobile_app` after the
+first, still-wrong pass) — fixed to `notify.send_message` + `target.entity_id`.
+
+**STILL BROKEN, NOT YET FIXED:** `notify.STD_Alerts` is used by 16+ `alert:` integration
+definitions across `packages/alerts/*.yaml` via `notifiers: [STD_Alerts]`. The `alert:`
+integration calls bare `notify.*` services internally — the exact mechanism just proven
+dead for every target. There is no fix expressible in YAML packages alone: `alert:`'s
+`notifiers:` field requires a literal notify-domain service name, and none of our targets
+register one anymore. Left defined in configuration.yaml (harmless either way) pending a
+decision between: (a) creating an HA "Notify Group" UI helper (config-entry/UI-only, not
+git-trackable — unverified whether `alert:` can even call an entity-based group), or
+(b) migrating these 16 alert definitions to drop `notifiers:` and instead dispatch via
+the now-fixed `notify_*_event` scripts on `alert.*` state change. Affected files:
+`alerts_batteries.yaml`, `alerts_garden.yaml`, `alerts_network.yaml`, `alerts_doors.yaml`,
+`alerts_presence.yaml`, `alerts_temperature.yaml` (×4), `alerts_device_power.yaml`,
+`alerts_security.yaml`, `alerts_water.yaml` (×3), `alerts_system_health.yaml`,
+`alerts_media.yaml`, `alerts_power.yaml`.
 
 ### Canonical Call Patterns
 
-**HA Notify Groups (scripts):**
+**Mobile app fan-out (scripts) — current, post-migration:**
 ```yaml
-- action: notify.STD_Critical
+- action: notify.send_message
   continue_on_error: true
+  target:
+    entity_id:
+      - notify.ryan_iphone16_mobile_app
+      - notify.ap_0223_1001
+      - notify.honor_10_dash_mobile_app
+      - notify.honor_x7_dash_mobile_app
   data:
     title: "..."
     message: "..."
@@ -263,10 +293,14 @@ tablets.yaml` had the same dead-name bug directly (`notify.mobile_app_honor10_da
     message: "..."
 ```
 
-**DEPRECATED — do not use:**
+**DEPRECATED — do not use (confirmed broken 2026-06-28, neither registers a bare service):**
 ```yaml
-# ❌ Missing target structure
+# ❌ mobile_app / telegram are entity-only — no bare service exists
+action: notify.ryan_iphone16_mobile_app
 action: notify.telegram_bot_5527
+action: notify.STD_Information   # ❌ group removed — see bug note above
+action: notify.STD_Warning       # ❌ group removed — see bug note above
+action: notify.STD_Critical      # ❌ group removed — see bug note above
 
 # ❌ Pre-2024 service syntax
 service: notify.telegram_bot_5527
