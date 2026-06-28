@@ -329,7 +329,7 @@ No security-domain helpers were found to be UI-created. All are YAML-defined in
 | Entity | Type | File | Output States | Consumers |
 |--------|------|------|---------------|-----------|
 | `sensor.security_trigger_camera` | template sensor | security_logic.yaml | `camera.camXX_...` or `none` | security_automations.yaml, notify script |
-| `sensor.security_event_classification` | template sensor | security_logic.yaml | idle, arrival, departure, family_movement, service_person, **perimeter_front**, visitor, **gate_activity**, perimeter_threat, intruder, critical_intrusion | security_event_router automation (S3) |
+| `sensor.security_event_classification` | template sensor | security_logic.yaml | idle, arrival, departure, family_movement, service_person, **perimeter_front**, visitor, **gate_activity**, perimeter_threat, **grounds_low_confidence** (BUG-S52, 2026-06-28), intruder, critical_intrusion | security_event_router automation (S3) |
 | `binary_sensor.security_inside_garage_motion` | template sensor | security_zones.yaml | on/off | security_event_classification |
 | `binary_sensor.security_inside_main_motion` | template sensor | security_zones.yaml | on/off | security_event_classification |
 | `binary_sensor.security_inside_bedrooms_motion` | template sensor | security_zones.yaml | on/off | security_event_classification |
@@ -1348,6 +1348,68 @@ Event ISAPI discovery. See Section 10.9 for full troubleshooting history.
 **Impact:** Perimeter front effectively ipcam01-only for AcuSense detection. Requires firmware rollback to V5.7.19 G5 branch or camera replacement.
 
 **Mitigation (2026-05-27):** `scenechangedetection` added as OR fallback in `ipcam02_street_driveway_down_motion_valid`. Provides partial signal (scene-level changes, not person/vehicle AI). Perimeter_front zone still primarily ipcam01-driven.
+
+---
+
+### BUG-S52 — Classifier catch-all mislabelled grounds events as "Perimeter activity"; notification "Camera" field showed automation name, not the camera
+**Priority: HIGH | Status: ✅ FIXED 2026-06-28**
+
+**Symptom:** User received "⚠️ Perimeter activity" notifications whose body correctly said
+`zones: Grounds` but whose image was cam04 (carport, inside boundary) or ipcam03 (driveway,
+inside the gate, with a car plainly stopped at an OPEN gate). Notification footer also showed
+`Camera: Security Event Router` instead of the actual camera.
+
+**Root cause 1 (title/zone mismatch):** `sensor.security_event_classification`
+(security_logic.yaml) is an 8-rung presence-first ladder; any grounds/driveway event that
+didn't match a specific rung fell all the way through to the bottom catch-all
+(`{% else %} perimeter_threat {% endif %}`), and the router (security_automations.yaml)
+hardcodes the title `"⚠️ Perimeter activity"` for every `cls == 'perimeter_threat'` event —
+regardless of which zone actually fired. Two concrete gaps fed the catch-all:
+- RUNG 7 (`intruder`) requires `ip_cam or high_conf`. cam04 is an NVR pixel-diff camera with
+  no AI — a lone cam04 trigger at low/medium confidence never clears that bar.
+- RUNG 7 also requires the gate to be CLOSED. A car sitting at an open gate (ipcam03 fired,
+  `family_arriving` not yet confirmed by AP roaming) failed every rung — RUNG 1 needs
+  `arriving=on`, RUNG 7 needs gate closed, RUNG 8c needs grounds to be off — and dropped to
+  the same catch-all.
+
+**Fix (`security_logic.yaml`):** Added two rungs before the catch-all:
+- RUNG 5c `gate_activity` — `gate and grounds and not arriving and not departing` (gate open,
+  driveway/carport camera fired, not yet AP-confirmed). Reuses the existing gentle
+  "Activity at gate — arrival or visitor?" router branch.
+- RUNG 7b `grounds_low_confidence` — same guards as RUNG 7 minus the `ip_cam/high_conf`
+  requirement, so a lone low-confidence grounds trigger gets its own zone-correct
+  classification instead of borrowing the perimeter name.
+
+**Fix (`security_automations.yaml`):** Added a dedicated router branch for
+`grounds_low_confidence` titled `"⚠️ Activity in grounds"` (same severity/cooldown pattern as
+`perimeter_threat`).
+
+**Root cause 2 (wrong camera name):** `notify_security_events.yaml`'s `cam_entity` variable
+read `{{ source }}`, and every router branch passes `source: "security_event_router"` (the
+automation's own name, not a camera). The correct line —
+`states('input_text.security_last_motion_camera')` — was present but commented out.
+
+**Fix:** Restored `cam_entity` to read `input_text.security_last_motion_camera`.
+
+---
+
+### IMPROVEMENT — AcuSense IP camera debounce cut 30-45s → 5s (NVR cameras unchanged)
+**Status:** ✅ DONE 2026-06-28 (user request, follow-up to BUG-S52)
+
+Notification latency investigation (BUG-S52 follow-up) found the single largest
+contributor to notification delay was the `delay_off` debounce on
+`*_motion_valid` sensors in `cameras_processing.yaml` — 30-45s, inherited
+uniformly from when all cameras were raw NVR pixel-diff motion (needed a long
+hold to avoid false-positive flicker). The 5 AcuSense IP cameras
+(ipcam01/02/03/04/05) use AI-filtered Smart Events (fielddetection/
+linedetection/regionentrance) and are already far less prone to false triggers
+than the NVR feed, so the long hold is mostly dead latency for them.
+
+**Change:** `delay_off` cut from 30s/45s to 5s on all 5 ipcam motion_valid
+sensors only. NVR cameras (cam04/05/07/09/12/14/15) and the ipcam
+entrance_valid/exit_valid debounce sensors (still 30s — different mechanism,
+drive arrival/departure stage1 direction logic, not raised by this
+investigation) were left unchanged.
 
 ---
 

@@ -224,8 +224,22 @@ notify.STD_Warning        # Group: mobile apps (dev + family)
 notify.STD_Critical       # Group: mobile apps (dev + family)
 notify.STD_Alerts         # Group: mobile apps + Telegram
 notify.telegram_bot_5527  # Telegram Chat Bot (dedicated service)
-notify.mobile_app_*       # Individual mobile devices
+notify.ryan_iphone16_mobile_app, notify.ap_0223_1001,
+notify.honor_10_dash_mobile_app, notify.honor_x7_dash_mobile_app  # Individual mobile devices
 ```
+
+**BUG FIXED 2026-06-28:** all four `notify.STD_*` groups (configuration.yaml) were defined
+with legacy service names (`mobile_app_iphone16promax_ryan`, `mobile_app_ap_0223_1001`,
+`mobile_app_honor10_dash`, `mobile_app_honorx7_dash`) that stopped existing once the
+mobile_app integration migrated to per-device notify *entities* (entity registry shows
+the rename at 2026-05-12 — current names are the four listed above). Since none of those
+legacy services existed, **all four groups silently failed to set up**, surfacing as a
+recurring HA repair item ("unknown action: notify.std_warning") on whichever automation
+happened to fire through `script.notify_power_event`/`notify_*_event` with that severity
+first — e.g. `automation.prepaid_strategic_top_up_suggestion`. Not specific to that
+automation; any consumer of the STD_* groups was equally broken. `packages/admin/
+tablets.yaml` had the same dead-name bug directly (`notify.mobile_app_honor10_dash` /
+`notify.mobile_app_honorx7_dash`, 8 call sites) — fixed to the current entity names.
 
 ### Canonical Call Patterns
 

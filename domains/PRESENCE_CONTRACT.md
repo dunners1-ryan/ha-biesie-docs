@@ -699,6 +699,39 @@ zone). Feed into classifier: `perim + not gate + allhome = visitor`, not arrival
 
 ---
 
+### BUG-P14 — `staff_on_site_override` has no automation to ever clear it; found stuck ON 24+ hours
+**Severity:** High  
+**File:** `presence/presence_trust.yaml`  
+**Status:** ✅ FIXED 2026-06-28.
+
+**Symptom:** User reported "lots of alerts" and `staff_on_site` not firing properly on
+Saturday 2026-06-27 despite the gardener schedule (08:00–16:30 Sat) being correctly
+configured and firing.
+
+**Root cause (confirmed via recorder/`home-assistant_v2.db` query):** The gardener
+schedule fired correctly — `input_boolean.gardener_on_site` turned ON at 08:00 and
+`binary_sensor.staff_on_site` correctly went ON at 08:00. But at **15:11:52**,
+`input_boolean.staff_on_site_override` was switched ON (manual dashboard toggle —
+no automation in the codebase writes to this entity). The override unconditionally
+forces `binary_sensor.staff_on_site` / `binary_sensor.low_trust_present` to `false`
+(see Section 11 below), regardless of `gardener_on_site` state. There is no
+automation anywhere that ever clears it. Recorder history shows it was **still ON
+24+ hours later** (checked 2026-06-28 ~20:00) — meaning every security alert in that
+window had the trust/staff suppression silently disabled, explaining the volume of
+unsuppressed alerts.
+
+**Fix:** Added two safety-net automations to `presence_trust.yaml`:
+- `staff_override_stuck_warning` — warns via `script.notify_system_event` if the
+  override has been ON for 2+ hours.
+- `staff_override_stuck_autoclear` — force-clears the override after 4+ hours and
+  notifies that it did so.
+
+**Action required:** the override was still ON at the time of this fix — manually
+toggle `input_boolean.staff_on_site_override` OFF now; the new automations only
+prevent recurrence, they don't clear pre-existing session state until reload+4h.
+
+---
+
 ## Section 11: Trust Model Design
 
 ### Intended Architecture (Three-Entity Chain)

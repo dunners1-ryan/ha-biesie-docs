@@ -402,6 +402,32 @@ Energy saving mode button similarly orphaned.
 
 ---
 
+### BUG-L10 [HIGH] Night arrival "Someone Home" scenario missing dining room light; patio auto-off ignored bedtime_mode
+**File:** `lighting/lighting_arrival_night.yaml`
+**Status:** ✅ FIXED 2026-06-28
+
+**Symptom:** User reported that on an evening arrival (front gate then front door opening),
+entrance downlights and dining room light should come on, and the patio light should also
+come on and stay on if it's before the bedtime routine — but dining room never turned on,
+and patio light kept turning off again ~5 minutes after arrival even before bedtime.
+
+**Root cause:** `automation.lighting_arrival_night`, Scenario 2 ("SOMEONE HOME" — fires when
+`binary_sensor.anyone_connected_home` is on and `quiet_arrival_mode` is off, i.e. the normal
+evening-arrival-with-family-already-home case):
+- The `switch.turn_on` target list never included `switch.dining_room_light` — only Scenario 1
+  (nobody home) did.
+- The 5-minute delayed patio/front-security-light auto-off only checked
+  `binary_sensor.bar_occupied == off`, with no check for whether bedtime had actually started
+  (`input_boolean.bedtime_mode`). So patio always switched off 5 minutes after any arrival
+  regardless of how early in the evening it was.
+
+**Fix:** Added `switch.dining_room_light` to the Scenario 2 turn-on list. Added a second
+condition — `input_boolean.bedtime_mode == 'on'` — to the auto-off gate, alongside the
+existing `bar_occupied == off` check. The patio/front-security auto-off now only fires once
+bedtime has actually started (or the bar is in use); before bedtime, the patio light stays on.
+
+---
+
 ## Section 8: Cross-Domain Dependencies
 
 | Entity | Provider | Consumed by |
