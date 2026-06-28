@@ -430,6 +430,15 @@ sensor.load_shedding_stage_eskom
 sensor.load_shedding_area_za_gt_jhb_weltevredenpark_pa5c
 ```
 
+**BUG FIXED 2026-06-28:** `load_shedding_templates.yaml` (all three derived sensors above)
+was still reading the stale `sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark`
+entity (state `None`, no attributes — a prior area-code/integration version), not the live
+`sensor.load_shedding_area_za_gt_jhb_weltevredenpark_pa5c` this contract already documented
+above (and which `load_shedding_automations.yaml` was already using correctly). `binary_sensor.
+load_shedding_active` happened to still read "off" by coincidence (no shedding scheduled while
+broken), which is why it went unnoticed. Found while wiring load-shedding awareness into
+`inverter_p4_grid_charge_control` — see "P4 grid charge" below.
+
 ### Load Power (power_helpers.yaml)
 
 ```
@@ -982,6 +991,12 @@ input_number.p4_deadline_zone_start_hour       h   16.0 — added 2026-06-24. Fr
                                                          on if soc_gap still exceeds the deadline threshold.
 input_number.p4_deadline_gap_threshold         %   3   — added 2026-06-24. Gap to target below which the
                                                          deadline push doesn't bother forcing grid.
+input_number.p4_max_grid_charge_rate_kw       kW   5.0 — added 2026-06-28. Observed achievable net
+                                                         SOC-closing rate with Grid forced on continuously
+                                                         (battery charge net of concurrent house load).
+                                                         Used to detect when the remaining kWh shortfall
+                                                         can no longer close in the time left — see
+                                                         "Rate-urgency + load shedding" below.
 ```
 
 **Programme time slots (confirmed E5 pre-flight):**
@@ -1030,11 +1045,21 @@ Default: logbook only (no change)
 mode: single (max_exceeded: silent — 5min ticks don't queue)
 ```
 
-**E5-3: automation.inverter_p4_grid_charge_control** (solar-aware delay + real-time release added 2026-06-23)
+**E5-3: automation.inverter_p4_grid_charge_control** (rate-urgency + load-shedding awareness added 2026-06-28)
 ```
 Triggers: time 14:00/14:30/15:00/15:30/16:00/16:30 (evaluate) + time 17:00 (restore, unconditional)
           + numeric_state sensor.inverter_battery_soc above orchestrator_target_soc_by_sunset (target_reached, real-time)
 Gate: inverter_programme_auto_enabled ON
+
+BUG FIXED 2026-06-28: the 17:00 `restore` trigger above did not actually exist
+in code prior to this date — Branch 2 referenced `trigger.id == 'restore'` but
+no trigger ever emitted that id, so Branch 2 was dead code (added trigger now
+present). Had no charging-behaviour impact in practice — the inverter's own
+P4 program window (14:00-17:00 hardware schedule) already cuts grid import at
+17:00 regardless of the HA select state (confirmed via recorder:
+`inverter_grid_power` drops to near-zero at 17:05 even when the select stayed
+"Grid") — but the select entity was misleadingly stuck on "Grid" all
+evening/overnight until the next day's 14:00 evaluate.
 
 Branch 0 — Target reached (real-time, added 2026-06-23):
   Fires the INSTANT SOC crosses target_soc_by_sunset while P4 = Grid.
@@ -1109,6 +1134,40 @@ deadline_gap_threshold)` so it can't undo the deadline push. Branch 0
 (real-time target-reached disable, added 2026-06-23) still takes priority and
 clears it immediately once SOC actually reaches target — the deadline push
 only matters for genuinely closing a real gap in the time remaining.
+
+Rate-urgency + load shedding (added 2026-06-28): SOC history for 06-24
+through 06-27 (recorder) showed the window still consistently plateauing
+76-85%, never reaching the 90% target, even after the deadline-push fix
+above. Root cause: `solar_tapered` reacts to instantaneous solar watts, not
+the accumulating kWh shortfall — on 06-26, solar sat above the 1500W gate
+from 14:00 to past 15:30 while `kwh_shortfall` grew from 4.1→8.6 kWh (logbook:
+"P4 hold — shortfall X kWh > threshold but solar still YW"), leaving only the
+fixed 16:00 deadline_zone to close a hole that had already outgrown what the
+inverter can physically charge in the time left.
+
+Added `rate_urgent`: computed each evaluate as
+`required_rate_kw = kwh_shortfall / hours_to_deadline` vs
+`input_number.p4_max_grid_charge_rate_kw` (5.0 kW default — the observed net
+SOC-closing rate from forcing Grid on continuously on 2026-06-25: SOC
+66%→83%, +8.2 kWh of the 48.2 kWh bank, over 1.5h ≈ 5.5 kW net, well below the
+raw 6-7kW grid import on `inverter_grid_power` since load draws from the same
+import). If closing the shortfall by the effective deadline would need a
+sustained rate above this, the "Deadline/rate-urgency push" branch fires
+immediately regardless of `solar_tapered` or the fixed 16:00 hour — same
+forcing action as the deadline push, just triggered earlier when the math
+says waiting will make the target unreachable.
+
+The effective deadline is no longer always 17:00: if
+`binary_sensor.load_shedding_active` is on, the deadline becomes "now" (grid
+already unavailable — no benefit to waiting). If the area sensor's `forecast`
+attribute shows a shed starting before 17:00, the deadline pulls forward to
+that start time (grid won't be chargeable during the outage either). Both
+collapse `hours_to_deadline` toward 0, which drives `required_rate_kw` up and
+trips `rate_urgent` — this is how "work around load shedding in the P4
+window" is implemented: charge before the outage rather than waiting for a
+deadline that assumed grid would still be there. The "Disable — solar on
+track" branch is guarded against undoing this the same way it's guarded
+against the deadline push (`not (rate_urgent and soc_gap > deadline_gap_threshold)`).
 
 Functional check (E5 2026-06-14):
   energy_pattern changed Load First → Battery First immediately on reload (orchestrator=conserve).
@@ -2059,7 +2118,7 @@ All power dashboards are in HA storage mode (`lovelace: mode: storage`). Files l
 | `sensor.house_unknown_load_power` | `sensor.unknown_load_power` | In power_templates.yaml |
 | `sensor.house_load_visibility_percent` | `sensor.load_visibility_score` | In power_templates.yaml |
 | `sensor.water_tank_level_percent` | `sensor.water_tank_level` | In water package |
-| `sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark` | `sensor.load_shedding_area_za_gt_jhb_weltevredenpark_pa5c` | load_shedding integration entity ID |
+| `sensor.load_shedding_area_jhbcitypower3_11_weltevredenpark` | `sensor.load_shedding_area_za_gt_jhb_weltevredenpark_pa5c` | load_shedding integration entity ID. BUG FIXED 2026-06-28: `load_shedding_templates.yaml` was still hardcoded to the old name (3 templates) — this row documented the rename but the code never caught up. See "Load Shedding" section above. |
 | `sensor.load_shedding_next_start` | `sensor.load_shedding_minutes_remaining` | No next_start entity in this integration version |
 
 ### Navbar
