@@ -402,7 +402,7 @@ Energy saving mode button similarly orphaned.
 
 ---
 
-### BUG-L10 [HIGH] Night arrival "Someone Home" scenario missing dining room light; patio auto-off ignored bedtime_mode
+### BUG-L15 [HIGH] Night arrival "Someone Home" scenario missing dining room light; patio auto-off ignored bedtime_mode
 **File:** `lighting/lighting_arrival_night.yaml`
 **Status:** ✅ FIXED 2026-06-28
 
