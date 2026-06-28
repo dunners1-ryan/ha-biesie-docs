@@ -306,6 +306,30 @@ action: notify.STD_Critical      # ❌ group removed — see bug note above
 service: notify.telegram_bot_5527
 ```
 
+**CONFIRMED REMOVED 2026-06-28 — companion-app commands (e.g. screen brightness) via notify:**
+```yaml
+# ❌ ALL of these fail with 400 "extra keys not allowed @ data['data']" / "@ data['command']"
+action: notify.send_message
+target:
+  entity_id: notify.honor_10_dash_mobile_app
+data:
+  message: "command_screen_brightness_level"
+  data:
+    command: 20          # ❌ nested data — rejected
+
+data:
+  message: "command_screen_brightness_level"
+  command: 20             # ❌ flat field — rejected
+```
+Verified directly against the live HA REST API (`GET /api/services` → `notify.send_message`
+schema has exactly two fields: `message`, `title` — no `data` field at all) and reproduced
+independently via Developer Tools → Actions. No replacement controllable entity exists for
+screen brightness — every mobile_app entity on both tablet devices is a read-only
+`sensor.`/`binary_sensor.` (checked all 40+ entities per device). This is what disabled
+`packages/admin/tablets.yaml`'s 4 brightness automations (`tablets_brightness_night_dim`,
+`_morning_restore`, `_away_dim`, `_return_restore`) on 2026-06-28 — not fixable from config
+until mobile_app exposes a controllable brightness entity or restores command support.
+
 ---
 
 ## 8. WATER NOTIFICATIONS AUTOMATION — DEAD TRIGGER
