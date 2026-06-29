@@ -1258,6 +1258,8 @@ Switch entity: `switch.geyser_heat_pump_switch` (~1.25 kW draw).
 input_boolean.geyser_sports_night              ← Tue/Thu auto-set 17:00; clears 00:01 daily
                                                   sports_night only extends evening hard-off
 input_boolean.geyser_morning_override          ← bypasses load_control_geyser_enabled for morning
+                                                  Midday (12:00) auto-clear added 2026-06-29
+                                                  (geyser_morning_override_midday_clear, geyser_automations.yaml)
 input_boolean.geyser_manual_run_active         ← ON while manual run in progress
 input_boolean.geyser_reached_temp_today        ← set when geyser_at_temperature → on; reset midnight
                                                   Used by geyser_daily_minimum_check (2026-06-17)

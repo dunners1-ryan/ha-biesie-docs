@@ -130,9 +130,10 @@ to suppress false occupancy on restart.
 | Entity | Type | Set by |
 |---|---|---|
 | `input_boolean.maid_on_site` | manual/auto | `maid_schedule_start/end` (Mon/Thu) |
-| `input_boolean.gardener_on_site` | manual/auto | `gardener_schedule_start/end` (Sat) |
+| `input_boolean.gardener_on_site` | manual/auto | `gardener_schedule_start/end` (Sat, 08:00–16:30) |
 | `input_boolean.contractor_on_site` | manual only | Dashboard; reset at 18:00 daily |
-| `input_boolean.staff_on_site_override` | manual only | Dashboard; clears derived sensors |
+| `input_boolean.staff_on_site_override` | manual only | Dashboard; clears derived sensors. 2h warning + 4h auto-clear safety net (BUG-P14, presence_trust.yaml) |
+| `input_boolean.boundary_permissive_override` | manual only | Dashboard. **Midnight auto-clear added 2026-06-29** (presence_trust.yaml `boundary_permissive_override_midnight_clear`) — single-day exception, no longer persists overnight if forgotten |
 | `binary_sensor.staff_on_site` | derived | maid_on_site OR gardener_on_site (with override) |
 | `binary_sensor.low_trust_present` | derived | staff_on_site OR contractor_on_site (with override) |
 | `input_boolean.low_trust_present` | **LEGACY MANUAL** | Nothing (commented out in schedules) |
@@ -402,7 +403,7 @@ right MAC. The discrepancy should be verified.
 | `house_departure_event` | `front_security_gate_sensor → on` | None | Low |
 | `presence_boundary_resolver` | `main_gate_sensor → on` | None | Low |
 | `gate_open_too_long_permissive` | `main_gate_sensor → on for 5m` | None | Low |
-| `maid_schedule_start` | `time at: input_datetime.maid_start` | N/A | ✅ Time trigger |
+| `maid_schedule_start` | `time at: input_datetime.maid_start` | N/A | ✅ Time trigger. **`maid_start` changed 09:00→10:00 (2026-06-29, live via API)** — recorder showed first actual maid camera activity (ipcam01/ipcam03 entrance) at 09:47–09:59 on 2026-06-29, ~50min after the old 09:00 schedule; `maid_end` unchanged at 17:45. |
 | `gardener_schedule_start` | `time at: input_datetime.gardener_start` | N/A | ✅ Time trigger |
 | `sync_staff_state_on_startup` | `homeassistant: start` | N/A | ✅ Event trigger |
 | `suppress_security_after_restart` | `homeassistant: start` | N/A | ✅ Event trigger |

@@ -72,7 +72,7 @@ person.*                             ← HA mobile geo — UNRELIABLE for local 
 | `lighting_garage.yaml` | ~90 | Garage presence-aware lighting |
 | `lighting_office_presence.yaml` | ~90 | Office presence-aware lighting |
 | `lighting_bar_presence.yaml` | ~180 | Bar presence + Telegram confirmation |
-| `lighting_entertainment.yaml` | ~90 | Entertaining mode — wires button→input_boolean.entertaining_mode, applies/restores scene, 06:00 clear |
+| `lighting_entertainment.yaml` | ~90 | Entertaining mode — wires button→input_boolean.entertaining_mode, applies/restores scene, 01:00 backstop clear (was 06:00, changed 2026-06-29) |
 | `lighting_energy_saving.yaml` | ~80 | Energy saving mode — button wiring, TIER 2 light suppression (pool, patio, back security) |
 
 ---
@@ -558,6 +558,14 @@ DONE 2026-06-14
               the morning routine at night. Fixed: condition now checks
               morning_start <= now() < 12:00 (noon ceiling added to both weekday and weekend paths).
               lighting_morning.yaml condition block updated.
+
+DONE 2026-06-29
+[✅] entertaining_mode no longer relies solely on the fixed-clock daily clear: bar_bedtime_cutoff
+              (lighting_bar_presence.yaml) now turns entertaining_mode OFF directly when it turns
+              off the patio lights (bedtime + nobody at bar = real "party's over" signal). The
+              fixed-clock clear (entertainment_mode_daily_clear, lighting_entertainment.yaml) is now
+              just a backstop for when that path never fires — moved 06:00→01:00 so a forgotten
+              override doesn't bleed as far into the night.
 ```
 
 ---

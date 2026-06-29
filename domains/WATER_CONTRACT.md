@@ -253,6 +253,10 @@ input_boolean.water_refill_force_override        Force-start refill bypassing so
                                                  and last-sun-slot gates. Safety hard-stops
                                                  (battery floor 40%, max depth 1.95m) still apply.
                                                  Turn OFF manually on dashboard after use.
+                                                 Midnight auto-clear added 2026-06-29
+                                                 (water_refill_force_override_midnight_clear,
+                                                 water_tank_refill_control.yaml) — no longer
+                                                 relies solely on manual clear.
                                                  Added 2026-06-14 (water_helpers.yaml).
 ```
 

@@ -175,6 +175,8 @@ Generic recommendations for any street-facing camera covering the lower driveway
 
 **HA note (ipcam02):** Partially active — `scenechangedetection` works and is included in `ipcam02_street_driveway_down_motion_valid` as a fallback (2026-05-27). AcuSense sensors (fielddetection/linedetection/regionentrance) still not discovered by hikvision_next (BUG-S28). Full camera restart + Smart Event reconfigure + HA re-add attempted 2026-05-28 — still only scenechangedetection. These recommendations apply once AcuSense discovery is resolved.
 
+**Design note (2026-06-29) — perimeter-front cameras structurally cannot alert on departure:** User asked why a 7:05am departure produced no notification from ipcam01/ipcam02. Investigated via recorder DB — confirmed no camera (ipcam01/02/03 or NVR) fired any signal during either gate-open window that morning, so the immediate cause was the cameras genuinely seeing nothing (network/AcuSense flake, or pedestrian/pickup that never crossed a configured zone). But independent of that: ipcam01's Region Exiting is disabled and its Line Crossing is approach-direction-only (table above), and ipcam02's Region Exiting is likewise unused — both by deliberate design (BUG-S29 fix, 2026-05-20). **Perimeter-front cameras will never alert on a departure, even when working correctly** — they only ever signal someone/something approaching the gate from the street. Departure notifications ("🚗 Departure — vehicle leaving") are wired to `binary_sensor.ipcam03_driveway_exit_valid` (the driveway camera, inside the gate — `security_automations.yaml` `security_gate_vehicle_stage1`), not to the perimeter-front cameras. If departure-side perimeter coverage is wanted in future, it requires a new zone/rule on ipcam01/02 facing away from the gate — current config explicitly avoids this (see Region Exiting "Disable" rationale above).
+
 #### Hikvision AcuSense — HA Entity Limitations
 
 **Human vs vehicle separation:** AcuSense cameras DO classify at hardware level. However hikvision_next maps one HA entity per event TYPE, not per detection target. Multiple rules for the same event type (e.g., Rule 1 = Human, Rule 2 = Vehicle, both Region Entrance) still produce one `*_regionentrance` entity in HA.
@@ -1871,9 +1873,10 @@ SPRINT 9h+ — dogs_inside departure notification tap (2026-06-14)
         time-critical regardless of sleep mode).
       Telegram suppressed when dogs = true (choose conditions use 'and not dogs').
 
-[❌] auto-off: dogs_inside has NO auto-off. Must be cleared manually on return
-      (or the inside_cameras_arming disarm logic clears the arming booleans on return,
-      which prevents false alerts even if dogs_inside is left on).
+[✅] auto-off: FIXED 2026-06-29 — `dogs_inside_midnight_clear` automation added
+      (security_automations.yaml) turns dogs_inside off at 00:00 if still on, with a
+      logbook entry. Was previously "no auto-off". Manual clear on return is now a
+      same-day safety net, not the only mechanism.
 ```
 
 SPRINT 9h — dogs_inside, auto/manual arming split, dogs_out 10min (2026-05-20)
