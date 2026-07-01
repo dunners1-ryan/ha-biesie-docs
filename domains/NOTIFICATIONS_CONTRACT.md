@@ -228,27 +228,33 @@ notify.honor_10_dash_mobile_app, notify.honor_x7_dash_mobile_app  # Individual m
 **BUG FIXED 2026-06-28 (two-pass — first attempt was wrong):** all four `notify.STD_*`
 groups (configuration.yaml) originally referenced legacy mobile_app service names
 (`mobile_app_iphone16promax_ryan`, `mobile_app_ap_0223_1001`, `mobile_app_honor10_dash`,
-`mobile_app_honorx7_dash`) that stopped existing once the mobile_app integration migrated
-to per-device notify *entities* (entity registry shows the rename at 2026-05-12). First
-fix attempt just renamed the group members to the current entity slugs (e.g.
-`ryan_iphone16_mobile_app`) — **this did not work**, and the exact same "unknown action:
-notify.std_warning" repair item recurred. Confirmed via `ha core logs`: even
-`notify.telegram_bot_5527` as a bare service throws `ServiceNotFound` — mobile_app AND
-the Telegram integration are now **entity-only**, neither registers any bare `notify.<x>`
-service anymore. The legacy `platform: group` mechanism calls member services by name
-internally, so it cannot work with ANY current target, regardless of what name is used.
+`mobile_app_honorx7_dash`). First fix attempt just renamed the group members to the
+current entity slugs (e.g. `ryan_iphone16_mobile_app`) — **this did not work** — the
+legacy `platform: group` mechanism calls member services by name internally, and `notify.telegram_bot_5527`
+as a bare service throws `ServiceNotFound`. The `platform: group` mechanism cannot work
+with entity-based targets regardless of what name is used.
 
 **Real fix:** all 19 `notify.STD_Information` / `notify.STD_Warning` / `notify.STD_Critical`
 call sites, across `notify_power_event.yaml`, `notify_water_events.yaml`,
 `notify_system_event.yaml`, `notify_light_events.yaml`, `notify_presence_events.yaml`,
 `notify_security_events.yaml`, were converted to call `notify.send_message` directly with
-an explicit `target.entity_id` list of all 4 device entities (see Canonical Call Patterns
-below) — the only mechanism that still works post-migration. The three now-unused
+an explicit `target.entity_id` list of all 4 device entities. The three now-unused
 `STD_Information`/`STD_Warning`/`STD_Critical` group definitions were removed from
-configuration.yaml. `packages/admin/tablets.yaml` had the same dead-name bug directly in
-8 action calls (`notify.mobile_app_honor10_dash` / `notify.mobile_app_honorx7_dash`,
-then `notify.honor_10_dash_mobile_app` / `notify.honor_x7_dash_mobile_app` after the
-first, still-wrong pass) — fixed to `notify.send_message` + `target.entity_id`.
+configuration.yaml. `packages/admin/tablets.yaml` had the same dead-name bug — fixed to
+`notify.send_message` + `target.entity_id`.
+
+**CORRECTION 2026-07-01 — nested data: silently dropped ALL notifications + legacy services ARE still valid:**
+`notify.send_message` schema (verified via `GET /api/services`) has exactly two fields: `message` and `title` only.
+Any extra field in `data:` — including a nested `data: { image, actions, push, channel, ttl }` block — returns
+HTTP 400 Bad Request. The 2026-06-28 PART 5 fix correctly replaced STD_* groups but preserved the nested `data:`
+block in every critical branch, so ALL notifications continued to silently fail via `continue_on_error: true`.
+Confirmed via recorder: 2026-06-30 camera pipeline ran correctly, but zero push notifications reached any phone.
+**ALSO CORRECTED:** `notify.mobile_app_iphone16promax_ryan` / `notify.mobile_app_ap_0223_1001` /
+`notify.mobile_app_honor10_dash` / `notify.mobile_app_honorx7_dash` ARE still registered as bare services
+(confirmed `GET /api/services` 2026-07-01) with a `data:` field in their schema — the PART 5 claim that
+"legacy services no longer exist" was wrong. These legacy services are now the ONLY way to pass `data: { push: { interruption-level: critical } }` for iOS DND bypass and Android alarm channel.
+**Two-tier fix applied 2026-07-01:** information + warning → `notify.send_message` (schema-valid);
+critical → 4 separate `notify.mobile_app_*` calls with `data: { push.interruption-level: critical, channel: alarm, ttl: 0, priority: high }`.
 
 **STILL BROKEN, NOT YET FIXED:** `notify.STD_Alerts` is used by 16+ `alert:` integration
 definitions across `packages/alerts/*.yaml` via `notifiers: [STD_Alerts]`. The `alert:`
@@ -267,7 +273,7 @@ the now-fixed `notify_*_event` scripts on `alert.*` state change. Affected files
 
 ### Canonical Call Patterns
 
-**Mobile app fan-out (scripts) — current, post-migration:**
+**Information / Warning — `notify.send_message` with entity target (schema-valid, no data: support):**
 ```yaml
 - action: notify.send_message
   continue_on_error: true
@@ -280,6 +286,49 @@ the now-fixed `notify_*_event` scripts on `alert.*` state change. Affected files
   data:
     title: "..."
     message: "..."
+    # ⚠️ NO other fields — schema rejects anything except message and title (HTTP 400)
+```
+
+**Critical — legacy per-device services (supports data: for alarm channel + iOS DND bypass):**
+```yaml
+- action: notify.mobile_app_iphone16promax_ryan    # iOS — use push.interruption-level: critical
+  continue_on_error: true
+  data:
+    title: "..."
+    message: "..."
+    data:
+      push:
+        interruption-level: critical
+      channel: alarm
+      ttl: 0
+      priority: high
+- action: notify.mobile_app_ap_0223_1001            # Android — no push: needed
+  continue_on_error: true
+  data:
+    title: "..."
+    message: "..."
+    data:
+      channel: alarm
+      ttl: 0
+      priority: high
+- action: notify.mobile_app_honor10_dash
+  continue_on_error: true
+  data:
+    title: "..."
+    message: "..."
+    data:
+      channel: alarm
+      ttl: 0
+      priority: high
+- action: notify.mobile_app_honorx7_dash
+  continue_on_error: true
+  data:
+    title: "..."
+    message: "..."
+    data:
+      channel: alarm
+      ttl: 0
+      priority: high
 ```
 
 **Telegram (scripts):**
@@ -291,16 +340,19 @@ the now-fixed `notify_*_event` scripts on `alert.*` state change. Affected files
   data:
     title: "..."
     message: "..."
+    inline_keyboard:        # Telegram-specific; accepted by Telegram's send_message schema
+      - "Label:/command"
 ```
 
-**DEPRECATED — do not use (confirmed broken 2026-06-28, neither registers a bare service):**
+**DEPRECATED — do not use:**
 ```yaml
-# ❌ mobile_app / telegram are entity-only — no bare service exists
-action: notify.ryan_iphone16_mobile_app
+# ❌ platform: group mechanism calls member names as bare services internally — broken for entity targets
+action: notify.STD_Information   # ❌ group removed from configuration.yaml 2026-06-28
+action: notify.STD_Warning       # ❌ group removed
+action: notify.STD_Critical      # ❌ group removed
+
+# ❌ Telegram as bare service — registers entity-only, no bare notify.telegram_bot_5527 service
 action: notify.telegram_bot_5527
-action: notify.STD_Information   # ❌ group removed — see bug note above
-action: notify.STD_Warning       # ❌ group removed — see bug note above
-action: notify.STD_Critical      # ❌ group removed — see bug note above
 
 # ❌ Pre-2024 service syntax
 service: notify.telegram_bot_5527
