@@ -219,6 +219,8 @@ Departure: any family member AP changed → Away/Disconnected
 Pass 2: same logic (handles slow WiFi disconnect)
 ```
 
+**Pass 2 arrival WiFi fallback notification (added 2026-07-01):** Pass 2 arrival branch now sends an `"🏠 Arrived (via WiFi)"` information notification via `script.notify_security_event` when Stage2 security pipeline (`automation.security_arrival_stage_2_confirm_who_arrived`) has NOT been triggered within the last 5 minutes (`stage2_age > 300s`). Prevents silent arrivals on days when the camera pipeline is delayed or unavailable. If Stage2 already handled the arrival notification, this conditional is skipped.
+
 **Pass 2 departure gap:** Pass 2 departure branch does NOT check
 `anyone_connected_home = off` — a departure will be logged even if another
 family member is still connected. This is intentional (the condition was

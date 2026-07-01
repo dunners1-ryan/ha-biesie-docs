@@ -552,14 +552,19 @@ SOLE PATH after S3 (2026-05-17) + S7 (2026-05-18) + S8 (2026-05-19):
 
 Two-stage arrival/departure (S11b — updated 2026-05-22):
   security_gate_vehicle_stage1 (arrival) → fires on binary_sensor.main_gate_sensor ON
-    condition: ipcam01 fired within 120s (vehicle from street = arrival)
+    condition: ipcam01 fired within 180s (vehicle from street = arrival) [extended 120→180s 2026-05-23]
+  security_arrival_stage1 FALLBACK trigger (added 2026-07-01): ipcam01_street_driveway_up_entrance_valid → on
+    condition: gate_recent (gate opened < 60s ago) AND NOT exit_recent (ipcam03 exit_valid NOT recent)
+    mode: single → silently dropped if gate trigger already running Stage1
+    handles car-fires-after-gate scenario (remote opened before camera zone detected approach)
   security_gate_vehicle_stage1 (departure) → fires on ipcam03_driveway_exit_valid
     condition: gate opened without recent ipcam01 (car reversing = departure)
   security_arrival_stage2_confirm  → 3.5min delay, AP delta confirms who arrived
   security_departure_stage2_confirm → 3.5min delay, AP delta confirms who left
 
-  Note: ipcam03 Region Entrance disabled (2026-05-22). entrance_valid trigger removed.
+  Note: ipcam03 Region Entrance disabled (2026-05-22). ipcam03 entrance_valid NOT a Stage1 trigger.
   ipcam03 line crossing set to driveway→gate direction (departure only).
+  ipcam01 entrance_valid IS a Stage1 fallback trigger (added 2026-07-01 — see above).
 
 Deleted in S3: security_grounds_motion, security_rear_grounds_motion,
 security_house_motion, security_visitor, security_arrival_detected.
@@ -1013,14 +1018,17 @@ Entity `binary_sensor.security_visibility_low` does NOT exist. The correct entit
 
 ---
 
-### BUG-S38 — Stage 1 arrival ipcam01 120s window too narrow (gate opens missed)
-**Priority: MEDIUM | Status: ✅ FIXED 2026-05-23 (S13)**
+### BUG-S38 — Stage 1 arrival ipcam01 window too narrow + camera-fires-after-gate scenario
+**Priority: MEDIUM | Status: ✅ FIXED 2026-07-01 (extended + fallback trigger added)**
 
-**Symptom:** Arrival at ~18:59 on 2026-05-23 — screenshots show two gate opens. First gate open missed (Stage 1 not triggered); only second gate open detected. Earlier in the day, departure at ~10:20 also missed.
+**Symptom (original 2026-05-23):** First gate open missed; ipcam01_recent window (120s) expired before gate opened. Fixed 2026-05-23: extended 120→180s.
 
-**Root cause:** Stage 1 condition requires `ipcam01_recent` (ipcam01 fired within 120s of gate open) to confirm vehicle came from street. If ipcam01 fires but the gate is delayed in opening (slow driver, fumbling with remote), or ipcam01 fires briefly and resets, the 120s window is missed and Stage 1 treats the gate open as not vehicle-from-street → no arrival.
+**Symptom (2026-07-01):** Arrival missed when car remote-opens gate *before* the camera zone detects it (no approach phase — car already at gate). Gate trigger fires but ipcam01_recent = false (ipcam01 hasn't fired yet). Camera fires *after* gate is already open, so the gate trigger's ipcam01_recent condition fails and Stage1 doesn't register arrival.
 
-**Fix plan:** security_automations.yaml Stage 1: extend ipcam01_recent window from 120s to 180s. Also add AP-based fallback path: if gate opens + nobody_home (departure context) or family_arriving (AP-detected arrival is coming), fire Stage 1 even without ipcam01 confirmation.
+**Fix (2026-07-01):** Added `binary_sensor.ipcam01_street_driveway_up_entrance_valid` as a second trigger for `security_arrival_stage_1`. When entrance_valid fires, the condition checks:
+- `gate_recent`: gate opened within the last 60s (car that just opened it)
+- NOT `exit_recent`: `ipcam03_driveway_exit_valid` NOT recent — departure not in progress
+Both must be true for the fallback to proceed. `mode: single` means if the gate trigger already ran Stage1, the entrance_valid trigger is silently dropped. ipcam01_recent window confirmed at 180s.
 
 ---
 

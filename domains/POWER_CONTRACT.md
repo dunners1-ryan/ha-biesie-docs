@@ -1335,7 +1335,13 @@ sensor.geyser_control_status         13-state priority display
 binary_sensor.geyser_at_temperature  ON after 5 min sustained geyser_heat_pump_power < 50W while switch on
 sensor.geyser_daily_status           reached_temp / heating / low_energy / no_run  (added 2026-06-17)
                                      Attributes: energy_today_kwh, morning/midday/evening_kwh,
-                                     reached_temp_today, at_temperature_now, min_energy_kwh
+                                     reached_temp_today, at_temperature_now, min_energy_kwh,
+                                     midday_adequacy (added 2026-07-01):
+                                       Before 15:00: "In progress — X.X kWh (need Y.Y)"
+                                       After 15:00, adequate: "Adequate (X.XX / Y.Y kWh) — early start 17:00/17:30"
+                                       After 15:00, low: "Low (X.XX / Y.Y kWh) — 18:30 fallback"
+                                       Season-aware: winter early = 17:00, non-winter = 17:30.
+                                       Threshold: input_number.geyser_adequate_daily_energy_by_midday (3.0 kWh).
 ```
 
 **Full evening schedule (updated 2026-06-24):**
