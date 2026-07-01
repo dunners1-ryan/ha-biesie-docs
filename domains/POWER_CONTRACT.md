@@ -1114,6 +1114,25 @@ power_statistics.yaml until fixed 2026-06-23 — see Known Issues. While broken,
 the load term defaulted to 0 via `|float(0)`, making solar_for_battery slightly
 optimistic (shortfall computed smaller than true value).
 
+Forecast ratio adjustment (added 2026-07-01): incident — 2026-07-01 was a bad
+solar day (Solcast forecast 46 kWh, actual much lower), but SOC only reached 81%
+vs 90% target. Root cause: `sensor.solcast_pv_forecast_forecast_remaining_today`
+reflects forecasted production for the remaining hours — on an overcast day where
+actual output is 30% of forecast, the remaining_forecast stays optimistic all
+afternoon. This kept `solar_for_battery` high, `kwh_shortfall` below the 5 kWh
+`gap_threshold`, and blocked both the enable condition AND `rate_urgent` (both gate
+on `kwh_shortfall > gap_threshold`). Only the 16:00 deadline_zone fired, leaving
+just 1 hour to close the gap. Fix: multiply remaining_forecast by
+`sensor.solar_vs_forecast_ratio_today / 100` before the shortfall calculation.
+By 14:00 the ratio reflects 7+ hours including peak solar window (11:00-14:00)
+— a highly reliable signal. On bad days (ratio 30%) adjusted remaining goes from
+13.5 → 4 kWh, making kwh_shortfall accurate and triggering grid at 14:00-15:00
+instead of 16:00. Good days (ratio ~100%) are unaffected. The ratio sensor has a
+10am guard (returns 100 before 10am), so no risk of premature scaling.
+Variables added: `remaining_forecast_raw` (raw Solcast value), `ratio_today`
+(ratio / 100), `remaining_forecast` (adjusted = raw × ratio). Logbook messages
+updated to show "raw X kWh × ratio Y% = Z kWh" for auditability.
+
 input_number.p4_grid_charge_solar_gate_w  W  1500 default (power_helpers.yaml)
   Lower = waits longer/closer to sunset before resorting to grid (more
   efficient, more risk of not closing the gap in time).
