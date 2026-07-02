@@ -209,6 +209,7 @@ This gives partial separation: `fielddetection` = person-specific signal; `regio
 - `binary_sensor.ipcam03_driveway_exit_valid` — departure from property
 - `binary_sensor.ipcam01_street_driveway_up_entrance_valid` — person/vehicle approaching gate from street (primary)
 - `binary_sensor.ipcam02_street_driveway_down_entrance_valid` — secondary street approach (may be inactive until ipcam02 initialises)
+- `binary_sensor.security_gate_loitering` — **added 2026-07-02 (S17).** Sustained (7s+, `delay_on`) presence on ipcam01 regionentrance, distinct from a quick pass-through. Used only when `staff` (low_trust_present) is on, to tell a person genuinely waiting at the gate from staff walking straight through during their scheduled window. See RUNG 5 below.
 
 ### Visitor vs Arrival Logic (updated 2026-05-08)
 
@@ -534,8 +535,10 @@ SOLE PATH after S3 (2026-05-17) + S7 (2026-05-18) + S8 (2026-05-19):
   security_event_router (trigger: sensor.security_event_classification state change)
     → dispatches by classifier output:
         arrival/departure     → logbook only (stage1/stage2 own notifications)
-        service_person        → script.notify_security_event (10-min cooldown via last_visitor_event)
-        visitor               → script.notify_security_event (critical, 60s cooldown — BUG-S27 fix)
+        service_person        → logbook only, silent (staff/grounds/inside motion, AND staff
+                                 passing straight through the gate without loitering — S17 2026-07-02)
+        visitor               → script.notify_security_event (critical, ALWAYS — S17 2026-07-02,
+                                 BUG-S54 — was conditional on allhome/anyhome; flat 30s cooldown)
         perimeter_threat      → script.notify_security_event (warning)
         intruder              → script.notify_security_event (critical)
         critical_intrusion    → script.notify_security_event (critical)
@@ -1423,6 +1426,97 @@ investigation) were left unchanged.
 
 ---
 
+### BUG-S54 — Visitor at gate downgraded to warning (or silently suppressed) when only "some" family home
+**Priority: HIGH | Status: ✅ FIXED 2026-07-02 (S17)**
+
+**Symptom:** A real visitor at ipcam01 (09:34–09:37, 2026-07-02) generated two
+`warning`-severity pushes ("🔔 Activity at gate — arrival or visitor?" then
+"⚠️ Activity on front perimeter") instead of critical, and a third repeat event
+5 minutes later produced no notification at all.
+
+**Root cause:** RUNG 5a (`visitor`, critical) only fired when `allhome or not
+anyhome` — i.e. only when the classifier was *certain* no family member could
+be the person at the gate. With "some" family home (a common daytime state),
+the event fell to the neutral RUNG 5b (`gate_activity`), hard-capped to
+`warning` severity outside night hours. Separately, `input_boolean.maid_on_site`
+had been manually toggled on at 08:00 (two hours before the scheduled 10:00
+window) — `binary_sensor.staff_on_site` being on stretched the router cooldown
+from 30s to 1800s, silently swallowing the third event.
+
+**User directive:** false "arrival" noise (e.g. can't find your keys) is
+acceptable; missing a real visitor is not. Visitor-at-gate should always be
+critical and fast (<15s), with staff-hours filtering based on movement
+pattern (loitering), not who's home.
+
+**Fix (`security_logic.yaml`):** RUNG 5a/5b collapsed into one RUNG 5 —
+`perim_front and entrance_valid and not gate and not arriving` → `visitor`
+(critical) always, UNLESS `staff` is on AND the person is NOT loitering, in
+which case → `service_person` (silent). New `binary_sensor.security_gate_loitering`
+(`cameras_processing.yaml`) — `delay_on: 7s` on ipcam01 regionentrance, so
+only sustained presence counts, not a quick pass-through.
+
+**Fix (`security_automations.yaml`):** Visitor/gate_activity router cooldowns
+simplified from `1800s if staff_on_site else 30s` to a flat 30s — staff
+filtering now happens upstream in the classifier, so the long cooldown was
+redundant and could mask a genuine new visitor arriving mid-staff-shift.
+RUNG 5c (`gate_activity` for gate+grounds ambiguity, unrelated) still shares
+the same router branch; its title/message/image corrected from stale
+perimeter-front wording to grounds-based wording since RUNG 5b (the only
+other rung that used to reach that branch) no longer exists.
+
+**Latency:** non-staff visitor ≈4-5s end to end; staff-hours loitering case
+≈11-12s (7s loiter threshold + 4s snapshot delay). Both under the 15s target.
+
+---
+
+### BUG-S55 — Stage1 misclassified an arrival as a departure (ipcam01 never fired)
+**Priority: HIGH | Status: ✅ FIXED 2026-07-02 (S17)**
+
+**Symptom:** Vicky's arrival at 12:50 pushed "🚗 Departure — vehicle leaving".
+Stage 2 (AP-based confirm) found no family member's phone had disconnected,
+logged "Unknown left", and suppressed it as likely staff — the correct
+"🏠 Arrived (via WiFi) — Vicky home" only appeared 4 minutes later via an
+unrelated presence pipeline (WiFi AP arrival detection). Same pattern also
+occurred at 09:23 the same morning.
+
+**Root cause:** `security_gate_vehicle_stage1`'s exit_valid branch only checks
+`binary_sensor.ipcam01_street_driveway_up_motion_valid` recency to rule out a
+false departure-on-arrival (BUG-S36, 2026-05-21). The street camera simply
+never fired for this arrival. The real tell was available on-site:
+`binary_sensor.ipcam03_driveway_entrance_valid` fired 35s *before* the gate
+even opened — direct evidence a vehicle was already at the gate mouth — but
+Stage1 never looked at it.
+
+**Fix (`security_automations.yaml`):** exit_valid branch now also treats
+`ipcam03_driveway_entrance_valid` recency (state=on OR age<90s) as arrival
+corroboration, OR'd with the existing `ipcam01_recent` check. Uses the
+earliest available on-site evidence instead of relying solely on the street
+camera, which had missed the approach both times it happened this session.
+
+---
+
+### BUG-S56 — Notification "Camera:" field showed an unrelated camera, not the one in the attached image
+**Priority: MEDIUM | Status: ✅ FIXED 2026-07-02 (S17)**
+
+**Symptom:** Gate/arrival notifications carrying an `ipcam03_driveway` snapshot
+were labelled "Camera: Passage" (cam15).
+
+**Root cause:** `notify_security_events.yaml`'s `cam_name` read
+`input_text.security_last_motion_camera` — a GLOBAL tracker updated by
+whichever camera fired most recently anywhere on the property, decoupled from
+the image actually attached to that specific notification call. cam15_passage
+happened to fire around the same moment as the gate event elsewhere in the
+house.
+
+**Fix:** `cam_name` now derives from the snapshot filename passed in `image`
+first (every per-camera snapshot embeds the camera slug —
+`ipcam03_driveway_<ts>.jpg`, `cam07_front_kitchen_<ts>.jpg` — matched against
+the live `camera.<slug>` entity's `friendly_name`), falling back to the old
+`security_last_motion_camera` behaviour only for slug-less images
+(`security_latest.jpg`) or when no image is passed at all.
+
+---
+
 ## Section 7: Active Log Errors
 
 **Note:** `home-assistant.log` is not available in the local git repository (it lives only
@@ -2295,6 +2389,14 @@ Also gated by: `security_dogs_out` OFF + `guest_mode` OFF + 5-min cooldown on `l
 
 ---
 
+*Updated 2026-07-02 (S17): BUG-S54 — RUNG 5a/5b collapsed, visitor-at-gate always critical*
+*  (new binary_sensor.security_gate_loitering, 7s delay_on, gates staff-hours filtering by*
+*  movement pattern instead of who's-home); BUG-S55 — Stage1 exit_valid direction check now*
+*  also trusts ipcam03_driveway_entrance_valid recency, not just ipcam01, fixing a wrong*
+*  "Departure" push on a real arrival; BUG-S56 — notify_security_event cam_name now derived*
+*  from the snapshot filename in `image` (matched to camera.<slug> friendly_name) instead of*
+*  the unrelated global input_text.security_last_motion_camera. Section 3 (new entity),*
+*  Section 6 (BUG-S54/55/56) updated.*
 *Audit completed: 2026-04-13*
 *Updated 2026-05-28: BUG-S28 — ipcam02 full reconfigure + HA re-add attempted; AcuSense still absent. Section 10.9 + BUG-S28 + camera table updated. scenechangedetection fallback documented.*
 *Updated 2026-05-27 (S15): BUG-S47 stale image fix; RUNG 5 three-way split (perimeter_front / visitor / gate_activity);*
