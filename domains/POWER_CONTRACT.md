@@ -310,6 +310,8 @@ Daily reconciliation is required because:
 1. Enter `prepaid_meter_lifetime_import` (1.8.0) + `prepaid_units` (C.51.0) → click **Realign** (establishes ground truth, records drift)
 2. Enter purchase details → click **Update Prepaid Units** (snapshots grid baseline on clean post-realign state)
 
+**Edge case — meter reading taken AFTER the voucher was already applied** (e.g. missed/late entry, or a voucher that timed out on the meter and was re-keyed later, 2026-07-03 incident): step 2's "Update Prepaid Units" button ADDS the purchase kWh on top of the current `prepaid_units` balance — correct only if the balance you Realigned to in step 1 does NOT already include that purchase. If your fresh meter reading already reflects the purchase (post-application), do NOT click Update Prepaid Units as normal — it will double-count the kWh into the balance. Instead: Realign as normal (safe, only touches drift/offset), then manually set `input_number.initial_prepaid_grid_import` to the live `sensor.grid_energy_import_total` (mirrors what Update would have snapshotted), then add the purchase's units/cost/fixed-charge directly to `prepaid_total_units`/`prepaid_total_spent`/`prepaid_fixed_cost_paid` (and the month/year equivalents below) without touching `prepaid_units` again. Verify first via meter math: `balance_delta + consumption_since_last_reading` should equal the purchased kWh, confirming the voucher actually landed before backfilling.
+
 **Prepaid diagnostic (added 2026-04-23):** `pyscript.prepaid_diagnostic` (mirrors `power_snapshot.py` pattern) — creates persistent_notification with full reconciliation state, drift trend, balance cross-check, and realign preview. Callable via `script.prepaid_diagnostic` dashboard button or Developer Tools → Services.
 
 **`sensor.prepaid_net_position_this_month`**: Always available (no guard, all inputs use `| float(0)`). Returns 0 at month start before utility meters accumulate. Formula: `solar_savings_this_month - prepaid_spend_this_month`.
@@ -546,12 +548,33 @@ sensor.prepaid_grid_meter_drift          kWh  absolute drift (inverter vs meter)
 sensor.prepaid_drift_percentage          %    drift as % of lifetime import
 sensor.prepaid_last_update_date              when prepaid_units was last entered
 sensor.prepaid_estimated_days_remaining  days  at adaptive burn rate
-sensor.prepaid_rolling_30day_usage       kWh  rolling 30-day window (entity_id: prepaid_monthly_usage_true — NOT calendar month reset, use prepaid_import_monthly for that)
+sensor.prepaid_rolling_30day_usage       kWh  entity_id: prepaid_monthly_usage_true — ⚠️ MISLABELED (open, flagged 2026-07-03):
+                                                despite the name this is NOT a sliding 30-day window. It mirrors the
+                                                prepaid_import_monthly utility meter's `last_period` attribute (last
+                                                COMPLETED calendar month's total, frozen until next month boundary) or
+                                                current running total if last_period is 0. Does not recompute daily.
 
 sensor.prepaid_energy_cost_per_kwh       R/kWh  last purchase cost
 sensor.prepaid_true_cost_per_kwh         R/kWh  lifetime blended cost
 sensor.prepaid_true_cost_per_kwh_monthly R/kWh  monthly blended cost
-sensor.prepaid_spend_this_month          R      running spend this month
+sensor.prepaid_spend_this_month          R      "(Estimate)" — prepaid_import_monthly (kWh) × prepaid_true_cost_per_kwh
+                                                (LIFETIME blended rate). NOT a sum of real purchases this month — will
+                                                diverge whenever this month's purchases are priced differently to the
+                                                lifetime average. Kept for mid-month projection before topping up.
+sensor.prepaid_actual_spend_this_month   R      (added 2026-07-03) REAL sum of purchases this calendar month =
+                                                input_number.prepaid_month_spent + prepaid_month_fixed_paid. Use this
+                                                over the estimate above for actual budget tracking.
+sensor.prepaid_actual_spend_this_year    R      (added 2026-07-03) same as above, annual — prepaid_year_spent +
+                                                prepaid_year_fixed_paid. Only accurate from 2026-07-03 onward (not
+                                                backfilled further — recorder purge_keep_days:90 limits reconstruction
+                                                to ~April 2026 at best).
+
+# Month/year real-purchase counters (prepaid_helpers.yaml, added 2026-07-03)
+# Reset by automation.prepaid_month_counters_reset (00:00:10, day==1; year counters
+# only reset when day==1 AND month==1). Incremented per-purchase by
+# script.update_prepaid_units alongside the never-reset lifetime prepaid_total_*.
+input_number.prepaid_month_units/_spent/_fixed_paid/_discount   this calendar month
+input_number.prepaid_year_units/_spent/_fixed_paid/_discount    this calendar year
 
 sensor.prepaid_reconciliation_status         aligned/minor_drift/significant_drift/critical_drift
 sensor.prepaid_reconciliation_suggestion     human text
