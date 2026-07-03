@@ -1592,6 +1592,72 @@ stale by send time.
 
 ---
 
+### BUG-S60 — Info/warning notifications structurally could never carry an image (notify.send_message rejects `data:`)
+**Priority: HIGH | Status: ✅ FIXED 2026-07-03 (S17c)**
+
+**Symptom:** Even after BUG-S56/S58/S59, info- and warning-severity
+notifications still showed a plain text link instead of an inline image.
+
+**Root cause:** The BUG-S59 fix only cleaned up the URL — it didn't address
+that `notify.send_message` (used for info/warning per the 2026-07-01 rewrite,
+see IMPROVEMENT note below Section 6's BUG-S52) genuinely cannot carry a
+`data:` sub-field on this HA version (2026.6.4). Live-reproduced the error:
+`extra keys not allowed @ data['data']` — the exact class of failure that
+caused the 2026-06-28 outage. Worse: this aborts the ENTIRE script run, so
+nothing downstream (Telegram mirror, etc.) executed either whenever an
+info/warning notification tried to attach an image.
+
+**Fix (`notify_security_events.yaml`):** Migrated info/warning off
+`notify.send_message` onto the same 4 legacy `notify.mobile_app_<device>`
+action calls the CRITICAL branch already used successfully. That path takes
+an arbitrary `data:` sub-block, `image` included. Live-tested all three
+severities end-to-end post-fix — all 4 devices fire cleanly with real image
+attachments.
+
+**Also added:** distinct warning-severity presentation — iOS gets
+`push.interruption-level: time-sensitive` (breaks through Focus modes, one
+tier below critical's DND-bypassing alarm channel); Android devices get a
+new `channel: security_warning` (needs one-time on-device sound assignment —
+Android can't accept a sound file over the wire the way iOS's `push.sound`
+can).
+
+---
+
+### BUG-S61 — Telegram mirror for CRITICAL alerts silently crashing (inline_keyboard rejected the same way)
+**Priority: HIGH | Status: ✅ FIXED 2026-07-03 (S17c)**
+
+**Symptom:** Discovered while testing BUG-S60 — sending a critical-severity
+test alert threw `extra keys not allowed @ data['inline_keyboard']` from the
+Telegram mirror step. Phone push notifications were unaffected (they run in
+an earlier step), but the Telegram copy of every critical alert — including
+the "Acknowledge" button — has very likely been silently failing since the
+2026-07-01 rewrite (predates this session).
+
+**Root cause:** Same structural issue as BUG-S60 — `notify.send_message`
+targeting the `notify.telegram_bot_5527` entity doesn't pass through
+`inline_keyboard` either, for the same reason it won't pass `data`.
+
+**Fix:** Switched both Telegram mirror branches (critical and non-critical)
+from `notify.send_message` to the native `telegram_bot.send_message` action —
+the same integration `telegram_bot.send_photo` (three steps later in the same
+script) already used successfully. `inline_keyboard` and `parse_mode` are
+native fields on that action; no wrapper involved. No `target:` needed,
+mirroring `send_photo`'s reliance on the integration's configured default
+chat. Live-tested: Telegram message + Acknowledge button now arrive
+correctly.
+
+**Separately found, NOT fixed (infra, not YAML):** `telegram_bot.send_photo`
+fails with "Failed to load URL: All connection attempts failed" for
+`https://ha.dunners.tech/...`. `ha.dunners.tech` resolves internally to
+`10.10.1.5`, but nothing is listening on port 443 there right now (connection
+refused, not a timeout) — a local DNS/reverse-proxy issue. This was very
+likely masked until this session because the inline_keyboard crash above was
+aborting the script before execution ever reached the send_photo step.
+Needs infra-side investigation (reverse proxy container status / whether
+10.10.1.5 is still the correct LAN IP).
+
+---
+
 ## Section 7: Active Log Errors
 
 **Note:** `home-assistant.log` is not available in the local git repository (it lives only
@@ -2464,6 +2530,15 @@ Also gated by: `security_dogs_out` OFF + `guest_mode` OFF + 5-min cooldown on `l
 
 ---
 
+*Updated 2026-07-03 (S17c): BUG-S60 — info/warning migrated off notify.send_message*
+*  (confirmed live it structurally can't carry data:) onto the same legacy*
+*  notify.mobile_app_<device> pattern CRITICAL already used; images now attach for all*
+*  three severities. Warning gets distinct sound/channel (iOS time-sensitive,*
+*  Android security_warning channel). BUG-S61 — Telegram mirror for CRITICAL was*
+*  silently crashing on inline_keyboard (same root cause); switched to native*
+*  telegram_bot.send_message. Separately flagged (not fixed, infra): send_photo can't*
+*  reach ha.dunners.tech (10.10.1.5:443 connection refused). Section 6 (BUG-S60/61)*
+*  updated.*
 *Updated 2026-07-03 (S17b): BUG-S57 — RUNG 3 (family_movement) gained a*
 *  `not (perim_front and entrance_valid)` guard; concurrent household motion was shadowing*
 *  a genuine visitor at the gate and the classifier never reached RUNG 5. BUG-S58 —*
