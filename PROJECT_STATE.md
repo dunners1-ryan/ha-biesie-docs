@@ -3,6 +3,16 @@
 > Last full audit: 2026-04-13 (Claude Code deep audit — all domains verified against live files)
 > Update after every meaningful change. Commit: `./gitupdate.sh "docs: update PROJECT_STATE"`
 
+## ⚠️ OPEN TODO
+
+- [ ] **Telegram photo attachment unreachable (infra, not YAML)** — `telegram_bot.send_photo`
+      fails with "Failed to load URL: All connection attempts failed" for
+      `https://ha.dunners.tech/...`. Root cause: `ha.dunners.tech` resolves internally to
+      `10.10.1.5`, but nothing is listening on port 443 there (connection refused, not a
+      timeout). Check reverse proxy container status and whether `10.10.1.5` is still the
+      correct LAN IP for it. Text/push notifications and Telegram message text + buttons are
+      unaffected — only the inline photo in Telegram fails. See SECURITY_CONTRACT.md BUG-S61.
+
 *2026-07-03 — Notification pipeline: image attachments restored for all severities + Telegram inline_keyboard crash fixed + warning gets distinct sound/channel (S17c):*
 *SECURITY — Following S17b, live-tested the "structurally impossible" claim from the 2026-07-01 outage notes rather than accepting it at face value. Confirmed: `notify.send_message` (used for info/warning) genuinely rejects ANY `data:` sub-field on this HA version (2026.6.4) — reproduced the exact `extra keys not allowed @ data['data']` error live, and confirmed it aborts the entire script (nothing downstream runs, not even the Telegram mirror). Fix: migrated info/warning off `notify.send_message` onto the same 4 legacy `notify.mobile_app_<device>` action calls the CRITICAL branch already used successfully — that path does accept `data.image`. Live-tested all three severities end-to-end after the change: all 4 devices fire cleanly with real image attachments for info, warning, and critical.*
 *SECURITY — While testing, found a second, unrelated, more serious bug: the Telegram mirror for CRITICAL severity was crashing with `extra keys not allowed @ data['inline_keyboard']` (same root cause — `notify.send_message` targeting the telegram_bot notify entity doesn't pass through inline_keyboard either) — meaning the Telegram "Acknowledge" button, and therefore the entire Telegram copy of every critical security alert, had been silently failing for an unknown period (likely since the 2026-07-01 rewrite; predates tonight). Phone push notifications were unaffected since the crash happened in a later step. Fix: switched to the native `telegram_bot.send_message` action (same integration `telegram_bot.send_photo` two steps later already used successfully) instead of the generic notify wrapper — `inline_keyboard`/`parse_mode` are native fields there. Live-tested: Telegram message + Acknowledge button now arrive correctly.*
