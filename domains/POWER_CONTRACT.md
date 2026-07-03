@@ -1313,6 +1313,21 @@ input_number.geyser_adequate_daily_energy_by_midday  kWh 3.0   gate for evening 
                                                                relevant given 200L tank capacity vs 3-person
                                                                shower blocks (morning + evening) already near
                                                                capacity — see geyser_heat_up_duration_capture.
+input_number.geyser_thursday_high_usage_extra_kwh    kWh 1.5   added to the threshold above on Thursdays only
+                                                               (added 2026-07-03). Thursday is a maid day
+                                                               (presence_trust.yaml, weekday: [mon, thu],
+                                                               10:00-17:45) — extra daytime hot-water use draws
+                                                               the tank down more than normal, so the same
+                                                               midday kWh delta means less actual heat left by
+                                                               evening. Incident: 2026-07-02 midday delta 4.25
+                                                               kWh read "Adequate" against the flat 3.0 kWh
+                                                               threshold, early start (17:00) didn't fire,
+                                                               18:30 fallback left tank not hot by ~20:00
+                                                               showers. Effective Thursday threshold: 4.5 kWh
+                                                               (would have caught the 4.25 kWh incident).
+                                                               User confirmed scope: Thursday only, not Monday
+                                                               (the other maid day) — raise threshold approach,
+                                                               not an unconditional bypass.
 input_number.geyser_min_daily_energy_kwh             kWh 2.0  trigger threshold for 20:00 backup check
 input_number.geyser_energy_at_morning_end            kWh      snapshot of energy_day at morning hard-off
 input_number.geyser_energy_at_midday_end             kWh      snapshot at 15:00 (midday hard-off)

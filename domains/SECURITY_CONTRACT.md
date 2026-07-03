@@ -1515,6 +1515,81 @@ the live `camera.<slug>` entity's `friendly_name`), falling back to the old
 `security_last_motion_camera` behaviour only for slug-less images
 (`security_latest.jpg`) or when no image is passed at all.
 
+**Follow-up — this fix was incomplete, see BUG-S58.**
+
+---
+
+### BUG-S57 — RUNG 3 (family_movement) shadowed a genuine visitor at the gate
+**Priority: HIGH | Status: ✅ FIXED 2026-07-03 (S17b)**
+
+**Symptom:** A real visitor in the ipcam01 gate-approach zone at 07:27
+(2026-07-03) produced no notification at all — not even a warning — despite
+BUG-S54 (the previous day's fix making visitor-at-gate always critical).
+
+**Root cause:** RUNG 3 — `(grounds or inside_any) and anyhome and not staff`
+→ `family_movement`, silent — does not look at the perimeter at all. In the
+05:25–05:29 UTC window, routine household motion (cam15 passage, cam12 pond,
+cam04 carport) was active concurrently with the person genuinely standing in
+ipcam01's gate-approach zone (`perim_front and entrance_valid`). RUNG 3 comes
+before RUNG 5 in the "first match wins" ladder, matched on the ambient
+household motion alone, and the classifier never reached RUNG 5. Concurrent
+ambient grounds/inside motion is the normal condition of an occupied house —
+this isn't a rare edge case.
+
+**Verified separately:** the Hikvision app's 07:27 timestamp is accurate —
+`binary_sensor.ipcam01_street_driveway_up_motion_valid` fired in HA at the
+identical second, so this was not a camera/NVR logging delay.
+
+**Fix (`security_logic.yaml`):** RUNG 3 gains a
+`and not (perim_front and entrance_valid)` guard. Family/staff moving around
+the grounds or inside the house is still silent as before; a concurrent,
+specific gate-approach signal now falls through to RUNG 5 instead of being
+absorbed.
+
+---
+
+### BUG-S58 — BUG-S56 fix incomplete: gate/arrival/visitor notifications mostly use per-ZONE images, not per-camera ones
+**Priority: MEDIUM | Status: ✅ FIXED 2026-07-03 (S17b)**
+
+**Symptom:** After BUG-S56 was fixed (2026-07-02), a gate notification the
+next morning still showed "Camera: Passage" for an `ipcam03_driveway` image.
+
+**Root cause:** BUG-S56's fix derived `cam_name` from the camera slug embedded
+in the snapshot filename passed via `image`. But gate/arrival/departure/
+visitor notifications (the majority of calls) pass a per-ZONE rolling file —
+`security_grounds_front_latest.jpg` — not a per-camera timestamped one, so the
+slug lookup almost never resolved and fell through to the pre-existing
+fallback: a raw regex on `cam_entity` (`input_text.security_last_motion_camera`)
+that mangled `ipcam03_driveway` → `Ipdriveway` (`cam[0-9]+_` matches the
+`cam03_` substring *inside* `ipcam03_driveway`, not just genuine NVR-style
+`camNN_` prefixes).
+
+**Fix (`notify_security_events.yaml`):** Added a middle tier — `cam_entity` is
+already a full `camera.xxx` entity_id, so look up its own live `friendly_name`
+via `state_attr()` directly before ever falling back to the regex. Regex path
+now only used when `cam_entity` isn't a resolvable camera entity at all.
+
+---
+
+### BUG-S59 — Notification images rendering as a plain link instead of inline (malformed double query-string URL)
+**Priority: MEDIUM | Status: ✅ FIXED 2026-07-03 (S17b)**
+
+**Symptom:** Notification images stopped opening inline in the push and
+instead showed as a plain clickable `https://...` link — e.g.
+`.../security_grounds_front_latest.jpg?v=1783057773?v=1783057777`.
+
+**Root cause:** Every per-zone image path (`input_text.security_image_grounds_front`
+etc.) is written WITH a `?v=<write-time-timestamp>` already appended
+(`security_automations.yaml` zone-image write). `notify_security_events.yaml`'s
+`img` variable unconditionally appended a SECOND `?v=<send-time-timestamp>`
+on top, producing a malformed double-query URL that iOS could no longer parse
+as an inline image attachment.
+
+**Fix:** `img` now strips any query string the incoming `image` already
+carries (`image.split('?')[0]`) before appending a single fresh cache-buster —
+also more correct, since the write-time timestamp can be several seconds
+stale by send time.
+
 ---
 
 ## Section 7: Active Log Errors
@@ -2389,6 +2464,14 @@ Also gated by: `security_dogs_out` OFF + `guest_mode` OFF + 5-min cooldown on `l
 
 ---
 
+*Updated 2026-07-03 (S17b): BUG-S57 — RUNG 3 (family_movement) gained a*
+*  `not (perim_front and entrance_valid)` guard; concurrent household motion was shadowing*
+*  a genuine visitor at the gate and the classifier never reached RUNG 5. BUG-S58 —*
+*  BUG-S56's cam_name fix was incomplete for the common per-zone-image case (added*
+*  state_attr(cam_entity, 'friendly_name') middle tier). BUG-S59 — notify_security_event*
+*  img no longer double-appends "?v=" (was producing a malformed URL that broke inline*
+*  image rendering in the push, falling back to a plain link). Section 6 (BUG-S57/58/59)*
+*  updated.*
 *Updated 2026-07-02 (S17): BUG-S54 — RUNG 5a/5b collapsed, visitor-at-gate always critical*
 *  (new binary_sensor.security_gate_loitering, 7s delay_on, gates staff-hours filtering by*
 *  movement pattern instead of who's-home); BUG-S55 — Stage1 exit_valid direction check now*
