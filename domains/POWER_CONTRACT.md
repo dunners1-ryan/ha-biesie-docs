@@ -1398,7 +1398,9 @@ automation.geyser_turn_on  (6 branches — morning ×3, midday, evening_early_wi
                      geyser_morning_override bypasses load_control_geyser_enabled
   Midday           : SOLAR-GATED — orchestrator [surplus, normal], solar > 300W, NOT at temp, before 15:00
   Evening early winter (17:00): winter only — fires if NOT at_temp AND midday delta < 3.0 kWh
+                     (4.5 kWh on Thursdays — maid-day high-usage bump, added 2026-07-03)
   Evening early (17:30): non-winter — fires if NOT at_temp AND midday delta < 3.0 kWh
+                     (4.5 kWh on Thursdays — same bump applies regardless of season)
   Evening late (18:30) : fires if NOT at_temperature AND switch off (all-seasons fallback)
 
 automation.geyser_turn_off  (7 branches + default, mode: queued)
