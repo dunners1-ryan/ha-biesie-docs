@@ -428,6 +428,30 @@ bedtime has actually started (or the bar is in use); before bedtime, the patio l
 
 ---
 
+### BUG-L16 [HIGH] Office/garage (and bedrooms/living areas/bar) lights never turned off via presence departure — underlying occupied sensors dead since 2026-05-17
+**File:** `presence/presence_confidence.yaml` (root cause), consumed by `lighting_office_presence.yaml`, `lighting_garage.yaml`, and others in the entity table above
+**Status:** ✅ FIXED 2026-07-06 — see PRESENCE_CONTRACT.md BUG-P15 for full root-cause detail.
+
+**Symptom:** User reported office and garage lights not turning off after presence leaves.
+
+**Root cause:** `presence_confidence.yaml` had two top-level `template:` keys (same bug class
+as the `power_statistics.yaml` incident) — the first block, containing `binary_sensor.
+office_occupied`, `garage_occupied`, `bedrooms_occupied`, `living_areas_occupied`, and
+`bar_occupied` (plus their presence-confidence % sensors), was silently dropped from config
+the moment a second `template:` key was added elsewhere in the same file on 2026-05-17. All
+five entities sat permanently `unavailable`. `lighting_office_presence.yaml` and
+`lighting_garage.yaml` trigger their turn-off action on these entities going
+`from: "on" to: "off"` — an entity stuck on `unavailable` never makes that transition, so the
+turn-off branch could never fire. Not limited to office/garage: `bar_occupied` (patio delay
+gate, bar_bedtime_cutoff), `bedrooms_occupied` (bar quiet-mode check), and
+`living_areas_occupied` (morning wake trigger) were equally affected the whole time.
+
+**Fix:** Merged the two `template:` keys into one (no logic change) — see PRESENCE_CONTRACT.md
+BUG-P15. Confirmed live: `office_occupied`/`garage_occupied`/`bedrooms_occupied` now report
+real on/off values instead of `unavailable`.
+
+---
+
 ## Section 8: Cross-Domain Dependencies
 
 | Entity | Provider | Consumed by |

@@ -7,7 +7,10 @@
 #
 # Scope: All 13 packages/alerts/*.yaml files
 #        Plus cross-domain aggregation in alerts_summary.yaml
-# Last updated: 2026-04-29 — alerts_garden.yaml added (13th file)
+# Last updated: 2026-07-06 — BUG-A10 (notify.STD_Alerts broken again, 13
+# domains had zero delivery — per-domain routing automations added, see
+# NOTIFICATIONS_CONTRACT.md), BUG-A11 (alert.camera_health dead notifier
+# removed), alerts_camera_health.yaml added to inventory (was missing)
 ###############################################################################
 
 ---
@@ -38,6 +41,7 @@ fully correct. All domains route through the central notification script.
 | `alerts_security.yaml` | 109 | ✅ Active | Security alert pipeline — implemented 2026-04-14 |
 | `alerts_garden.yaml` | ~120 | ✅ Active | Garden/pond pump unscheduled alert — implemented 2026-04-29 |
 | `alerts_batteries.yaml` | ~250 | ✅ Active | Dashboard tablet battery low/overcharge alert — implemented 2026-05-27 |
+| `alerts_camera_health.yaml` | ~300 | ✅ Active | Camera fleet health (`alert.camera_health`) — missing from this inventory until 2026-07-06 |
 
 **Note:** ALERTS_CONTEXT.md lists `alerts_core.yaml` and `alerts_device.yaml` — neither
 exists. That context file is stale; this contract is authoritative.
@@ -279,6 +283,23 @@ prevents spurious watchman alerts.
 
 **PASS.** Severity: critical when any device < `dash_battery_critical_threshold` (15%) AND discharging; warning for low (<30%) or overcharge. Screen brightness management lives in `packages/admin/tablets.yaml`.
 
+### Camera Health Domain — `alerts_camera_health.yaml`
+
+**Added to this contract 2026-07-06** (file predates this entry but was never audited here).
+
+| Stage | Entity | Status |
+|---|---|---|
+| Context sensor | `sensor.camera_health_context` | ✅ `summary` attribute drives alert message |
+| Alert entity | `alert.camera_health` | ⚠️ repeats 60/240 min, `can_acknowledge: true`, **no `notifiers:`** (removed 2026-07-06, BUG-A11) |
+| Initial-fault delivery | `automation.camera_health_alert_notify_telegram` | ✅ calls `script.notify_security_event` directly |
+| In aggregator trigger | Not confirmed this session | — |
+
+**PASS with note (BUG-A11).** The initial fault notification works via the automation, not
+the `alert:` entity's own notifier — the `alert:` entity now exists purely for
+dashboard/logbook visibility and repeat-reminder bookkeeping. Do not add a `notifiers:`
+back onto `alert.camera_health` without also removing the automation's direct call, or the
+initial hit will double-deliver (the same BUG-A04 duplicate-delivery pattern).
+
 ---
 
 ## Section 5: Alert Entity Inventory
@@ -297,8 +318,18 @@ prevents spurious watchman alerts.
 | `alert.media_alert` | `binary_sensor.media_devices_down_alert_active` | 3/10/30/60 min | `STD_Alerts` | Implicit |
 | `alert.garden_alert` | `binary_sensor.garden_alert_active` | 60 min | `STD_Alerts` | ✅ |
 | `alert.dash_battery_alert` | `binary_sensor.dash_battery_alert_active` | 30/60 min | `STD_Alerts` | ✅ |
+| `alert.camera_health` | (camera fleet health) | 60/240 min | none (removed 2026-07-06, BUG-A11) | ✅ |
 
-All active alert entities use `STD_Alerts` (mobile + Telegram group).
+All active alert entities are still nominally configured with `STD_Alerts` as
+`notifiers:` (except `alert.camera_health`, see BUG-A11) — **but `STD_Alerts` itself has
+been a broken `notify: platform: group` since 2026-06-28** (bare `notify.*` services no
+longer exist post mobile_app migration). This table's "Notifier" column reflects the
+`alert:` entity's own config, not actual delivery. See BUG-A10 below: as of 2026-07-06,
+12 of these domains (all except doors' transient pings, which never used `STD_Alerts`)
+get their actual delivery from a parallel routing automation added directly in the same
+package file, calling `script.notify_*_event` instead. `STD_Alerts` itself remains
+defined-but-dead in `configuration.yaml`, same as before — nothing currently depends on
+it actually working.
 
 ---
 
@@ -486,22 +517,113 @@ automation, not an alert entity. No pipeline entry.
 
 ---
 
+### BUG-A10 — `notify.STD_Alerts` broken again (post-2026-06-28 migration) — 13 domains had zero push delivery
+**Severity:** High
+**Files:** `alerts_network.yaml` (4 subtypes), `alerts_device_power.yaml`, `alerts_media.yaml`,
+`alerts_system_health.yaml`, `alerts_water.yaml` (tank-low + both borehole fault tiers),
+`alerts_presence.yaml`, `alerts_garden.yaml`, `alerts_batteries.yaml`, `alerts_doors.yaml`
+(sustained-open escalation tier only), `alerts_power.yaml` (warning tiers)
+
+`notify.STD_Alerts` — the notify group nearly every `alert:` entity in this domain uses via
+`notifiers: [STD_Alerts]` — has been broken since the 2026-06-28 mobile_app migration (see
+NOTIFICATIONS_CONTRACT.md §7): `alert:` calls bare `notify.*` services internally, and no
+bare service exists for any current target. This was flagged at the time as "not yet fixed"
+for the `alert:`-based domains (the 19 dispatcher-script call sites were fixed the same day).
+It stayed broken for over a week until the 2026-07-06 session's full notification audit
+found 13 domains with literally zero push delivery as a result — including, at the higher-
+severity end, power grid-offline/battery-low warnings and the garden pond-pump alert (whose
+`TURN_OFF_POND_PUMP` mobile action button was also unreachable as a direct consequence,
+since the action event only fires from inside a push that never arrived).
+
+**Fix applied 2026-07-06:** rather than repair `STD_Alerts` itself or move to an HA "Notify
+Group" UI helper (config-entry/UI-only, not git-trackable, unverified `alert:` compatibility
+— considered and rejected), each affected domain got a parallel routing automation added
+directly in its own `packages/alerts/<domain>.yaml` file, triggering on the domain's
+underlying binary_sensor/severity-sensor and calling the already-working
+`script.notify_*_event` directly — mirroring the pattern `alerts_temperature.yaml` already
+proved for BUG-A03. `STD_Alerts` itself is left defined-but-dead in `configuration.yaml`,
+same as before.
+
+**Self-caused incident during rollout, fixed same session:** the first version of these
+routing automations triggered on bare `to: "on"` / `to: "critical"` with no guard against
+the transient `unknown`/`unavailable` state every template entity passes through while
+`template:` reloads. Reloading templates to activate the fix caused a wave of false
+CRITICAL pushes ("Critical Sensor Health", "Network Alert — Device Down", "Water Tank Low —
+0.0% Unavailable", etc.) — the same BUG-N10-class reload vulnerability already fixed
+elsewhere, reintroduced by the new code. Fixed immediately by adding `from: "off"` to every
+binary_sensor trigger and `not_from: ["unknown","unavailable"]` to every severity-sensor
+trigger across all new automations (all now shown with these guards in the code).
+
+**Deliberately NOT fixed (scope decision, not an oversight):** `alert.security_alert`'s
+repeat reminders (5/15/30/60 min) — the initial hit already works via
+`script.notify_security_event`; adding a naive on-transition routing automation here would
+reintroduce BUG-A04-style duplicate delivery. Real interval-based repeat logic without
+duplication is a separate, higher-risk follow-up. The pre-existing temperature-domain
+routing automations (`alerts_temperature.yaml`) have the same missing-guard structure as the
+bug just fixed here and were NOT audited/patched this session — flagged as a related latent
+risk.
+
+**Second, distinct incident in the same rollout — NOT this session's automations, NOT
+fixed:** the user also caught "Grid Smart Top-Up Decision" (`automation.prepaid_buy_decision_notify`,
+`packages/power/prepaid_strategy.yaml`) and "Prepaid Critically Low"
+(`automation.prepaid_critical_night_protection_alert`, `packages/power/prepaid_core.yaml`)
+firing spuriously in the same reload. Both are pre-existing automations this session never
+touched. `prepaid_buy_decision_notify` already had `not_from`/`not_to: ["unknown",
+"unavailable"]` guards — and still fired, because the real failure mode is different from
+BUG-A10's: a `template:` reload doesn't just produce `unknown`/`unavailable`, it can cause a
+chain of interdependent template sensors to recompute out of order, so a downstream sensor
+reads an upstream one that hasn't recomputed yet and gets a numeric default (`| float(0)`
+etc.) — a **valid-looking but wrong** value, which `not_from`/`not_to` guards cannot catch.
+"Prepaid Critically Low — 0 kWh remaining, 0.0 days left" is almost certainly the same
+mechanism. **Root cause: reloading `template:` at all was unnecessary this session** —
+nothing in this fix touched any `template:` sensor (only `automation:` blocks and one
+`notify_*_event.yaml` script) — so that reload should not have happened. This dependency-
+chain fragility in the prepaid automations is real but pre-existing and NOT fixed here; it
+would need its own audit of `prepaid_buy_decision_notify`'s and
+`prepaid_critical_night_protection_alert`'s upstream sensor chains for reload-safe defaults.
+**Operational rule going forward:** only reload `template:` when a `template:` sensor
+actually changed; reload `automation`/`script` alone otherwise.
+
+---
+
+### BUG-A11 — `alert.camera_health` repeat reminders throwing hard `ServiceNotFound`
+**Severity:** Medium
+**File:** `packages/alerts/alerts_camera_health.yaml`
+
+Unlike `STD_Alerts` (broken-but-defined), the `STD_Warning` group `alert.camera_health` used
+via `notifiers: [STD_Warning]` was **removed entirely** from `configuration.yaml` on
+2026-06-28 (part of the same migration cleanup). Every 60/240-min repeat reminder was
+therefore throwing a hard `ServiceNotFound` error, not silently failing.
+
+**Fix applied 2026-07-06:** removed `notifiers: [STD_Warning]` from `alert.camera_health`
+outright rather than pointing it at a working notifier — the initial fault notification
+already works via `automation.camera_health_alert_notify_telegram`, which calls
+`script.notify_security_event` directly; adding a notifier back onto the alert entity itself
+would double-deliver the initial hit (BUG-A04 pattern). The alert entity now exists purely
+for dashboard/logbook visibility and repeat-reminder bookkeeping.
+
+**⚠️ Requires a full HA restart to load** (`alert:` entities can't be reloaded piecemeal) —
+not yet restarted as of this entry; see PROJECT_STATE.md OPEN TODO.
+
+---
+
 ## Section 9: Summary of Pipeline Audit Results
 
 | Domain | Binary | Context | Alert entity | Aggregator | Result | Updated |
 |---|---|---|---|---|---|---|
-| Doors | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | — |
-| Network | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A05 |
-| Power | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A07 |
+| Doors | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-07-06 sustained-open escalation delivery fixed (BUG-A10) |
+| Network | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A05; 2026-07-06 delivery fixed (BUG-A10) |
+| Power | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A07; 2026-07-06 warning-tier delivery fixed (BUG-A10) |
 | Temperature | ✅ (x4) | ✅ (x4) | ✅ (x4) | ✅ (triggered) | PASS | 2026-06-19 BUG-A03 |
-| Device Power | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A04 |
-| Media | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A05 |
-| System Health | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | — |
-| Water | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A01 |
-| Security | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A02 |
-| Presence | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-16 B1 |
-| Garden | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-29 new |
-| Dash Batteries | ✅ (x5) | ✅ | ✅ | ✅ (triggered) | PASS | 2026-05-27 new |
+| Device Power | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A04; 2026-07-06 delivery fixed (BUG-A10) |
+| Media | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A05; 2026-07-06 delivery fixed (BUG-A10) |
+| System Health | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-07-06 delivery fixed (BUG-A10) |
+| Water | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A01; 2026-07-06 tank-low + borehole tiers delivery fixed (BUG-A10) |
+| Security | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A02; repeat reminders deliberately left unfixed 2026-07-06 (see BUG-A10) |
+| Presence | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-16 B1; 2026-07-06 delivery fixed (BUG-A10) |
+| Garden | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-29 new; 2026-07-06 delivery fixed (BUG-A10) |
+| Dash Batteries | ✅ (x5) | ✅ | ✅ | ✅ (triggered) | PASS | 2026-05-27 new; 2026-07-06 delivery fixed (BUG-A10) |
+| Camera Health | — | ✅ | ✅ | Not confirmed | PASS with note | 2026-07-06 added to contract; BUG-A11 fixed |
 
 ---
 
@@ -518,8 +640,11 @@ automation, not an alert entity. No pipeline entry.
 | BUG-A07 | **Low** | ✅ Fixed 2026-04-14 | Power context `devices` list empty during battery-low / prepaid-drift events | alerts_power.yaml |
 | BUG-A08 | **Low** | ✅ Fixed 2026-04-16 | `alerts_presence.yaml` implemented — unknown AP + occupancy anomaly pipeline | alerts_presence.yaml |
 | BUG-A09 | **High** | ✅ Fixed 2026-04-22 | `sensor.critical_sensor_health_alert_context` devices attribute rendered as string — inline `# comment` after Jinja2 expression in YAML `>` block scalar; `#` is not stripped by Jinja2, appended to list output, broke `ast.literal_eval`, aggregator `devs is not string` failed silently → alert never surfaced in global summary | alerts_system_health.yaml |
+| BUG-A10 | **High** | ✅ Fixed 2026-07-06 | `notify.STD_Alerts` broken again post-2026-06-28 migration — 13 domains had zero push delivery; per-domain routing automations added (self-caused reload-flap incident during rollout also fixed same session) | 10 files, see entry above |
+| BUG-A11 | **Medium** | ✅ Fixed 2026-07-06 (needs HA restart to load) | `alert.camera_health`'s `notifiers: [STD_Warning]` — that group doesn't exist at all (removed 2026-06-28), every repeat threw hard `ServiceNotFound`; notifier removed outright | alerts_camera_health.yaml |
 
 **Open: 0 issues**  
+**Fixed 2026-07-06: BUG-A10, BUG-A11**
 **Fixed 2026-06-19: BUG-A03**  
 **Fixed 2026-04-22: BUG-A09**  
 **Fixed 2026-04-16: BUG-A06, A08**
@@ -527,7 +652,8 @@ automation, not an alert entity. No pipeline entry.
 ---
 
 *Contract generated: 2026-04-13*
+*Last updated: 2026-07-06 — BUG-A10 (notify.STD_Alerts broken again, 13 domains fixed via per-domain routing automations), BUG-A11 (alert.camera_health dead notifier removed, needs restart), alerts_camera_health.yaml added to inventory/audit (was missing entirely)*
 *Last updated: 2026-06-19 — BUG-A03 closed (temperature alerts now use script.notify_system_event; verified in code)*  
 *Last updated: 2026-05-27 — alerts_batteries.yaml added; dash battery + screen brightness domain documented; aggregator trigger list updated*  
 *Last updated: 2026-04-29 — alerts_garden.yaml added; garden domain pipeline audit added; aggregator trigger list corrected to full current state*  
-*Based on: 13 alerts package files + cross-domain dependency trace*
+*Based on: 14 alerts package files (alerts_camera_health.yaml added 2026-07-06) + cross-domain dependency trace*

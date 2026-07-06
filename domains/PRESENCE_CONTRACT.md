@@ -702,6 +702,45 @@ zone). Feed into classifier: `perim + not gate + allhome = visitor`, not arrival
 
 ---
 
+### BUG-P15 — Duplicate top-level `template:` key silently dropped Office/Garage/Bedrooms/Living Areas/Bar presence-confidence + Occupied sensors since 2026-05-17
+**Severity:** High
+**File:** `presence/presence_confidence.yaml`
+**Status:** ✅ FIXED 2026-07-06.
+
+**Symptom:** User reported office and garage lights not turning off. Investigation (triggered by
+an unrelated geyser change touching `binary_sensor.all_family_home` in this same file) found
+`sensor.office_presence_confidence`, `sensor.garage_presence_confidence`, `sensor.bedrooms_presence_confidence`,
+`sensor.living_areas_presence_confidence`, `sensor.bar_presence_confidence`, and their five
+`binary_sensor.*_occupied` counterparts (10 entities total) sitting on `unavailable` with
+`"restored": true` — i.e. not part of the currently loaded config at all, just an orphaned
+registry entry restored from the recorder at boot.
+
+**Root cause:** Same bug class as the `power_statistics.yaml` incident (POWER_CONTRACT.md,
+2026-06-23). This file had **two top-level `template:` keys** — one at the top (Office/Garage/
+Bedrooms/Living Areas/Bar confidence sensors + Occupied binary sensors) and a second one added
+2026-05-17 for BUG-P13 (`family_arriving`/`family_departing`/`all_family_home`). YAML mapping
+keys must be unique; PyYAML's `safe_load` silently keeps only the *last* value for a duplicate
+key, so the entire first `template:` block was dropped the moment the second one was added —
+meaning this has likely been broken since **2026-05-17**, not a recent regression. `ha core
+check` does not catch this (syntactically valid YAML, just semantically lossy).
+
+**Consequence for lighting:** `lighting_office_presence.yaml` and `lighting_garage.yaml` trigger
+their "turn lights off" branch on `binary_sensor.office_occupied` / `garage_occupied` going
+`from: "on" to: "off"` (see LIGHTING_CONTRACT.md). With the entity permanently `unavailable`,
+it never transitions `on → off`, so the light-off trigger could never fire — lights turned on by
+these automations would only ever go off via some other path (manual, bedtime, etc.), not via
+presence leaving. This affected all 5 zones (Office, Garage, Bedrooms, Living Areas, Bar), not
+just the two the user happened to notice.
+
+**Fix:** Removed the second `template:` key; its `- binary_sensor:` list item now sits as an
+additional item in the single `template:` key's list (same merge pattern the first block already
+uses for `- sensor:` / `- binary_sensor:`). No logic change — purely restores the dropped block
+to the loaded config. `ha core check` passed; `template` domain reloaded live via Supervisor API;
+confirmed all 10 previously-dead entities now report real values (e.g. `office_occupied` → `on`,
+`garage_occupied` → `off`, both with fresh states, not `restored`).
+
+---
+
 ### BUG-P14 — `staff_on_site_override` has no automation to ever clear it; found stuck ON 24+ hours
 **Severity:** High  
 **File:** `presence/presence_trust.yaml`  
@@ -891,6 +930,7 @@ brief hallway trips at night. This is well-calibrated for the use case.
 | BUG-P11 | **Low** | ✅ Fixed 2026-04-30 | Trust model lives in `context/` not `presence/` (architecture violation) | presence_trust.yaml |
 | BUG-P12 | **Low** | ✅ Fixed 2026-05-17 | Startup sync gap: gardener not restored on HA restart | presence_trust.yaml |
 | BUG-P13 | **Medium** | ✅ Fixed 2026-05-17 | `all_family_home` missing — classifier can't distinguish visitor from family arrival | presence_confidence.yaml |
+| BUG-P15 | **High** | ✅ Fixed 2026-07-06 | Duplicate top-level `template:` key silently dropped 10 presence-confidence/occupied sensors since 2026-05-17 | presence_confidence.yaml |
 
 **Open: 4 issues — 0 critical, 2 high, 2 medium, 0 low**  
 **Fixed/closed: 9 issues (S1 closed P01/P02/P03/P06/P10/P11/P12; S2 closed P13; P04 deferred to S2/S3 router)**

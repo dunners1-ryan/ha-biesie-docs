@@ -134,10 +134,10 @@ input_number.openweathermap_api_critical_threshold — UI: API call limit (defau
 input_boolean.openweathermap_api_limited — flag for API rate limit dashboard display
 ```
 
-Stale alert automation (`weather_api_stale_alert`):
+Stale alert automation (`weather_api_stale_alert` / entity id `automation.weather_data_stale_alert`):
 - Triggers when `weather_last_update_age > 14400s` (4 hours) for 2 minutes
-- Sends no notification (no action defined — fires to condition only) ← IMP-WEATHER01
-- The automation exists but has no action block — it is effectively a no-op
+- Action: `logbook.log` + `script.notify_system_event` (severity warning) — this DOES notify
+  (see BUG-WEA01 correction below)
 
 ### Weather Integrations Installed (Multiple — see Part 7)
 - `weather.openweathermap` — primary (canonical for weather_core.yaml)
@@ -147,10 +147,25 @@ Stale alert automation (`weather_api_stale_alert`):
 
 ### Known Issues
 
-**BUG-WEA01 [LOW] — `weather_api_stale_alert` automation has no action**
-The automation triggers correctly on stale data but has no `actions:` block —
-it fires and does nothing. Either add a `script.notify_system_event` call or delete
-the automation.
+**BUG-WEA01 [CORRECTED 2026-07-06, FIXED] — was "no action", actually a false-positive staleness bug**
+This entry previously claimed `weather_api_stale_alert` had no `actions:` block and was a
+no-op. That was already stale by the time of this audit — the automation has always called
+`script.notify_system_event` (warning severity). The real bug, found 2026-07-06 by live
+investigation of recurring "Weather Data Stale" alerts: `sensor.weather_last_update_age`
+(weather_core.yaml) computed age from `weather.openweathermap`'s `last_changed`, which only
+updates when the entity's **state string** (the condition, e.g. `sunny`) changes — not on
+every poll. During long stable-condition stretches (typical Johannesburg winter clear spells),
+the condition can hold for 9+ hours even though OWM is actively refreshing temperature/
+humidity/pressure attributes every 15-60 min (`last_updated` stays fresh). This made the age
+sensor climb past the 4h threshold and fire a false "stale" alert roughly once or twice a day,
+confirmed via 3-day history of `sensor.weather_api_health` cycling
+healthy → delayed → stale → (reset on next condition change) → repeat.
+**Fix applied:** `weather_core.yaml` now reads `entity.last_updated` instead of
+`entity.last_changed`. Live-reloaded via `template.reload`; `sensor.weather_api_health`
+confirmed back to `healthy` immediately. Also cleared `input_boolean.openweathermap_api_limited`,
+which had been stuck `on` since 2026-07-04 as a downstream side effect of the flapping bug (the
+matching recovery automation never fired because its `not_from: [unknown, unavailable]` guard
+blocked on the template-reload transition — separate minor gap, not fixed).
 
 **BUG-WEA02 [LOW] — Inline comment mismatch in threshold**
 `above: 14400 # 1hr` — 14400 seconds is 4 hours, not 1 hour. Update comment.

@@ -2,7 +2,11 @@
 # NOTIFICATIONS CONTRACT
 # HABiesie — Notifications Domain
 # Generated: 2026-04-13
-# Last updated: 2026-04-22 (BUG-N11 fixed — title undefined guard in notify_power_event.yaml; storage duplicates removed)
+# Last updated: 2026-07-06 — severity/sound classification overhaul: universal
+# warning-tier sound (all 6 scripts), power+presence critical silently-broken
+# data.data bug fixed, power Telegram inline_keyboard bug fixed, arrivals/
+# departures promoted to warning, STD_Alerts pipeline fixed for 13 domains via
+# routing automations (see ALERTS_CONTRACT.md). See PROJECT_STATE.md 2026-07-06.
 # Covers: packages/notifications/ (12 files)
 ##########################################################
 
@@ -50,11 +54,15 @@ Domain State Change
 
 ### Severity Levels
 
-| Severity | Quiet Hours | HA Mobile | Telegram |
-|----------|-------------|-----------|----------|
-| information | suppressed | ✅ | ✅ |
-| warning | bypass | ✅ | ✅ |
-| critical | bypass | ✅ | ✅ |
+| Severity | Quiet Hours | HA Mobile | Telegram | Sound/Channel (2026-07-06) |
+|----------|-------------|-----------|----------|------|
+| information | suppressed | ✅ | ✅ | default (no distinct sound) |
+| warning | bypass | ✅ | ✅ | iOS `interruption-level: time-sensitive`; Android `channel: security_warning` — ONE shared warning sound reused across every domain (power/water/presence/system/lighting/security), no new on-device setup |
+| critical | bypass | ✅ | ✅ | iOS `interruption-level: critical`; all `channel: alarm`, `ttl: 0`, `priority: high` |
+
+**2026-07-06 — universal warning-tier sound:** previously only `notify_security_events.yaml` had the warning-tier sound (S17c, 2026-07-03). Extended the identical treatment to `notify_power_event.yaml`, `notify_water_events.yaml`, `notify_presence_events.yaml`, `notify_system_event.yaml`, `notify_light_events.yaml` — all 6 scripts now use the legacy per-device `notify.mobile_app_*` pattern for both warning and critical (info stays on plain `notify.send_message`, which can't carry the extra push/channel data). The `security_warning` Android channel name is reused verbatim across all domains by design — one shared warning sound, not per-category sounds, per user's explicit choice.
+
+**2026-07-06 — arrivals/departures promoted to warning:** `security_automations.yaml`'s 4 arrival/departure notification call sites (Arrival Stage 1/2, Departure Stage 1/2) changed from `severity: "information"` to `"warning"` — always audible, no quiet-hours exception. The "Dogs home alone?" departure prompt stays `critical`, unchanged.
 
 **Exception — `dogs_inside_prompt: true` in `notify_security_event`:**
 When `dogs_inside_prompt: true` is passed, Telegram is suppressed for ALL severity levels
@@ -256,20 +264,36 @@ Confirmed via recorder: 2026-06-30 camera pipeline ran correctly, but zero push 
 **Two-tier fix applied 2026-07-01:** information + warning → `notify.send_message` (schema-valid);
 critical → 4 separate `notify.mobile_app_*` calls with `data: { push.interruption-level: critical, channel: alarm, ttl: 0, priority: high }`.
 
-**STILL BROKEN, NOT YET FIXED:** `notify.STD_Alerts` is used by 16+ `alert:` integration
-definitions across `packages/alerts/*.yaml` via `notifiers: [STD_Alerts]`. The `alert:`
-integration calls bare `notify.*` services internally — the exact mechanism just proven
-dead for every target. There is no fix expressible in YAML packages alone: `alert:`'s
-`notifiers:` field requires a literal notify-domain service name, and none of our targets
-register one anymore. Left defined in configuration.yaml (harmless either way) pending a
-decision between: (a) creating an HA "Notify Group" UI helper (config-entry/UI-only, not
-git-trackable — unverified whether `alert:` can even call an entity-based group), or
-(b) migrating these 16 alert definitions to drop `notifiers:` and instead dispatch via
-the now-fixed `notify_*_event` scripts on `alert.*` state change. Affected files:
-`alerts_batteries.yaml`, `alerts_garden.yaml`, `alerts_network.yaml`, `alerts_doors.yaml`,
-`alerts_presence.yaml`, `alerts_temperature.yaml` (×4), `alerts_device_power.yaml`,
-`alerts_security.yaml`, `alerts_water.yaml` (×3), `alerts_system_health.yaml`,
-`alerts_media.yaml`, `alerts_power.yaml`.
+**FIXED 2026-07-06 (option (b) below, chosen and implemented):** `notify.STD_Alerts` itself
+is STILL left broken-but-defined in `configuration.yaml` (harmless either way, same as the
+temperature domain already did) — but all 13 domains that had ZERO delivery because of it
+now have a parallel routing automation added directly in their `packages/alerts/<domain>.yaml`
+file: `alerts_network.yaml` (4 subtypes), `alerts_device_power.yaml`, `alerts_media.yaml`,
+`alerts_system_health.yaml`, `alerts_water.yaml` (tank-low + both borehole fault tiers),
+`alerts_presence.yaml`, `alerts_garden.yaml`, `alerts_batteries.yaml`, `alerts_doors.yaml`
+(sustained-open escalation only — the transient gate-open/close pings already worked),
+`alerts_power.yaml` (grid-offline/battery-low warning tiers — the SOC-critical case already
+had separate coverage via `power_battery_soc_critical_alert`). Each new automation triggers
+on the domain's underlying binary_sensor/severity-sensor and calls the working
+`script.notify_*_event` directly — same pattern the temperature domain already proved
+(`alerts_temperature.yaml`, Route WAN/LAN/Device/Storage Temp Alert). **Every one of these
+automations MUST include `from: "off"` (binary_sensor triggers) / `not_from: ["unknown",
+"unavailable"]` (severity-sensor triggers)** — omitting this caused a real incident during
+the 2026-07-06 rollout: reloading `template:` briefly puts every template entity through
+unknown/unavailable while it recomputes, and an unguarded `to: "on"`/`to: "critical"`
+trigger fires on that transient, producing false CRITICAL pushes. See PROJECT_STATE.md
+2026-07-06 for the live incident and fix; see ALERTS_CONTRACT.md for the full per-domain
+bug entries (BUG-A10 through BUG-A13 area).
+
+**Deliberately left unfixed:** `alert.security_alert`'s repeat reminders (5/15/30/60min)
+and `alert.camera_health`'s repeat reminders (60/240min) — see ALERTS_CONTRACT.md for why
+(duplicate-delivery risk for security; camera_health's `notifiers: [STD_Warning]` was
+instead removed outright since that group doesn't exist at all, stopping a hard error,
+rather than reintroduced with a notifier).
+
+**Option (a) (HA "Notify Group" UI helper) was considered and NOT used** — the
+automation-based fix above is git-trackable, consistent with every other fix already made
+in this codebase, and doesn't depend on unverified `alert:`-to-group-entity compatibility.
 
 ### Canonical Call Patterns
 
@@ -412,6 +436,36 @@ for 3 hours — this is structurally sound as an escalation monitor.
 ---
 
 ## 10. BUGS
+
+### BUG-N13 [HIGH] ~~notify_power_event.yaml + notify_presence_events.yaml critical branches silently failing~~ ✅ FIXED 2026-07-06
+
+**Files:** `packages/notifications/notify_power_event.yaml`, `packages/notifications/notify_presence_events.yaml`
+**Description:** Both scripts' critical branches still called `notify.send_message` with a
+nested `data: {push, channel, ttl, priority}` block — the exact "extra keys not allowed
+@ data['data']" bug fixed everywhere else on 2026-07-01 (security/water/system/lighting all
+moved off this pattern), but power and presence were missed. `continue_on_error: true`
+swallowed the HTTP 400 silently. Real-world impact: `power_battery_soc_critical_alert`
+(power_automations.yaml) and both prepaid-critical automations (prepaid_core.yaml,
+prepaid_strategy.yaml) had been failing to reach any phone for critical severity.
+**Fix applied:** Converted both critical branches to the legacy per-device
+`notify.mobile_app_*` pattern already proven in `notify_security_events.yaml`.
+
+---
+
+### BUG-N14 [HIGH] ~~notify_power_event.yaml Telegram critical branch — inline_keyboard rejected~~ ✅ FIXED 2026-07-06
+
+**File:** `packages/notifications/notify_power_event.yaml`
+**Description:** The Telegram mirror for critical severity called `notify.send_message`
+targeting `notify.telegram_bot_5527` with `inline_keyboard` at top level of `data:` — the
+same rejection as the security Telegram crash already fixed in S17c
+(`extra keys not allowed @ data['inline_keyboard']`), just never applied to power. Live-
+reproduced while testing BUG-N13's fix; confirmed firing on real prepaid-critical
+automations (`Prepaid Critical Night Protection`, `Prepaid Buy Decision Notification`) via
+`ha core logs`. The mobile push itself was unaffected (runs before this step) — only the
+Telegram Acknowledge button/message was silently missing.
+**Fix applied:** Switched to `telegram_bot.send_message` directly, same as security's S17c fix.
+
+---
 
 ### BUG-N01 [MEDIUM] ~~Missing `continue_on_error` on Telegram in notify_water_events.yaml~~ ✅ FIXED 2026-04-14
 

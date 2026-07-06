@@ -567,6 +567,13 @@ Two-stage arrival/departure (S11b — updated 2026-05-22):
 
   Note: ipcam03 Region Entrance disabled (2026-05-22). ipcam03 entrance_valid NOT a Stage1 trigger.
   ipcam03 line crossing set to driveway→gate direction (departure only).
+
+  **Severity (updated 2026-07-06):** all 4 Stage1/Stage2 arrival/departure
+  `script.notify_security_event` calls (Stage1 gate-open arrival, Stage1 gate-open departure,
+  Stage2 arrival confirmed, Stage2 departure confirmed) changed from `severity: "information"`
+  to `"warning"` — always audible (bypasses quiet hours, gets the shared warning-tier sound
+  per NOTIFICATIONS_CONTRACT.md), per explicit user request. The separate "Dogs home alone?"
+  departure prompt is unaffected and stays `critical`.
   ipcam01 entrance_valid IS a Stage1 fallback trigger (added 2026-07-01 — see above).
 
 Deleted in S3: security_grounds_motion, security_rear_grounds_motion,

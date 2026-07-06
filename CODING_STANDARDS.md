@@ -84,7 +84,7 @@ grep -i "entity_id_to_check" /root/config/.storage/core.entity_registry
 | New integration or custom component | Integration init requires restart |
 | New packages directory | `!include_dir_named` requires restart |
 | `customize.yaml` | Requires restart |
-| `.storage/lovelace` changes | Browser hard refresh only (`Cmd+Shift+R`) — not HA restart |
+| `.storage/lovelace` changes | **Full HA restart** — confirmed 2026-07-03 and again 2026-07-06 that a browser hard refresh (`Cmd+Shift+R`) is NOT reliably sufficient; the frontend can hold a stale in-memory copy of the dashboard config regardless of browser cache. Restart to guarantee it takes effect. Also avoid opening that dashboard's UI editor before restarting — an autosave from the stale in-memory copy would silently revert a direct `.storage` edit. |
 
 ### Rules for alert changes
 - **Batch all alert changes into one session** to minimise restarts
@@ -102,7 +102,7 @@ AFTER FIXES — RELOAD NOT RESTART (unless alerts changed)
    - Helpers added/changed     → Reload Helpers
    - alert: entities changed   → ⚠️ Full HA restart required
    - configuration.yaml changed → ⚠️ Full HA restart required
-   - .storage/lovelace changed → Browser hard refresh only (Cmd+Shift+R)
+   - .storage/lovelace changed → ⚠️ Full HA restart required (hard refresh alone is not reliable)
 3. Verify in Developer Tools → States
 4. Commit + update docs in same session
 ```
