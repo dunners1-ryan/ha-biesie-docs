@@ -774,6 +774,43 @@ prevent recurrence, they don't clear pre-existing session state until reload+4h.
 
 ---
 
+### BUG-P16 — `notify_presence_events.yaml` critical branch silently failing + presence anomaly alert had zero delivery
+**Severity:** High
+**Files:** `packages/notifications/notify_presence_events.yaml`, `packages/alerts/alerts_presence.yaml`
+**Status:** ✅ FIXED 2026-07-06
+
+**Symptom/root cause (Bug 1):** `notify_presence_events.yaml`'s critical branch still
+called `notify.send_message` with a nested `data: {push, channel, ttl, priority}` block —
+the "extra keys not allowed @ data['data']" bug fixed everywhere else on 2026-07-01
+(security/water/system/lighting), but presence was missed. `continue_on_error: true`
+swallowed the HTTP 400 silently. No caller currently uses critical severity for presence
+(only the 4 unknown-AP automations exist, all `information`), so this had no live impact
+yet — found via code audit while doing the broader 2026-07-06 notification overhaul, fixed
+proactively before anything started relying on it. **Fix:** converted to the legacy
+per-device `notify.mobile_app_*` pattern proven in `notify_security_events.yaml`.
+
+**Symptom/root cause (Bug 2):** `alert.presence_alert` (unknown-AP escalation, critical
+after 1 hour sustained — see `sensor.presence_alert_context`) notifies via
+`notify.STD_Alerts`, which has been a broken notify group since 2026-06-28 (see
+NOTIFICATIONS_CONTRACT.md §7) — zero push delivery for both the initial unknown-AP warning
+and the 1-hour critical escalation. Separately, `binary_sensor.occupancy_anomaly_alert_active`
+(room shows occupied but no family AP connected) has never had any delivery path at all —
+by design, info-level only, dashboard-visible via the context sensor, not urgent enough for
+its own alert entity.
+**Fix:** new automation `Route Presence Alert` (`alerts_presence.yaml`) triggers on
+`binary_sensor.unknown_ap_alert_active` going `on`, or `sensor.presence_alert_context`
+reaching `critical`, and calls `script.notify_presence_event` directly — mirroring the
+already-proven temperature-domain pattern. `from: "off"` / `not_from: ["unknown",
+"unavailable"]` guards included from the start (added to all new routing automations
+across every domain after a live reload-storm incident during rollout — see
+ALERTS_CONTRACT.md BUG-A10 for the full incident writeup).
+
+**Related, same session:** arrival/departure notifications (handled in
+`security_automations.yaml`, not this package) promoted from `information` to `warning` —
+see SECURITY_CONTRACT.md S18.
+
+---
+
 ## Section 11: Trust Model Design
 
 ### Intended Architecture (Three-Entity Chain)

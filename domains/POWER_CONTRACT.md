@@ -1848,6 +1848,60 @@ No references to `sensor.inverter_power` remain in the file.
 
 ---
 
+### Issue 18 — ✅ RESOLVED 2026-07-06: power critical/Telegram notifications silently failing + power warning-tier alerts had zero delivery
+**Priority:** P1 — critical alerts (incl. prepaid-critical) were not reaching any phone
+**Files:** `packages/notifications/notify_power_event.yaml`, `packages/alerts/alerts_power.yaml`
+
+**Bug 1 — critical branch silently broken:** `notify_power_event.yaml`'s critical branch
+still called `notify.send_message` with a nested `data: {push, channel, ttl, priority}`
+block — the "extra keys not allowed @ data['data']" bug fixed everywhere else on
+2026-07-01 (security/water/system/lighting), but power was missed. `continue_on_error: true`
+swallowed the HTTP 400 silently. Real impact: `power_battery_soc_critical_alert`
+(power_automations.yaml) and both prepaid-critical automations
+(`prepaid_critical_night_protection_alert` in prepaid_core.yaml,
+`prepaid_buy_decision_notify` in prepaid_strategy.yaml) had been failing to reach any phone
+for critical severity. **Fix:** converted to the legacy per-device `notify.mobile_app_*`
+pattern already proven in `notify_security_events.yaml`.
+
+**Bug 2 — Telegram inline_keyboard also rejected:** discovered live while testing Bug 1's
+fix — the Telegram mirror for critical severity called `notify.send_message` targeting
+`notify.telegram_bot_5527` with `inline_keyboard` at top level of `data:`, the same
+rejection SECURITY_CONTRACT.md's BUG-S61 already fixed for security, just never applied to
+power. Confirmed firing live on both prepaid-critical automations via `ha core logs`. Mobile
+push was unaffected (runs before this step); only the Telegram Acknowledge button/message
+was silently missing. **Fix:** switched to `telegram_bot.send_message` directly.
+
+**Bug 3 — `alert.power_alert` (STD_Alerts) zero delivery for warning tiers:** `notify.STD_Alerts`
+has been broken since 2026-06-28 (see NOTIFICATIONS_CONTRACT.md §7). `alert.power_alert`'s
+own entity_id anchor is `binary_sensor.power_grid_offline_alert_active` ONLY — so
+`sensor.power_alert_context`'s warning-tier scenarios (evening/night risk while grid is
+down but SOC still OK) never got a phone push at all, and battery-low-while-grid-up (a
+distinct warning scenario the context sensor computes) could never even reach the alert
+entity, since it isn't anchored on that binary sensor either (architectural gap, related to
+the still-open "Entity Reference" note re: `power_alert_context.devices` — see historical
+Issue tracking). Only the specific SOC-critical/low-solar combination had separate coverage
+via `power_battery_soc_critical_alert`. **Fix:** new automation `Route Power Alert`
+(`alerts_power.yaml`) triggers on grid-offline OR battery-low binary sensors going `on`, or
+the context sensor reaching `critical`, and calls `script.notify_power_event` directly —
+same pattern already proven for the temperature domain.
+
+**Live incident during rollout (self-contained, fixed same session):** the first version of
+`Route Power Alert` (and 12 sibling automations added for other domains — see
+ALERTS_CONTRACT.md BUG-A10) used bare `to: "on"`/`to: "critical"` triggers with no
+`from`/`not_from` guard. Reloading `template:` to activate them caused a wave of false
+CRITICAL pushes — fixed same session with `from: "off"` / `not_from: ["unknown",
+"unavailable"]` guards. Separately, the SAME reload also caused pre-existing
+`prepaid_buy_decision_notify` and `prepaid_critical_night_protection_alert` to fire falsely
+despite already having `not_from`/`not_to` guards — the real mechanism there is a
+`template:` reload causing interdependent sensors to transiently read a default (e.g.
+`| float(0)`) from an upstream sensor that hasn't recomputed yet, a valid-looking-but-wrong
+value that `not_from` guards can't catch. **NOT fixed** (pre-existing, out of scope this
+session) — would need an audit of both automations' upstream sensor chains for reload-safe
+defaults. Operational takeaway: don't reload `template:` unless a `template:` sensor
+actually changed.
+
+---
+
 ## 12. Error Signatures (Watchman-Confirmed)
 
 These entities appear in watchman_report.txt as missing or unavailable. Map these to the issues above.

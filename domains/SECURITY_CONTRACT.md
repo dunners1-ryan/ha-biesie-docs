@@ -1665,6 +1665,40 @@ Needs infra-side investigation (reverse proxy container status / whether
 
 ---
 
+### S18 — Notification severity/sound classification overhaul (2026-07-06)
+
+**Priority: MEDIUM | Status: ✅ APPLIED 2026-07-06**
+
+User requested a full run-through classifying every alert category across ALL domains
+(not just security) into critical/warning/info sound tiers. Security-specific changes:
+
+**Arrivals/departures promoted `information` → `warning`:** `security_automations.yaml`'s
+4 call sites — Arrival Stage 1 (~1437), Departure Stage 1 (~1461), Arrival Stage 2 confirm
+(~1561), Departure Stage 2 confirm (~1638) — now pass `severity: "warning"` instead of
+`"information"`. Per user's explicit request: every arrival/departure gets the audible
+warning tone (iOS time-sensitive / Android `security_warning` channel — same S17c
+mechanism, now reused as the universal warning sound across all domains), always, no
+quiet-hours exception. The "Dogs home alone?" departure prompt (~1487) stays `critical`,
+unchanged. `notify_security_events.yaml` itself was NOT modified — it already had the
+warning-tier sound built (S17c); only the severity value at each call site changed.
+
+**Everything else in this session lived outside the security package** — universal
+warning-tier sound extended to power/water/presence/system/lighting, 13 dead `alert:`
+delivery domains fixed (network, device power, media, system health, water, presence,
+garden, dash battery, camera health, doors, power), and two previously-silent critical-
+severity bugs found and fixed in `notify_power_event.yaml`/`notify_presence_events.yaml`
+(same `data.data`/`inline_keyboard` rejection class as BUG-S60/S61, just never applied
+there). Full detail: NOTIFICATIONS_CONTRACT.md, ALERTS_CONTRACT.md, PROJECT_STATE.md
+2026-07-06 entry.
+
+**Live regression check performed:** after all other changes, fired a real
+`script.notify_security_event` call with an `image` argument (security's script was not
+touched this session) — confirmed the only error was the pre-existing, already-documented
+BUG-S61 `ha.dunners.tech` photo-attachment infra issue, not a new regression. The inline-
+image mobile push path itself is unaffected.
+
+---
+
 ## Section 7: Active Log Errors
 
 **Note:** `home-assistant.log` is not available in the local git repository (it lives only

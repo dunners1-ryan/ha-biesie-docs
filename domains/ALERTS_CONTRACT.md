@@ -7,6 +7,9 @@
 #
 # Scope: All 13 packages/alerts/*.yaml files
 #        Plus cross-domain aggregation in alerts_summary.yaml
+# Last updated: 2026-07-07 — BUG-A11 restart completed (camera_health notifier
+# fix now live), BUG-A12 (garden TURN_OFF_POND_PUMP action button restored via
+# notify_system_event.yaml actions: field, see NOTIFICATIONS_CONTRACT.md)
 # Last updated: 2026-07-06 — BUG-A10 (notify.STD_Alerts broken again, 13
 # domains had zero delivery — per-domain routing automations added, see
 # NOTIFICATIONS_CONTRACT.md), BUG-A11 (alert.camera_health dead notifier
@@ -602,8 +605,36 @@ already works via `automation.camera_health_alert_notify_telegram`, which calls
 would double-deliver the initial hit (BUG-A04 pattern). The alert entity now exists purely
 for dashboard/logbook visibility and repeat-reminder bookkeeping.
 
-**⚠️ Requires a full HA restart to load** (`alert:` entities can't be reloaded piecemeal) —
-not yet restarted as of this entry; see PROJECT_STATE.md OPEN TODO.
+**⚠️ Requires a full HA restart to load** (`alert:` entities can't be reloaded piecemeal).
+**✅ Restart completed 2026-07-07** (`.ha_run.lock` confirms fresh core start) — fix is live,
+`alert.camera_health` loads cleanly with no `notifiers:` key. Closed.
+
+---
+
+### BUG-A12 — Garden `TURN_OFF_POND_PUMP` mobile action button unreachable (BUG-A10 leftover gap)
+**Severity:** Low
+**Files:** `packages/notifications/notify_system_event.yaml`, `packages/alerts/alerts_garden.yaml`
+**Status:** ✅ FIXED 2026-07-07
+
+BUG-A10's fix (2026-07-06) restored push delivery for the garden pond-pump alert by routing
+it through `script.notify_system_event`, but that script had no way to attach a mobile action
+button — so `TURN_OFF_POND_PUMP` still couldn't be tapped even though the push itself now
+arrived. Flagged as a known gap in BUG-A10's writeup and carried as an OPEN TODO item.
+
+**Fix:** Added an optional `actions` field to `script.notify_system_event` (see
+NOTIFICATIONS_CONTRACT.md §5 "Extended Fields") — passed through to the per-device
+`notify.mobile_app_*` calls on the warning/critical branches only (the info branch uses
+`notify.send_message`, which structurally rejects any extra `data` key — same class of bug as
+BUG-N13/N14). `alerts_garden.yaml`'s `route_garden_alert` automation now passes
+`actions: [{action: "TURN_OFF_POND_PUMP", title: "Turn Off Pump"}]`. The existing action
+handler (`automation.garden_alert_ack_turn_off_pond_pump`) needed no changes — it was already
+correctly listening for the `mobile_app_notification_action` event.
+
+**Tested:** `ha core check` clean. Live-fired `script.notify_system_event` twice via direct
+API call post-restart — once with `actions` set (pond-pump case), once without (backward-compat
+check for every other existing caller, e.g. temperature domain) — both completed with no
+template errors, confirmed via HA logbook/error log. Real test pushes were sent to all 4
+devices; user asked to visually confirm the button renders and works.
 
 ---
 
@@ -621,9 +652,9 @@ not yet restarted as of this entry; see PROJECT_STATE.md OPEN TODO.
 | Water | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A01; 2026-07-06 tank-low + borehole tiers delivery fixed (BUG-A10) |
 | Security | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A02; repeat reminders deliberately left unfixed 2026-07-06 (see BUG-A10) |
 | Presence | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-16 B1; 2026-07-06 delivery fixed (BUG-A10) |
-| Garden | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-29 new; 2026-07-06 delivery fixed (BUG-A10) |
+| Garden | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-29 new; 2026-07-06 delivery fixed (BUG-A10); 2026-07-07 action button restored (BUG-A12) |
 | Dash Batteries | ✅ (x5) | ✅ | ✅ | ✅ (triggered) | PASS | 2026-05-27 new; 2026-07-06 delivery fixed (BUG-A10) |
-| Camera Health | — | ✅ | ✅ | Not confirmed | PASS with note | 2026-07-06 added to contract; BUG-A11 fixed |
+| Camera Health | — | ✅ | ✅ | Not confirmed | PASS with note | 2026-07-06 added to contract; BUG-A11 fixed, restart completed 2026-07-07 |
 
 ---
 
@@ -641,9 +672,11 @@ not yet restarted as of this entry; see PROJECT_STATE.md OPEN TODO.
 | BUG-A08 | **Low** | ✅ Fixed 2026-04-16 | `alerts_presence.yaml` implemented — unknown AP + occupancy anomaly pipeline | alerts_presence.yaml |
 | BUG-A09 | **High** | ✅ Fixed 2026-04-22 | `sensor.critical_sensor_health_alert_context` devices attribute rendered as string — inline `# comment` after Jinja2 expression in YAML `>` block scalar; `#` is not stripped by Jinja2, appended to list output, broke `ast.literal_eval`, aggregator `devs is not string` failed silently → alert never surfaced in global summary | alerts_system_health.yaml |
 | BUG-A10 | **High** | ✅ Fixed 2026-07-06 | `notify.STD_Alerts` broken again post-2026-06-28 migration — 13 domains had zero push delivery; per-domain routing automations added (self-caused reload-flap incident during rollout also fixed same session) | 10 files, see entry above |
-| BUG-A11 | **Medium** | ✅ Fixed 2026-07-06 (needs HA restart to load) | `alert.camera_health`'s `notifiers: [STD_Warning]` — that group doesn't exist at all (removed 2026-06-28), every repeat threw hard `ServiceNotFound`; notifier removed outright | alerts_camera_health.yaml |
+| BUG-A11 | **Medium** | ✅ Fixed 2026-07-06, restart completed 2026-07-07 | `alert.camera_health`'s `notifiers: [STD_Warning]` — that group doesn't exist at all (removed 2026-06-28), every repeat threw hard `ServiceNotFound`; notifier removed outright | alerts_camera_health.yaml |
+| BUG-A12 | **Low** | ✅ Fixed 2026-07-07 | Garden `TURN_OFF_POND_PUMP` mobile action button unreachable — `script.notify_system_event` had no `actions:` passthrough; added, garden alert now passes the button | notify_system_event.yaml, alerts_garden.yaml |
 
 **Open: 0 issues**  
+**Fixed 2026-07-07: BUG-A11 (restart), BUG-A12**
 **Fixed 2026-07-06: BUG-A10, BUG-A11**
 **Fixed 2026-06-19: BUG-A03**  
 **Fixed 2026-04-22: BUG-A09**  
@@ -652,6 +685,7 @@ not yet restarted as of this entry; see PROJECT_STATE.md OPEN TODO.
 ---
 
 *Contract generated: 2026-04-13*
+*Last updated: 2026-07-07 — BUG-A11 restart completed (camera_health fix live), BUG-A12 (garden TURN_OFF_POND_PUMP action button restored via notify_system_event.yaml actions: field)*
 *Last updated: 2026-07-06 — BUG-A10 (notify.STD_Alerts broken again, 13 domains fixed via per-domain routing automations), BUG-A11 (alert.camera_health dead notifier removed, needs restart), alerts_camera_health.yaml added to inventory/audit (was missing entirely)*
 *Last updated: 2026-06-19 — BUG-A03 closed (temperature alerts now use script.notify_system_event; verified in code)*  
 *Last updated: 2026-05-27 — alerts_batteries.yaml added; dash battery + screen brightness domain documented; aggregator trigger list updated*  

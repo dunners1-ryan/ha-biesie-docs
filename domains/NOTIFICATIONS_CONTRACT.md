@@ -2,6 +2,9 @@
 # NOTIFICATIONS CONTRACT
 # HABiesie — Notifications Domain
 # Generated: 2026-04-13
+# Last updated: 2026-07-07 — notify_system_event.yaml gained optional
+# `actions:` field passthrough (warning/critical only), restoring the garden
+# TURN_OFF_POND_PUMP mobile action button (BUG-A12, see ALERTS_CONTRACT.md).
 # Last updated: 2026-07-06 — severity/sound classification overhaul: universal
 # warning-tier sound (all 6 scripts), power+presence critical silently-broken
 # data.data bug fixed, power Telegram inline_keyboard bug fixed, arrivals/
@@ -181,6 +184,25 @@ Used by Stage 1 departure sequence — fires after "🚗 Departure — vehicle l
 when `dogs_inside = off AND NOT guest_mode AND NOT staff_on_site`.
 Handler: `automation.dogs_inside_from_notification` (security_automations.yaml) — turns on
 `input_boolean.dogs_inside` when DOGS_INSIDE_ON action is tapped.
+
+### script.notify_system_event — Extended Fields (2026-07-07)
+
+Standard fields: `severity`, `title`, `message`
+
+**`actions` (list, optional) — added 2026-07-07:**
+Passthrough list of mobile action buttons, e.g.
+`[{"action": "SOME_ACTION", "title": "Button Label"}]`. Applied to the nested
+`data:` block of every per-device `notify.mobile_app_*` call on the
+**warning and critical branches only**. Not supported on the information
+branch — that branch uses `notify.send_message`, which structurally rejects
+any extra `data` key (same class of bug as BUG-N13/N14; confirmed live
+2026-07-03). When omitted, resolves to `omit` (no `actions` key sent at all)
+— fully backward-compatible with every existing caller.
+
+Added to close BUG-A12 (ALERTS_CONTRACT.md) — `alerts_garden.yaml`'s pond-pump
+warning now passes `actions: [{action: "TURN_OFF_POND_PUMP", title: "Turn Off Pump"}]`.
+Any future caller needing a mobile action button on a system-domain warning/
+critical push can reuse this field rather than bypassing the script.
 
 ---
 
