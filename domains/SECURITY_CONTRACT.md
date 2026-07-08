@@ -311,8 +311,8 @@ No security-domain helpers were found to be UI-created. All are YAML-defined in
 | `input_boolean.staff_on_site` | `packages/context/context_presence.yaml` | OK (but also a derived binary_sensor) |
 | `input_boolean.entertaining_mode` | `packages/context/context_presence.yaml` | OK |
 | `input_boolean.holiday_mode` | `packages/context/context_presence.yaml` | OK |
-| `input_datetime.low_trust_start` | `packages/context/context_presence.yaml` | **MISSING** — commented out |
-| `input_datetime.low_trust_end` | `packages/context/context_presence.yaml` | **MISSING** — commented out |
+| `input_datetime.low_trust_start` | `packages/context/context_presence.yaml` | **N/A** — superseded 2026-05-17 (S1.3), `boundary_permissive_window` no longer references it at all; not merely restored, design changed. See ISSUE 3. |
+| `input_datetime.low_trust_end` | `packages/context/context_presence.yaml` | **N/A** — same as above |
 | `input_boolean.arrival_detected` | `packages/presence/presence_helpers.yaml` | OK |
 | `binary_sensor.night_confirmed` | `packages/context/context_night.yaml` | OK |
 | `binary_sensor.night_early` | `packages/context/context_night.yaml` | OK |
@@ -622,8 +622,8 @@ security_event_end
 | Context | `binary_sensor.night_early` | Lighting allowed gate |
 | Context | `input_boolean.openweathermap_api_limited` | Weather API health fallback |
 | Context | `sensor.weather_api_health` | Weather API health check |
-| Context | `input_datetime.low_trust_start` | Boundary permissive window (MISSING) |
-| Context | `input_datetime.low_trust_end` | Boundary permissive window (MISSING) |
+| Context | `input_datetime.low_trust_start` | No longer used — boundary permissive window rebuilt 2026-05-17 (ISSUE 3) |
+| Context | `input_datetime.low_trust_end` | No longer used — same as above |
 | Hardware | `binary_sensor.main_gate_sensor` | Arrival/visitor detection, correlation |
 | Hardware | `weather.home` | Visibility sensors (MISSING per Watchman) |
 | Notifications | `script.notify_security_event` | All outbound notifications |
@@ -709,11 +709,28 @@ security_house_motion, security_visitor, security_arrival_detected.*
 
 ---
 
-### ISSUE 3 — `binary_sensor.boundary_permissive_window` always false
-**Priority: HIGH | Risk to fix: LOW**
+### ~~ISSUE 3~~ — `binary_sensor.boundary_permissive_window` always false
+**Priority: HIGH | Risk to fix: LOW | ✅ FIXED 2026-05-17 (S1.3 rebuild)**
+**Doc-drift correction 2026-07-08:** this entry, the Section 7 Watchman notes for
+`low_trust_start`/`low_trust_end`, and the Sprint 1 checklist line below were all left
+unmarked after the fix actually shipped — found and closed out during an unrelated
+PRESENCE_CONTRACT.md BUG-P17 session. The Section 2 and Section 5 entity tables already
+had this correct (see `binary_sensor.boundary_permissive_window` there).
 
-**Symptom:** The boundary_permissive_window sensor always returns `false` unless
-`guest_mode` is on, meaning the maid/staff window is never recognised.
+**Was:** The sensor always returned `false` unless `guest_mode` was on — read from
+`input_datetime.low_trust_start`/`low_trust_end`, both commented out in
+`context_presence.yaml`, so the maid/staff window was never recognised.
+
+**Fix applied:** Not either of the two options originally proposed below (restoring the
+two datetimes, or swapping to maid/gardener start/end) — a full rebuild instead, per
+PRESENCE_CONTRACT.md BUG-P03: `security_core.yaml` now defines it as
+`binary_sensor.low_trust_present OR input_boolean.guest_mode OR
+input_boolean.boundary_permissive_override`. `low_trust_start`/`low_trust_end` are not
+referenced anywhere in `packages/` anymore — the design no longer needs them, they are
+not merely "restored."
+
+<details>
+<summary>Original (superseded) fix proposal, kept for history</summary>
 
 **Root cause:** The sensor in `security_core.yaml:31` reads from
 `input_datetime.low_trust_start` and `input_datetime.low_trust_end`, but these are
@@ -723,6 +740,7 @@ commented out in `context_presence.yaml:60-67`. Watchman confirms both are missi
 A) Uncomment `low_trust_start` and `low_trust_end` in `context_presence.yaml`
 B) Rewrite `boundary_permissive_window` to use `input_datetime.maid_start`/`maid_end`
    and `input_datetime.gardener_start`/`gardener_end` which DO exist
+</details>
 
 ---
 
@@ -1701,6 +1719,14 @@ image mobile push path itself is unaffected.
 
 ## Section 7: Active Log Errors
 
+**⚠️ Stale snapshot (flagged 2026-07-08):** this section pre-dates Sprint 1 (2026-04-15)
+and the S1.3 rebuild (2026-05-17) — several entries below describe bugs already fixed
+elsewhere in this same document (Section 6 ISSUE 3, ISSUE 4) and reference line numbers
+that no longer match the live file. Marked inline below rather than deleted, so future
+audits don't waste time re-discovering the same false positives (per SESSION_CHECKLIST.md
+drift pattern #4). Only `weather.home` was re-verified live (2026-07-08, via
+`.storage/core.entity_registry`) and is still genuinely missing — that one remains open.
+
 **Note:** `home-assistant.log` is not available in the local git repository (it lives only
 on the running HA instance). The following errors are inferred from Watchman report and
 static analysis:
@@ -1708,10 +1734,12 @@ static analysis:
 ### Confirmed Missing Entities (Watchman Report)
 
 ```
+✅ STALE/FIXED — see Section 6 ISSUE 3 (fixed 2026-05-17, S1.3 rebuild):
 MISSING: input_datetime.low_trust_start
   Referenced in: packages/security/security_core.yaml:31
   Effect: binary_sensor.boundary_permissive_window always returns false
 
+✅ STALE/FIXED — see Section 6 ISSUE 3 (fixed 2026-05-17, S1.3 rebuild):
 MISSING: input_datetime.low_trust_end
   Referenced in: packages/security/security_core.yaml:31
   Effect: same as above
@@ -1720,19 +1748,24 @@ MISSING: input_datetime.low_trust_end
   Was: referenced cam03_rear_perimeter_motion_valid (never existed) → always off
   Now: references ipcam05_back_boundary_motion_valid — first active rear perimeter sensor
 
+⚠️ STILL OPEN — re-verified live 2026-07-08 (weather.home is genuinely absent from
+core.entity_registry; only weather.forecast_home and weather.openweathermap exist):
 MISSING: weather.home
   Referenced in: packages/security/security_core.yaml:76,82
   Effect: security_visibility_poor / security_weather_low_light always return 
           their false-branch (weather not in list)
 
+✅ STALE/FIXED — see Section 6 ISSUE 4 (fixed 2026-04-15, D1):
 MISSING: binary_sensor.security_visibility_poor (in Watchman)
   Actually defined as binary_sensor.security_visibility_poor — entity exists.
   But security_core.yaml:111 references binary_sensor.security_poor_visibility
   which does NOT exist — confirmed by Watchman.
 
+✅ STALE/FIXED — see Section 6 ISSUE 4 (fixed 2026-04-15, D1):
 MISSING: binary_sensor.security_poor_visibility (Watchman confirms)
   Referenced in: packages/security/security_core.yaml:111
   
+✅ STALE/FIXED — see Section 6 ISSUE 4 (fixed 2026-04-15, D1):
 MISSING: binary_sensor.security_low_light_weather (Watchman confirms)
   Referenced in: packages/security/security_core.yaml:111
 
@@ -1816,8 +1849,11 @@ SPRINT 1 — Fix Silent Failures (no risk, immediate value)
 [✅] Fix Issue 12: add unique_id to sensor.security_correlation — DONE 2026-04-15
 [✅] D5: remove presence_test_arrival test automation from production — DONE 2026-04-15
 [ ] Fix Issue 11: remove duplicate condition block in security_capture_best_snapshot
-[ ] Fix Issue 3: restore low_trust_start/end OR rewrite boundary_permissive_window
-                 to use maid_start/maid_end + gardener_start/gardener_end
+[✅] Fix Issue 3 — DONE 2026-05-17 (S1.3 rebuild, not this checklist's original A/B
+                 proposal): boundary_permissive_window rewritten to use
+                 low_trust_present OR guest_mode OR boundary_permissive_override.
+                 Checklist item found unmarked 2026-07-08, closed out same session
+                 as PRESENCE_CONTRACT.md BUG-P17.
 
 SPRINT 2 — Snapshot Deduplication (Issue 1)
 [ ] Decide on Option A or Option B (see Issue 1)

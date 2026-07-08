@@ -255,9 +255,15 @@ walking arrival through the front entrance never set `arrival_detected` and ther
 never reached `lighting_arrival_night` (LIGHTING_CONTRACT.md), even though a driveway
 arrival worked fine.
 
-### `presence_test_arrival` — Test Automation Left in Production
+### ~~`presence_test_arrival`~~ — Test Automation Left in Production
+**Status: ✅ FIXED — removed 2026-04-15 (D5, per SECURITY_CONTRACT.md Sprint 1 checklist)**
+**Doc-drift correction 2026-07-08:** this section and the BUG-P07 summary-table row
+still read "Open" after the removal shipped. Confirmed zero matches for
+`presence_test_arrival` in `packages/presence/*.yaml` or `automations.yaml` — closed out
+during an unrelated BUG-P17 session.
 
 ```yaml
+# REMOVED 2026-04-15 — kept here for history only:
 - alias: Presence Test Arrival
   id: presence_test_arrival
   mode: single
@@ -270,9 +276,8 @@ arrival worked fine.
       target: input_datetime.last_arrival_time
 ```
 
-**Issue:** No conditions, no cooldown, no AP check. Sets `last_arrival_time`
-on every gate open event. Runs in parallel with the real boundary resolver.
-Should be removed from production.
+**Was:** No conditions, no cooldown, no AP check. Set `last_arrival_time`
+on every gate open event, running in parallel with the real boundary resolver.
 
 ### `suppress_security_after_restart`
 
@@ -582,9 +587,13 @@ boundary resolver (with timed turn_off or reset on next gate event).
 
 ---
 
-### BUG-P07 — `presence_test_arrival` test automation left in production
-**Severity:** Medium  
+### ~~BUG-P07~~ — `presence_test_arrival` test automation left in production
+**Severity:** Medium
 **File:** `presence/presence_boundary.yaml:595`
+**Status:** ✅ FIXED — removed 2026-04-15 (see SECURITY_CONTRACT.md Sprint 1 checklist,
+D5). Doc-drift correction 2026-07-08: confirmed zero matches in live
+`packages/presence/*.yaml`/`automations.yaml`; this entry and Section 5's copy were left
+unmarked after the removal shipped — closed out during an unrelated BUG-P17 session.
 
 ```yaml
 - alias: Presence Test Arrival
@@ -1005,7 +1014,7 @@ brief hallway trips at night. This is well-calibrated for the use case.
 | BUG-P04 | **High** | 🔧 S2/S3 | All 4 intruder automation trust conditions commented out "for testing" | security_automations.yaml |
 | BUG-P05 | **High** | Open | `holiday_mode` produces `intruder_high` state but no automation handles it | security_logic.yaml |
 | BUG-P06 | **Medium** | ✅ Fixed 2026-05-17 | `input_boolean.arrival_detected` never set by boundary resolver | presence_boundary.yaml |
-| BUG-P07 | **Medium** | Open | `presence_test_arrival` test automation in production, race-conditions real resolver | presence_boundary.yaml |
+| BUG-P07 | **Medium** | ✅ Fixed 2026-04-15 | `presence_test_arrival` test automation in production, race-conditions real resolver | presence_boundary.yaml |
 | BUG-P08 | **Medium** | Open | Unknown AP sensors use `device_tracker.*_iphone` vs `*_iphone_tracker` inconsistency | presence_validation.yaml |
 | BUG-P09 | **Low** | Open | `house_departure_event` logbook message says "entry" not "departure" | presence_boundary.yaml |
 | BUG-P10 | **Low** | ✅ N/A | Duplicate `staff` variable — both lines are in different sensors; both correct | security_logic.yaml |
