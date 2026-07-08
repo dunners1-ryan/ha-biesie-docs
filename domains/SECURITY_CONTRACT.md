@@ -1862,8 +1862,18 @@ SPRINT 2 — Snapshot Deduplication (Issue 1)
 [ ] Validate no dashboard cards break
 
 SPRINT 3 — Notification Architecture (Issues 2 + 8)
-[ ] Fix Issue 2: change triggers on grounds/rear/house automations to use
-                 binary_sensor.security_{zone}_motion instead of correlation sensor
+[✅] Fix Issue 2 — DONE 2026-05-17, but via a more thorough path than this checklist
+                 originally planned: rather than swapping the trigger entity on
+                 security_grounds_motion/security_rear_grounds_motion/security_house_motion,
+                 the S3 rebuild deleted all three automations outright and replaced them with
+                 security_event_router reading sensor.security_event_classification — which
+                 already sources binary_sensor.security_perimeter_front_motion/
+                 _perimeter_rear_motion/_grounds_motion (the dedicated zone sensors), not
+                 sensor.security_correlation. Checklist line found unmarked 2026-07-08 (code
+                 verified: those 3 automation IDs no longer exist anywhere in
+                 security_automations.yaml or automations.yaml) — closed same session as
+                 PRESENCE_CONTRACT.md BUG-P17. See Section 6 ISSUE 2 (already marked
+                 RESOLVED) for the original incident writeup.
 [ ] Fix Issue 7: add from: "off" to all motion triggers
 [ ] Fix Issue 8: re-enable low_trust_present and guest_mode conditions
                  after trigger changes are validated

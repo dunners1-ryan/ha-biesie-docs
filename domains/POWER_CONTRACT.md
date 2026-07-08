@@ -548,11 +548,21 @@ sensor.prepaid_grid_meter_drift          kWh  absolute drift (inverter vs meter)
 sensor.prepaid_drift_percentage          %    drift as % of lifetime import
 sensor.prepaid_last_update_date              when prepaid_units was last entered
 sensor.prepaid_estimated_days_remaining  days  at adaptive burn rate
-sensor.prepaid_rolling_30day_usage       kWh  entity_id: prepaid_monthly_usage_true — ⚠️ MISLABELED (open, flagged 2026-07-03):
-                                                despite the name this is NOT a sliding 30-day window. It mirrors the
-                                                prepaid_import_monthly utility meter's `last_period` attribute (last
-                                                COMPLETED calendar month's total, frozen until next month boundary) or
-                                                current running total if last_period is 0. Does not recompute daily.
+sensor.prepaid_monthly_usage_true        kWh  "Prepaid Calendar Month Usage" — ✅ RENAMED 2026-07-08 (was mislabeled
+                                                "Rolling 30-Day Grid Usage", flagged 2026-07-03; entity_id/unique_id left
+                                                untouched to avoid orphaning dashboard bindings, only the friendly name
+                                                and doc entry were wrong). Mirrors the prepaid_import_monthly utility
+                                                meter's `last_period` attribute (last COMPLETED calendar month's total,
+                                                frozen until next month boundary) or current running total if
+                                                last_period is 0. This is genuinely calendar-month based, not rolling —
+                                                the name now matches the behavior.
+sensor.prepaid_rolling_30day_usage       kWh  NEW 2026-07-08 — the actual sliding 30-day window that was missing.
+                                                `platform: statistics`, source sensor.grid_energy_import_total,
+                                                `state_characteristic: change`, `max_age: days: 30` (change = newest
+                                                minus oldest sample in the buffer — correct way to get a rolling delta
+                                                off a total_increasing energy sensor). Kept as a separate entity from
+                                                prepaid_monthly_usage_true above, deliberately — don't conflate rolling
+                                                and calendar-month semantics in one sensor.
 
 sensor.prepaid_energy_cost_per_kwh       R/kWh  last purchase cost
 sensor.prepaid_true_cost_per_kwh         R/kWh  lifetime blended cost

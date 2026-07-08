@@ -500,13 +500,19 @@ Also fixed in same pass: `sev` variable was missing `| default('information')` g
 
 ---
 
-### BUG-N02 [MEDIUM] Wrong counter entity in notify_water_events.yaml weekly summary
+### ~~BUG-N02~~ [MEDIUM] Wrong counter entity in weekly water summary
+**Status:** ✅ Doc-drift correction 2026-07-08 — already correct in live code, no code change needed; also corrects a wrong file name in this entry.
 
-**File:** `packages/notifications/notify_water_events.yaml`  
-**Description:** References `counter.water_borehole_faults_week` but correct entity is
+**File:** `packages/notifications/water_notifications.yaml:154` (this entry previously
+named `notify_water_events.yaml`, a different file that has no such reference at all).
+**Was claimed:** References `counter.water_borehole_faults_week` but correct entity is
 `counter.water_borehole_faults_this_week`. Weekly borehole fault count always reports
-unknown or zero.  
-**Fix:** Replace `counter.water_borehole_faults_week` with `counter.water_borehole_faults_this_week`.
+unknown or zero.
+**Re-verified live 2026-07-08:** `water_notifications.yaml:154` already reads
+`states('counter.water_borehole_faults_this_week')` — correct. Grep-confirmed zero
+occurrences of the wrong name anywhere in `packages/`. Same claim also lived in
+WATER_CONTRACT.md Issue 8 — corrected there too, same session (see PRESENCE_CONTRACT.md
+BUG-P17 session for the pattern of drift this was found alongside).
 
 ---
 

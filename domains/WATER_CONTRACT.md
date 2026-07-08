@@ -281,7 +281,7 @@ input_datetime.water_refill_end             cycle end time
 input_datetime.water_last_emergency_refill  last emergency mode start
 input_datetime.water_refill_solar_start     solar window start (time only)
 input_datetime.water_refill_solar_stop      solar window stop (time only)
-input_number.water_refill_start_depth       depth at start (written by BOTH control + capture)
+input_number.water_refill_start_depth       depth at start (written by capture only — control's duplicate write removed, Issue 3, 2026-07-08)
 input_number.water_refill_end_depth         depth at end (written by capture)
 input_number.water_refill_start_level       % at start (UI/legacy only — NOT source of truth)
 input_number.water_refill_end_level         % at end (UI/legacy only)
@@ -346,8 +346,8 @@ sensor.water_tank_level_sensor_liquid_level   %  raw Tuya hardware sensor (used 
 ### Reporting
 
 ```
-sensor.water_refill_avg_flow_this_week   m/h (reads from MISSING sensor.water_refill_flow_rate)
-sensor.water_refill_avg_flow_last_week   m/h (reads from MISSING sensor.water_refill_flow_rate)
+sensor.water_refill_avg_flow_this_week   m/h (reads sensor.water_refill_flow_rate, rolling 7-day mean — Issue 1, fixed 2026-07-08)
+sensor.water_refill_avg_flow_last_week   m/h (reads input_number.water_refill_avg_flow_last_week, frozen Monday 00:00 — Issue 1, fixed 2026-07-08)
 ```
 
 ---
@@ -530,23 +530,16 @@ Issues ordered by risk/impact. **P1 = breaks functionality. P2 = incorrect data/
 
 ---
 
-### Issue 1 — MISSING: `sensor.water_refill_flow_rate` (breaks weekly reporting)
-**Priority:** P1 — Weekly reporting sensors always return 0  
-**File:** `packages/water/water_reporting.yaml:23,29`  
-**Root cause:** `sensor.water_refill_avg_flow_this_week` and `sensor.water_refill_avg_flow_last_week` both read from `state_attr('sensor.water_refill_flow_rate','mean')`. This entity is never defined anywhere — it was intended to be a statistics platform sensor tracking `sensor.water_refill_cycle_avg_flow_rate` but was never implemented.  
-**Watchman:** Confirmed missing.  
-**Fix:** Add to `water_reporting.yaml`:
-```yaml
-sensor:
-  - platform: statistics
-    name: Water Refill Flow Rate
-    unique_id: water_refill_flow_rate
-    entity_id: sensor.water_refill_cycle_avg_flow_rate
-    state_characteristic: mean
-    max_age:
-      days: 7
-    sampling_size: 20
-```
+### ~~Issue 1~~ — MISSING: `sensor.water_refill_flow_rate` (breaks weekly reporting)
+**Priority:** P1 — Weekly reporting sensors always return 0
+**Status:** ✅ FIXED 2026-07-08
+**File:** `packages/water/water_reporting.yaml`
+
+**Was:** `sensor.water_refill_avg_flow_this_week` and `sensor.water_refill_avg_flow_last_week` both read from `state_attr('sensor.water_refill_flow_rate','mean')`/`'mean_7d'`. Neither the entity nor a `mean_7d` attribute ever existed — the statistics platform doesn't expose a `mean_7d` characteristic at all, so "last week" was never fixable by just adding the missing sensor alone.
+
+**Fix applied:**
+1. Added `sensor.water_refill_flow_rate` (`platform: statistics`, source `sensor.water_refill_cycle_avg_flow_rate`, `state_characteristic: mean`, `max_age: days: 7`) to `water_reporting.yaml` — this is a rolling 7-day window, not a calendar week, and now correctly backs "this week".
+2. "Last week" doesn't use a statistics attribute at all — added `input_number.water_refill_avg_flow_last_week` (`water_helpers.yaml`) plus a new automation `water_snapshot_weekly_avg_flow` (`water_maintenance_automations.yaml`, Monday 00:00 — same cadence as the existing `water_reset_weekly_fault_counter`) that freezes the current "this week" value into the input_number before the new week starts accumulating. `sensor.water_refill_avg_flow_last_week` now reads that input_number instead of the nonexistent `mean_7d` attribute.
 
 ---
 
@@ -558,14 +551,28 @@ sensor:
 
 ---
 
-### Issue 3 — BUG: Double write to `water_refill_start_depth` — capture overwrites control snapshot
-**Priority:** P2 — Start depth recorded as RAW value, not validated  
-**Files:** `water_tank_refill_control.yaml` (writes validated) + `water_refill_capture.yaml:62` (overwrites with raw)  
-**Root cause:** Control automation writes `water_refill_start_depth` (validated) before starting pump. Then pump on → triggers `water_capture_refill_start` which overwrites the same field with the RAW sensor value (`sensor.water_tank_level_sensor_depth`). Final value is raw, not validated.  
-**Contract says:** "Depth values: RAW sensor (Tuya)" — contract v2 line 112 — so this MAY be intentional but the control automation writing validated first suggests the intent has drifted.  
-**Fix options:**
-1. Remove the start_depth write from `water_tank_refill_control.yaml` — let capture own it exclusively
-2. Change `water_refill_capture.yaml:62` to use validated depth: `states('sensor.water_tank_depth_validated')`
+### ~~Issue 3~~ — BUG: Double write to `water_refill_start_depth` — capture overwrites control snapshot
+**Priority:** P2 — Start depth recorded as RAW value, not validated
+**Status:** ✅ FIXED 2026-07-08 (Fix option 1)
+**Files:** `water_tank_refill_control.yaml` (was writing validated) + `water_refill_capture.yaml` (owns raw write)
+
+**Was:** Control automation wrote `water_refill_start_depth` (validated) before starting the
+pump, in all 6 of its refill branches (Safety/Critical/Emergency/Demand-target/Force-override/
+Predictive-fill). Then pump-on → `water_capture_refill_start` fired ~10s later and overwrote
+the same field with the RAW sensor value. Final value was raw, but the race meant the
+validated write was pure waste and obscured which automation was the real source of truth.
+
+**Resolved per `a_water_lifecycle_contract.yaml`'s own explicit invariant** ("SOURCE OF
+TRUTH: Depth values: RAW sensor (Tuya). Validation: analytics-only (never capture).") — this
+makes Fix option 1 the contractually-correct one, not just the simpler one. `water_capture_
+refill_start` already had a commented-out validated-depth alternative next to its raw write,
+confirming raw was already the deliberate choice there.
+
+**Fix applied:** Removed the `input_number.set_value` write to `water_refill_start_depth` from
+all 6 branches in `water_tank_refill_control.yaml`, each replaced with a one-line comment
+pointing at `water_capture_refill_start` as sole owner — mirrors the same file's existing
+"Mark cycle active ----> let capture control this" pattern already used for `water_refill_
+cycle_active`. `water_refill_capture.yaml` untouched (was already correct per the contract).
 
 ---
 
@@ -659,12 +666,20 @@ Solar window and safety abort state remain as separate binary_sensors by design.
 
 ---
 
-### Issue 8 — BUG: `counter.water_borehole_faults_week` wrong entity name in notifications
-**Priority:** P2 — Weekly summary reports 0 faults regardless of actual count  
-**File:** `packages/notifications/water_notifications.yaml:154`  
-**Root cause:** References `counter.water_borehole_faults_week` but the actual entity is `counter.water_borehole_faults_this_week`.  
-**Watchman:** Confirmed missing.  
-**Fix:** Change `faults_week: "{{ states('counter.water_borehole_faults_week') }}"` → `"{{ states('counter.water_borehole_faults_this_week') }}"`.
+### ~~Issue 8~~ — BUG: `counter.water_borehole_faults_week` wrong entity name in notifications
+**Priority:** P2 — Weekly summary reports 0 faults regardless of actual count
+**Status:** ✅ Doc-drift correction 2026-07-08 — already correct in live code, no code change needed
+**File:** `packages/notifications/water_notifications.yaml:154`
+
+**Was claimed:** References `counter.water_borehole_faults_week` but the actual entity is
+`counter.water_borehole_faults_this_week`. Watchman "confirmed missing."
+
+**Re-verified live 2026-07-08:** `water_notifications.yaml:154` already reads
+`states('counter.water_borehole_faults_this_week')` — the correct entity, grep-confirmed
+(`grep -rn "faults_week" packages/` returns only this one correct reference). Fixed at some
+point without the doc being updated (same drift pattern as SECURITY ISSUE 3 and PRESENCE
+BUG-P07, closed the same day). Same underlying claim also appears in NOTIFICATIONS_CONTRACT.md
+BUG-N02 — corrected there too.
 
 ---
 
@@ -740,8 +755,8 @@ Solar window and safety abort state remain as separate binary_sensors by design.
 | `automation.water_refill_cycle_*` | missing | dashboard | Renamed/restructured — dashboard needs update |
 | `automation.water_borehole_dry_*` | missing | dashboard | Intentionally disabled |
 | `automation.water_borehole_max_*` | missing | dashboard | Not implemented (Issue 5) |
-| `counter.water_borehole_faults_week` | missing | water_notifications.yaml:154 | Wrong name — should be `_this_week` (Issue 8) |
-| `sensor.water_refill_flow_rate` | missing | water_reporting.yaml:23,29 | Never defined (Issue 1) |
+| ~~`counter.water_borehole_faults_week`~~ | N/A | water_notifications.yaml:154 | ✅ Doc-drift, closed 2026-07-08 — live code already correct (Issue 8) |
+| ~~`sensor.water_refill_flow_rate`~~ | defined | water_reporting.yaml | ✅ Fixed 2026-07-08 (Issue 1) |
 | `sensor.water_tank_level_percent` | missing | water_reporting.yaml:54 | Entity ID mismatch (name truncation) |
 
 **Note on `sensor.water_tank_level_percent`:** Defined with name "Water Tank Level %" (unique_id: `water_tank_level_percent`). HA generates entity_id from name stripping `%` → may produce `sensor.water_tank_level_` which doesn't match what reporting.yaml calls. Verify actual entity_id in HA UI.
@@ -799,10 +814,10 @@ The lifecycle contract implies Idle → Running → Completed/Aborted. Currently
 
 ### Sprint 3 — Fix Data Integrity (Issues 1 + 2 + 3 + 8)
 
-- [ ] Add `sensor.water_refill_flow_rate` statistics sensor to `water_reporting.yaml`
+- [✅] Add `sensor.water_refill_flow_rate` statistics sensor to `water_reporting.yaml` — DONE 2026-07-08 (Issue 1), plus `input_number.water_refill_avg_flow_last_week` + weekly snapshot automation for "last week"
 - [ ] Fix `water_tank_full_notification` — change trigger from `water_state = "full"` to `binary_sensor.water_tank_full_depth = on` OR add `"full"` state to `water_state`
-- [ ] Fix double-write to `water_refill_start_depth` — remove write from control automation
-- [ ] Fix `counter.water_borehole_faults_week` → `counter.water_borehole_faults_this_week` in `water_notifications.yaml`
+- [✅] Fix double-write to `water_refill_start_depth` — remove write from control automation — DONE 2026-07-08 (Issue 3), all 6 branches in `water_tank_refill_control.yaml`
+- [✅] Fix `counter.water_borehole_faults_week` → `counter.water_borehole_faults_this_week` in `water_notifications.yaml` — was already correct live, doc-drift closed 2026-07-08 (Issue 8)
 
 ### Sprint 4 — Design Clean-up (Issues 7 + 10 + 11)
 
@@ -957,7 +972,7 @@ Rules:
 | During pump run | ⚠️ Moderate | All spikes accepted; glitch risk |
 | After connectivity drop | ✅ Good | Falls back to previous value |
 | As a control trigger | ⚠️ Moderate | Spike could cause false abort during fill |
-| As an audit record | ⚠️ Moderate | Start depth written from RAW (Issue 3) |
+| As an audit record | ⚠️ Moderate | Start depth written from RAW, single writer only since Issue 3 fix (2026-07-08) |
 | Long-term drift | ❓ Unknown | No drift detection implemented |
 
 ### Recommendation
