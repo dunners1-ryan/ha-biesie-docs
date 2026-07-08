@@ -231,10 +231,9 @@ removed, presumably because it blocked legitimate departures).
 After detecting arrival:
 - `input_text.last_arrival_person` set (cleared after 10s by `presence_marker_reset`)
 - `input_datetime.last_arrival_time` set (persists)
-- `input_boolean.arrival_detected` — **NEVER set by boundary resolver** (defined in helpers, but the resolver doesn't touch it)
-
-**Bug:** `input_boolean.arrival_detected` is defined and referenced in
-PRESENCE_CONTEXT.md but is never set by the boundary resolver.
+- `input_boolean.arrival_detected` — set by the boundary resolver (BUG-P06, fixed
+  2026-05-17) and, as of BUG-P17 (2026-07-08), also by `house_entry_event` below.
+  Auto-clears 5 min later via `presence_clear_arrival_flag`.
 
 ### Door Correlation
 
@@ -242,11 +241,19 @@ Two additional automations provide entry/departure event flags:
 
 | Automation | Trigger | Condition | Output |
 |---|---|---|---|
-| `house_entry_event` | `front_door_sensor → on` | `front_security_gate_sensor` changed < 30s ago | `house_entry_event = on` (5 min) |
+| `house_entry_event` | `front_door_sensor → on` | `front_security_gate_sensor` changed < 30s ago | `house_entry_event = on` (5 min); `input_boolean.arrival_detected = on` (BUG-P17, 2026-07-08) |
 | `house_departure_event` | `front_security_gate_sensor → on` | `front_door_sensor` changed < 30s ago | `house_departure_event = on` (5 min) |
 
 **Bug:** `house_departure_event` logbook.log message says "House **entry**
 event recorded" — copy-paste error. Does not affect function.
+
+**Why this matters (BUG-P17):** `house_entry_event`/`house_departure_event` are the only
+automations keyed off the pedestrian front-security-gate + front-door sensors (area
+`entrance`) rather than `binary_sensor.main_gate_sensor` (area `main_gate`, the driveway
+vehicle gate) — see BUG-P17 in Section 10 for the full incident. Before the fix, a
+walking arrival through the front entrance never set `arrival_detected` and therefore
+never reached `lighting_arrival_night` (LIGHTING_CONTRACT.md), even though a driveway
+arrival worked fine.
 
 ### `presence_test_arrival` — Test Automation Left in Production
 
@@ -811,6 +818,44 @@ see SECURITY_CONTRACT.md S18.
 
 ---
 
+### BUG-P17 — `house_entry_event` never set `arrival_detected` — pedestrian entrance arrivals had no arrival lighting
+**Severity:** High
+**File:** `packages/presence/presence_boundary.yaml`
+**Status:** ✅ FIXED 2026-07-08
+
+**Symptom:** User reported that returning home after 9pm via the front security gate +
+front door (the pedestrian entrance, area `entrance`) never turned on
+`entrance_down_lights` or `dining_room_light`, even though driving in through the
+driveway gate works fine.
+
+**Root cause:** `binary_sensor.main_gate_sensor` (area `main_gate`, the driveway/vehicle
+gate) and `binary_sensor.front_security_gate_sensor` / `binary_sensor.front_door_sensor`
+(both area `entrance`, the pedestrian gate+door) are different physical hardware. Every
+path that sets `input_boolean.arrival_detected` — which is the sole trigger for
+`lighting_arrival_night` (see LIGHTING_CONTRACT.md) — was keyed off `main_gate_sensor` or
+a vehicle-approach camera signal (`presence_boundary_resolver` here; `security_gate_
+vehicle_stage1` in `security_automations.yaml`). `house_entry_event` (Section 5, "Door
+Correlation") is the one automation that actually sees the front-gate→front-door sequence,
+but its action block only toggled `input_boolean.house_entry_event` for 5 minutes and sent
+a presence notification — it never touched `arrival_detected` and has no other consumers.
+So a pedestrian entrance arrival never reached `lighting_arrival_night` at all, regardless
+of quiet-mode/bedtime state.
+
+**Fix:** `house_entry_event`'s action block now also turns on `input_boolean.
+arrival_detected` immediately after `input_boolean.house_entry_event`. `presence_clear_
+arrival_flag` (already existing, BUG-P06) auto-clears it 5 minutes later, same as the
+driveway-gate paths. No new entities; `lighting_arrival_night`'s existing quiet-mode /
+someone-home / nobody-home scenario logic (LIGHTING_CONTRACT.md Section 4) is unchanged
+and now simply reachable from this entry path too.
+
+**User design decision (same session):** confirmed quiet mode (`binary_sensor.quiet_
+arrival_mode` = bedrooms already occupied) should stay minimal as-is — front_house_
+security_light and patio should NOT be added to quiet mode's turn-on list. The
+front+back-security-then-patio-off-at-bedtime behavior the user wants is exactly what
+Scenario 2 ("Someone Home") already does; no lighting-side change was needed there.
+
+---
+
 ## Section 11: Trust Model Design
 
 ### Intended Architecture (Three-Entity Chain)
@@ -968,6 +1013,8 @@ brief hallway trips at night. This is well-calibrated for the use case.
 | BUG-P12 | **Low** | ✅ Fixed 2026-05-17 | Startup sync gap: gardener not restored on HA restart | presence_trust.yaml |
 | BUG-P13 | **Medium** | ✅ Fixed 2026-05-17 | `all_family_home` missing — classifier can't distinguish visitor from family arrival | presence_confidence.yaml |
 | BUG-P15 | **High** | ✅ Fixed 2026-07-06 | Duplicate top-level `template:` key silently dropped 10 presence-confidence/occupied sensors since 2026-05-17 | presence_confidence.yaml |
+| BUG-P16 | **High** | ✅ Fixed 2026-07-06 | `notify_presence_events.yaml` critical branch silently failing + presence anomaly alert had zero delivery | notify_presence_events.yaml, alerts_presence.yaml |
+| BUG-P17 | **High** | ✅ Fixed 2026-07-08 | `house_entry_event` never set `arrival_detected` — pedestrian front-gate/door arrivals got no arrival lighting | presence_boundary.yaml |
 
 **Open: 4 issues — 0 critical, 2 high, 2 medium, 0 low**  
 **Fixed/closed: 9 issues (S1 closed P01/P02/P03/P06/P10/P11/P12; S2 closed P13; P04 deferred to S2/S3 router)**
