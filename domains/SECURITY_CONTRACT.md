@@ -1683,6 +1683,93 @@ Needs infra-side investigation (reverse proxy container status / whether
 
 ---
 
+### BUG-S62 — Visitor/gate-activity/departure notifications could show the wrong camera's image
+**Priority: MEDIUM | Status: ✅ FIXED 2026-07-09**
+**File:** `packages/security/security_automations.yaml` (`security_event_router`, `presence_departure_stage1` or equivalent departure automation)
+
+**Symptom:** Three related but distinct image-selection bugs, all sharing the
+root cause that a shared/general-purpose image slot was read instead of the
+zone- or camera-specific one:
+
+**Bug 1 — RUNG 5 (visitor) image via `zone_label` instead of the perimeter-front
+slot directly.** RUNG 5 (`security_logic.yaml`) is unconditionally
+`perim_front and entrance_valid` — always a street/gate-approach event — but
+the router looked up its image via `zone_label`, a general-purpose "most
+relevant zone right now" ladder that checks inside zones (garage/main house/
+bedroom passage) FIRST. If any inside camera happened to be active at the same
+moment (common in an occupied house), `zone_label` reported that unrelated
+inside zone instead of "perimeter front" — and the old `zone_img` map didn't
+even have inside-zone keys, so it silently fell back to whatever camera fired
+last anywhere on the property. **Fix:** read `input_text.security_image_perimeter_front`
+directly, matching the "Activity on front perimeter" branch's pattern (which
+never had this bug). Message text also corrected from `"Person approaching
+gate on {{ zone }}"` (misleading when `zone` was an unrelated inside zone) to
+a fixed "Person confirmed in the gate approach zone."
+
+**Bug 2 — RUNG 5c (gate_activity) image from the shared grounds-front slot.**
+This branch requires `gate and grounds` — per the code's own comment,
+"grounds" here means ipcam03 driveway / cam04 carport — but read straight
+from `input_text.security_image_grounds_front`, a slot written by THREE
+cameras (ipcam03 driveway, cam04 carport, AND cam07 kitchen — see BUG-S48). If
+cam07 fired during the 4s capture delay, the shared slot held a kitchen image
+instead of the driveway one. BUG-S48's fix (prefer the exclusive
+`ipcam03_driveway_history` slot) was only ever applied to Arrival Stage 1.
+**Fix:** mirrored the same preference here — read `ipcam03_driveway_history`
+first, fall back to the shared slot only if empty.
+
+**Bug 3 — Departure notification, same gap as Bug 2.** Departure is confirmed
+via `ipcam03_driveway_exit_valid` (same camera as arrival), but the departure
+branch read the raw shared `security_image_grounds_front` slot instead of the
+BUG-S48 pattern already applied to the arrival branch immediately above it in
+the same file — a car leaving could show a stale cam04/cam07 image if either
+fired in the same window. **Fix:** same `ipcam03_driveway_history`-preferred
+lookup as Bug 2.
+
+---
+
+### BUG-S63 — "Perimeter activity" false positive on every HA restart
+**Priority: MEDIUM | Status: ✅ FIXED 2026-07-09**
+
+**Symptom:** User received a "⚠️ Perimeter activity" push notification
+("Activity outside boundary, no presence explanation... home: no | arriving: no
+| departing: yes...") shortly after every HA restart/reload, even when family
+was actually home.
+
+**Root cause:** `binary_sensor.anyone_connected_home` (presence_core.yaml)
+builds its "anyone home" list from each family member's AP-location sensor,
+rejecting members in `unavailable`/`unknown`/etc — it has a 5min `delay_off`,
+but that only smooths a transition *from* "on"; at boot there's no prior "on"
+state, so if UniFi hasn't repopulated the AP sensors yet the binary sensor
+computes straight to `off` with no grace at all. Separately,
+`binary_sensor.family_departing` (presence_confidence.yaml) treats
+`unavailable` as "away", so anyone who was home before the restart (per the
+restored `who_was_home_snapshot`) reads as departing the instant their AP
+sensor is `unavailable`. Together these fed RUNG 6 (`perimeter_threat` in
+`security_logic.yaml`: `perim and not arriving and not anyhome and med_conf`)
+a `home: no` reading that was wrong, not stale-but-absent — the router's
+existing `not_from: [unknown, unavailable]` guard (`security_automations.yaml`)
+can't catch this because the classifier's output is a normal-looking string,
+never literally `unknown`.
+
+**Existing mechanism, not wired up:** `suppress_security_after_restart`
+(presence_boundary.yaml) already forces `input_boolean.guest_mode` ON for 2min
+after every `homeassistant: start` event, specifically to cover "HA restart /
+UniFi reconnect / AP reload / Sensor reload" per its own header comment. RUNG
+7 (intruder) and RUNG 8 (grounds_low_confidence) already exclude `guest_mode`
+in their conditions — RUNG 6 (perimeter_threat) was simply never wired to
+check it, an inconsistency rather than a missing mechanism.
+
+**Fix:** Added `and not guest` to RUNG 6's condition in `security_logic.yaml`,
+matching RUNG 7/8. No new infrastructure — reuses the existing
+`suppress_security_after_restart` 2-minute post-restart window.
+
+**Cross-reference:** Same class of bug as POWER_CONTRACT.md Issue 18's
+follow-up fix and NETWORK_CONTRACT.md BUG-NET05, fixed in the same session —
+all three were "valid-looking-but-wrong value defeats a not_from guard" cases
+triggered by restart/reload timing.
+
+---
+
 ### S18 — Notification severity/sound classification overhaul (2026-07-06)
 
 **Priority: MEDIUM | Status: ✅ APPLIED 2026-07-06**

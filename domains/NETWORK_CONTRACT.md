@@ -158,6 +158,27 @@ alert being active. Same gap in the `devices` attribute list.
 **Fix applied:** `selectattr('state','in',['off','unavailable'])` in both the severity sensor
 and the context devices list. Unavailable devices now show as "Unavailable" in the summary.
 
+### ~~BUG-NET05~~ [MEDIUM] — ✅ Fixed 2026-07-09 — `*_down_list` sensors missed the
+BUG-NET04 fix; alert-active sensors had no restart guard
+**File:** `packages/alerts/alerts_network.yaml`
+**Problem 1:** BUG-NET04's 2026-04-21 fix added `unavailable` handling to the severity
+sensor and the `devices` context attribute, but missed `network_devices_down_list` and
+`wan_services_down_list` — the sensors whose value is interpolated directly into the
+notify message text. Left filtering on literal `state == 'off'` only, so a member reading
+`unavailable` during a post-restart integration reconnect wasn't listed, and if the list
+sensor itself hadn't recomputed yet when the router read it, the notification showed the
+literal word "unknown" instead of a device name.
+**Problem 2:** `network_device_down_alert_active` and `wan_down_alert_active` had no
+restart guard at all — `group.network_devices`/`group.wan_services` are `all: true`, so a
+member reading `unavailable` while UniFi/ping integrations reconnect after an HA restart
+reads as group `off`, same as a real outage. If reconnect took longer than the 250s
+anti-flap window, this fired a false CRITICAL "device down" alert on every restart.
+**Fix applied:** `selectattr('state','in',['off','unavailable'])` extended to the two
+down-list sensors (appends " (unavailable)" per affected device name). Added
+`is_state('input_boolean.system_startup','off')` to both alert-active sensors — reuses the
+existing 2-minute post-restart guard (see INFRA_CONTRACT.md), same pattern as the
+2026-07-09 prepaid fix in POWER_CONTRACT.md Issue 18.
+
 ### ~~BUG-NET01~~ [MEDIUM] — ✅ Fixed 2026-06-19
 `sensor.unifi_cpu_5m_max` availability now reads `has_value('sensor.unifi_gateway_cpu_utilization')`.
 The self-referencing `has_value('sensor.unifi_cpu')` has been corrected.
@@ -320,6 +341,7 @@ DSM → Control Panel → Hardware & Power → General:
 | ID | Priority | Description |
 |----|----------|-------------|
 | ~~BUG-NET04~~ | ~~High~~ | ~~Alert fires but summary empty when APs unavailable~~ — **FIXED 2026-04-21** |
+| ~~BUG-NET05~~ | ~~Medium~~ | ~~Down-list sensors missed BUG-NET04 fix; no restart guard on alert-active sensors~~ — **FIXED 2026-07-09** |
 | ~~BUG-NET01~~ | ~~Medium~~ | ~~Fix `sensor.unifi_cpu_5m_max` availability~~ — **FIXED 2026-06-19** |
 | ~~BUG-NET02~~ | ~~Medium~~ | ~~Fix `sensor.unifi_memory_5m_max` self-referencing availability~~ — **FIXED 2026-06-19** |
 | ~~BUG-NET03~~ | ~~High~~ | ~~Fix WAN packet loss formula (currently meaningless)~~ — **FIXED 2026-06-19** |

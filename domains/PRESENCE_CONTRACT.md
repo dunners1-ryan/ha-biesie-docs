@@ -322,7 +322,10 @@ All confident `binary_sensor.*_occupied` check:
 {% if startup … %} false {% endif %}
 ```
 `input_boolean.system_startup` is defined in `core/core_helpers.yaml` and
-turned off 60 seconds after HA starts. This correctly prevents false occupancy
+turned off 2 minutes after HA starts (`delay: "00:02:00"` in
+`system_startup_guard`, not 60 seconds — corrected 2026-07-09, doc drift found
+while fixing POWER_CONTRACT.md Issue 18 / NETWORK_CONTRACT.md BUG-NET05, both
+of which reuse this same boolean). This correctly prevents false occupancy
 at restart.
 
 ### Motion Stub Stubs

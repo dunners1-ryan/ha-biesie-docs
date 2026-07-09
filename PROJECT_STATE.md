@@ -15,6 +15,66 @@
       correct LAN IP for it. Text/push notifications and Telegram message text + buttons are
       unaffected — only the inline photo in Telegram fails. See SECURITY_CONTRACT.md BUG-S61.
 
+*2026-07-09c (security S17d) — Fixed three related wrong-camera-image bugs in
+`security_automations.yaml`'s router (BUG-S62, SECURITY_CONTRACT.md): (1) RUNG 5
+visitor notification looked up its image via `zone_label` — a general-purpose
+zone ladder that checks inside zones first — instead of reading the
+perimeter-front image slot directly, so a concurrent inside-camera event could
+substitute the wrong image; now reads `input_text.security_image_perimeter_front`
+directly, message text also corrected to drop the now-redundant `{{ zone }}`
+reference. (2) RUNG 5c gate_activity image read the shared
+`security_image_grounds_front` slot (written by ipcam03 driveway + cam04
+carport + cam07 kitchen), so a concurrent cam07 event could show a kitchen
+image for a driveway event; now prefers the ipcam03-exclusive
+`ipcam03_driveway_history` slot, same pattern BUG-S48 already applied to
+Arrival Stage 1. (3) Departure notification had the identical gap the arrival
+branch immediately above it in the same file had already fixed for BUG-S48;
+same `ipcam03_driveway_history`-preferred fix applied. No new entities.*
+
+*2026-07-09d — Diagnosed and fixed three alert families firing false positives on
+every HA restart/reload (user-reported via notification screenshot): prepaid
+critical/warning alerts, security "Perimeter activity", network "Device Down"/"WAN
+Down". Root cause common to all three: post-restart/reload, an upstream
+integration or template sensor briefly reads `unavailable` or a default value
+before it has reconnected/recomputed, and downstream logic treats that
+valid-looking-but-wrong reading as real. `not_from`/`not_to` unknown/unavailable
+guards can't catch this class of bug because the bad value is never literally
+`unknown` — it's a plausible number or string computed from defaults.*
+
+*PREPAID (packages/power/prepaid_core.yaml, prepaid_strategy.yaml): closes the
+"NOT fixed" half of Issue 18 (POWER_CONTRACT.md). Added `for: "00:01:00"` to the
+5 affected automations' triggers (`prepaid_low_units_warning`,
+`prepaid_critical_units_alert`, `prepaid_critical_night_protection_alert`,
+`prepaid_strategic_top_up_suggestion`, `prepaid_buy_decision_notify`) to bridge a
+template reload, plus a `input_boolean.system_startup == off` condition on each
+to bridge the ~1-2min post-restart window while `sensor.grid_energy_import_total`
+(solarman) reconnects. See POWER_CONTRACT.md Issue 19.*
+
+*SECURITY (packages/security/security_logic.yaml): RUNG 6 (`perimeter_threat`)
+never excluded `guest_mode`, unlike RUNG 7/8 (intruder/grounds_low_confidence).
+`suppress_security_after_restart` (presence_boundary.yaml) already forces
+`guest_mode` ON for 2min after every HA start specifically to cover this
+race — RUNG 6 just wasn't wired to check it. Added `and not guest`. No new
+mechanism, reused existing infra. See SECURITY_CONTRACT.md BUG-S63.*
+
+*NETWORK (packages/alerts/alerts_network.yaml): `group.network_devices` /
+`group.wan_services` are `all: true` — a member reading `unavailable` while
+UniFi/ping integrations reconnect post-restart makes the whole group read `off`,
+same as a real outage; if reconnect takes longer than the 250s anti-flap window,
+`network_device_down_alert_active`/`wan_down_alert_active` legitimately (per their
+own formula) flip on. Added `input_boolean.system_startup == off` to both.
+Separately, `sensor.network_devices_down_list`/`wan_services_down_list` were
+missed by BUG-NET04's 2026-04-21 fix (which patched the severity sensor and
+context devices list but not these) — still filtered literal `state == 'off'`
+only, so an `unavailable` member wasn't listed by name; extended selectattr to
+include `unavailable`. See NETWORK_CONTRACT.md BUG-NET05.*
+
+*Note on `system_startup` (core/core_helpers.yaml): actual duration is 2 minutes
+(`delay: "00:02:00"`), not 60 seconds as PRESENCE_CONTRACT.md §"Startup Guard"
+previously stated — pre-existing doc drift, not introduced this session.
+Corrected in PRESENCE_CONTRACT.md same session since both new fixes above reuse
+this exact boolean.*
+
 *2026-07-09b — City Power inclining block tariff modeled; live per-purchase block
 warnings added; prepaid spend/block-kWh history corrected and extended:*
 

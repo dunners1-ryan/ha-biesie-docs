@@ -1982,6 +1982,35 @@ actually changed.
 
 ---
 
+### Issue 19 — ✅ RESOLVED 2026-07-09: prepaid alerts false-firing on HA restart/reload
+(closes the "NOT fixed" gap left open by Issue 18 above)
+**Priority:** P2 — false CRITICAL/warning pushes on every restart, not a real drop
+**Files:** `packages/power/prepaid_core.yaml`, `packages/power/prepaid_strategy.yaml`
+
+Same root cause identified but deferred in Issue 18: a `template:` reload (or full HA
+restart) causes interdependent sensors to transiently read a default (e.g. `| float(0)`)
+from an upstream sensor that hasn't recomputed/reconnected yet — a valid-looking-but-wrong
+value that `not_from`/`not_to` unknown/unavailable guards can't catch, since it's never
+literally `unknown`.
+
+**Fix:** Added `for: "00:01:00"` to the numeric_state/state triggers of all 5 affected
+automations (`prepaid_low_units_warning`, `prepaid_critical_units_alert`,
+`prepaid_critical_night_protection_alert`, `prepaid_strategic_top_up_suggestion` in
+prepaid_core.yaml; `prepaid_buy_decision_notify` in prepaid_strategy.yaml) — requiring the
+bad-looking reading to persist briefly filters the transient default-value blip without
+meaningfully delaying a real critical drop. Also added
+`is_state('input_boolean.system_startup','off')` to each (see INFRA_CONTRACT.md) to
+separately cover the ~2min HA-restart window itself (`sensor.grid_energy_import_total`/
+solarman reconnecting), which the 1min `for:` alone doesn't bridge.
+
+**Scope note:** this fix covers only these 5 known-affected automations, not the general
+class — Issue 18's operational takeaway ("don't reload `template:` unless a `template:`
+sensor actually changed") still applies elsewhere. Same fix session also closed
+NETWORK_CONTRACT.md BUG-NET05 and SECURITY_CONTRACT.md BUG-S62 (same root cause, different
+domains) — see PROJECT_STATE.md 2026-07-09c.
+
+---
+
 ## 12. Error Signatures (Watchman-Confirmed)
 
 These entities appear in watchman_report.txt as missing or unavailable. Map these to the issues above.
