@@ -587,13 +587,15 @@ sensor.prepaid_actual_spend_this_year    R      (added 2026-07-03) same as above
                                                 backfilled — annual figure wasn't part of the 2026-07-09 backfill,
                                                 only the 3 monthly sensors were).
 
-# Historical spend backfill (2026-07-09) — sensor.prepaid_actual_spend_this_month,
-# sensor.prepaid_month_energy_spend, sensor.prepaid_month_fixed_charge all have real
-# long-term statistics for Dec 2024 - Jun 2026 (one point/month: state = that month's
-# real total, sum = running cumulative), reconciled from City Power Discovery-app
-# receipts + a personal Tymebank purchase spreadsheet (70 real data points, two
-# independent parallel purchase streams, no overlapping dates). July 2026 onward is
-# live-tracked normally, not part of the backfill. IMPORTANT: recorder.import_statistics
+# Historical spend backfill (2026-07-09, corrected 2026-07-09b) —
+# sensor.prepaid_actual_spend_this_month, sensor.prepaid_month_energy_spend,
+# sensor.prepaid_month_fixed_charge, sensor.prepaid_month_block1_kwh/_block2_kwh/
+# _block3_kwh all have real long-term statistics for Dec 2024 - Jun 2026 (one
+# point/month: state = that month's real total, sum = running cumulative),
+# reconciled from City Power Discovery-app receipts + a personal Tymebank purchase
+# spreadsheet (75 real data points — every purchase has an actual receipt, no
+# estimates — two independent parallel purchase streams, no overlapping dates).
+# July 2026 onward is live-tracked normally, not part of the backfill. IMPORTANT: recorder.import_statistics
 # is NOT a callable HA service in this install (only recorder.purge/purge_entities/
 # enable/disable/get_statistics are registered) — the backfill required a one-off
 # pyscript script with allow_all_imports/hass_is_global TEMPORARILY set true
@@ -636,7 +638,51 @@ sensor.prepaid_net_position_this_month   R    month position vs budget
 sensor.prepaid_adaptive_burn_rate        kWh/day  rolling average
 sensor.prepaid_rolling_burn_rate         kWh/day  shorter window
 sensor.prepaid_daily_burn_avg_3d         kWh/day  statistics sensor (3-day mean)
+sensor.prepaid_current_tariff_block      1/2/3  (added 2026-07-09) City Power inclining-block
+                                                position for this month's real purchases so far
+                                                (input_number.prepaid_month_units vs
+                                                prepaid_tariff_block1_threshold/_block2_threshold).
+                                                Attributes: kwh_this_month, kwh_to_next_block,
+                                                current_rate. Feeds tariff context into the
+                                                prepaid_buy_decision_notify message below.
 ```
+
+# City Power Inclining Block Tariff (added 2026-07-09)
+Residential Prepaid High, FY2025/26 (joburg.org.za Consolidated-Tariffs-FY20252026.
+FINAL.pdf) — Block 1 0-350kWh/month @ R2.6645/kWh, Block 2 350-500kWh @
+R3.0564/kWh, Block 3 >500kWh @ R3.4826/kWh, Fixed R200/month (R70 service + R130
+capacity — matches this dataset's empirical R200 flat rate exactly). Thresholds
+unchanged from FY2024/25 (only per-block rates increased annually) — stored as
+editable input_numbers, not hardcoded, since they change every fiscal year:
+```
+input_number.prepaid_tariff_block1_threshold/_block2_threshold   kWh (350/500)
+input_number.prepaid_tariff_block1_rate/_block2_rate/_block3_rate  R/kWh
+```
+script.update_prepaid_units (prepaid_core.yaml) computes the block breakdown for
+every real purchase entered (using input_number.prepaid_month_units BEFORE this
+purchase as the starting point) — stored in
+input_number.prepaid_last_topup_block1_kwh/_block2_kwh/_block3_kwh, and
+accumulated into input_number.prepaid_month_block1_kwh/_block2_kwh/_block3_kwh
+(reset by prepaid_month_counters_reset, same cadence as prepaid_month_units). The
+"Prepaid Top-Up Recorded" notification lists the block breakdown for that
+purchase and escalates to severity: warning if any kWh landed above Block 1.
+Graphable wrappers (same pattern as prepaid_month_energy_spend):
+sensor.prepaid_month_block1_kwh/_block2_kwh/_block3_kwh — "Monthly kWh by Tariff
+Block" plotly card, lovelace.dashboard_operations view 11 section 2. Historical
+long-term statistics backfilled Dec 2024 - Jun 2026 (2026-07-09) alongside the
+spend sensors — see below.
+
+**Gotcha (found 2026-07-09): modern `template:` platform does NOT support
+`object_id`** — using it silently drops the entire sensor definition (only
+visible in core logs: `'object_id' is an invalid option for 'template'`). To
+control entity_id, adjust the `name:` field instead — HA's slugify inserts an
+extra underscore for a space-before-digit (e.g. "Block 1" → `block_1`, not
+`block1`), so name sensors "Block1" (no space) if a specific entity_id suffix is
+needed. If an entity was already created under the wrong slugified id, a
+`template.reload` alone will NOT rename it — the entity registry's entity_id
+assignment is sticky per unique_id; the stale row must be removed from
+`.storage/core.entity_registry` (core stopped) before the corrected name/config
+can register under the intended entity_id.
 
 ### Battery (battery_runtime.yaml, battery_state.yaml)
 

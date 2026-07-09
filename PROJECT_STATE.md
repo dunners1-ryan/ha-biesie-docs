@@ -15,7 +15,76 @@
       correct LAN IP for it. Text/push notifications and Telegram message text + buttons are
       unaffected — only the inline photo in Telegram fails. See SECURITY_CONTRACT.md BUG-S61.
 
-*2026-07-09 — Prepaid spend history backfilled Dec 2024 → Jun 2026 (real data, both accounts); dashboard restart + template reload completed:*
+*2026-07-09b — City Power inclining block tariff modeled; live per-purchase block
+warnings added; prepaid spend/block-kWh history corrected and extended:*
+
+*POWER — User supplied the 5 remaining "gap" purchase receipts (May24'25, Aug2'25,
+Apr16&23'26, Jun17'26) that were previously estimated, not real — every one of the
+75 purchases in the Dec 2024-Jun 2026 dataset now has a real receipt, no estimates
+left. One real correction found: Aug 2025's Aug2 receipt showed a R70 fixed charge
+not previously known, shifting that month's split from R130/R927 (fixed/energy) to
+the correct R200/R857 (total R1057 unchanged). Historical statistics for
+sensor.prepaid_actual_spend_this_month/prepaid_month_energy_spend/
+prepaid_month_fixed_charge were re-imported with the correction (same
+pyscript stop/edit/start pattern as 2026-07-09a).*
+
+*User located and provided City Power Johannesburg's official FY2025/26 tariff
+bulletin (joburg.org.za Consolidated-Tariffs-FY20252026.FINAL.pdf). Residential
+Prepaid High: Block 1 0-350kWh @ R2.6645/kWh, Block 2 350-500kWh @ R3.0564/kWh,
+Block 3 >500kWh @ R3.4826/kWh, Fixed R200/month (R70 service + R130 capacity) —
+the R200 figure is an exact match to what this dataset already showed empirically,
+good independent confirmation. Block thresholds unchanged from FY2024/25 (only
+rates increased), so block ASSIGNMENT is valid across the whole dataset; analysis
+found 50/74 purchases stayed entirely in Block 1, 16 touched Block 2, 8 reached
+Block 3 — and at the month level, 12/19 months exceeded 350kWh and 5/19 exceeded
+500kWh (May'25, Jun'25, Jan'25, Feb'25, Jun'26).*
+
+*NEW FEATURE — tariff block awareness is now live, not just historical analysis:*
+*• 5 new input_numbers (prepaid_helpers.yaml): prepaid_tariff_block1_threshold/
+_block2_threshold/_block1_rate/_block2_rate/_block3_rate — editable constants
+(not hardcoded), since these change every fiscal year.*
+*• script.update_prepaid_units (prepaid_core.yaml) now computes, per real
+purchase, how many kWh landed in each block (given month-to-date total from
+input_number.prepaid_month_units BEFORE this purchase) — stored in new
+input_number.prepaid_last_topup_block1_kwh/_block2_kwh/_block3_kwh, and
+accumulated into input_number.prepaid_month_block1_kwh/_block2_kwh/_block3_kwh
+(reset by prepaid_month_counters_reset, same cadence as prepaid_month_units).
+The "Prepaid Top-Up Recorded" notification now lists the block breakdown and
+escalates severity to warning if any kWh landed above Block 1.*
+*• sensor.prepaid_current_tariff_block (prepaid_strategy.yaml) — live status
+(1/2/3) + attributes kwh_this_month/kwh_to_next_block/current_rate. The
+proactive "Smart Top-Up Decision" notification (prepaid_buy_decision_notify)
+now includes this context so a suggested top-up comes with tariff awareness,
+not just a Rand amount.*
+*• sensor.prepaid_month_block1_kwh/_block2_kwh/_block3_kwh (prepaid_core.yaml)
+— graphable wrappers, same state_class:total pattern as prepaid_month_energy_spend.
+New "Monthly kWh by Tariff Block" plotly-graph card added to
+lovelace.dashboard_operations (view 11 section 2, right after "Monthly Prepaid
+Spend") — separate graph, not merged into the existing Energy/Fixed Rand-spend
+bar, since it's a different axis (kWh consumption tier, not Rand category).*
+
+*BUG CAUGHT MID-SESSION — modern `template:` platform does NOT support
+`object_id` (legacy-only key); using it silently drops the whole sensor
+definition with no visible error except in core logs ("'object_id' is an
+invalid option for 'template'"). Root cause of a naming collision: sensor name
+"Prepaid Month Block 1 kWh" (space before digit) slugifies to
+`sensor.prepaid_month_block_1_kwh` (extra underscore), not the
+`sensor.prepaid_month_block1_kwh` used everywhere else (dashboard card, import
+script) — caused historical statistics to import into a real statistic_id with
+no matching live entity. Fixed by renaming to "Prepaid Month Block1 kWh" (no
+space before digit) instead of trying to force entity_id via object_id. Also
+had to manually clear 3 stale entries from `.storage/core.entity_registry`
+(entity registry entity_id assignment is sticky — a template.reload alone does
+NOT rename an already-registered entity even after the source config's implied
+entity_id changes; needs the stale registry row removed, or a full restart with
+the registry pre-cleared, before it re-registers under the new id).*
+
+*Historical backfill extended to all 6 sensors (3 corrected, 3 new) via one more
+pyscript stop/edit/start cycle (same 2026-07-09a pattern) — verified live via
+recorder.get_statistics, all 19 months intact on the correct entity_ids after
+the object_id fix + entity registry cleanup + final restart.*
+
+*2026-07-09a — Prepaid spend history backfilled Dec 2024 → Jun 2026 (real data, both accounts); dashboard restart + template reload completed:*
 
 *POWER — Closed both 2026-07-08 OPEN TODO items. User supplied real per-purchase detail across many sessions of screenshots (City Power "Token information" popups and "Transaction Details" screens from the Discovery app) plus a personal Tymebank spreadsheet with exact Amount/VAT/Fixed/kWh breakdowns per purchase — reconciled into 70 real data points, Dec 2024 through Jun 2026, covering two parallel purchase streams (Discovery-app and Tymebank, no overlapping purchase dates found). Monthly totals: Total, Fixed (service charge), Energy (Total−Fixed) — R0 fixed-charge default used only for the handful of purchases where no service-charge line appeared on the receipt (R210/month blanket assumption from earlier in the session was retired once real per-purchase data made it unnecessary). R/kWh across the full dataset: R2.72–R3.98, consistent with expectation.*
 
