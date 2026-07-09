@@ -573,11 +573,35 @@ sensor.prepaid_spend_this_month          R      "(Estimate)" — prepaid_import_
                                                 lifetime average. Kept for mid-month projection before topping up.
 sensor.prepaid_actual_spend_this_month   R      (added 2026-07-03) REAL sum of purchases this calendar month =
                                                 input_number.prepaid_month_spent + prepaid_month_fixed_paid. Use this
-                                                over the estimate above for actual budget tracking.
+                                                over the estimate above for actual budget tracking. Long-term
+                                                statistics backfilled 2026-07-09 for Dec 2024 - Jun 2026 (see below).
+sensor.prepaid_month_energy_spend        R      (added 2026-07-09) = input_number.prepaid_month_spent alone — the
+                                                energy-only half of the combined sensor above, split out so the
+                                                dashboard can graph energy vs. fixed-charge trend separately, not
+                                                just the combined bar. Same reset cadence
+                                                (prepaid_month_counters_reset, 1st of month).
+sensor.prepaid_month_fixed_charge        R      (added 2026-07-09) = input_number.prepaid_month_fixed_paid alone —
+                                                the fixed/service-charge half. Same reset cadence as above.
 sensor.prepaid_actual_spend_this_year    R      (added 2026-07-03) same as above, annual — prepaid_year_spent +
                                                 prepaid_year_fixed_paid. Only accurate from 2026-07-03 onward (not
-                                                backfilled further — recorder purge_keep_days:90 limits reconstruction
-                                                to ~April 2026 at best).
+                                                backfilled — annual figure wasn't part of the 2026-07-09 backfill,
+                                                only the 3 monthly sensors were).
+
+# Historical spend backfill (2026-07-09) — sensor.prepaid_actual_spend_this_month,
+# sensor.prepaid_month_energy_spend, sensor.prepaid_month_fixed_charge all have real
+# long-term statistics for Dec 2024 - Jun 2026 (one point/month: state = that month's
+# real total, sum = running cumulative), reconciled from City Power Discovery-app
+# receipts + a personal Tymebank purchase spreadsheet (70 real data points, two
+# independent parallel purchase streams, no overlapping dates). July 2026 onward is
+# live-tracked normally, not part of the backfill. IMPORTANT: recorder.import_statistics
+# is NOT a callable HA service in this install (only recorder.purge/purge_entities/
+# enable/disable/get_statistics are registered) — the backfill required a one-off
+# pyscript script with allow_all_imports/hass_is_global TEMPORARILY set true
+# (.storage/core.config_entries, pyscript entry), reverted immediately after (confirmed
+# false/false post-revert). Editing .storage/* while HA is running does not persist —
+# HA's in-memory copy overwrites the file on its next save (e.g. during a restart's
+# shutdown phase); any future .storage edit of this kind must use ha core stop → edit →
+# ha core start, not ha core restart.
 
 # Month/year real-purchase counters (prepaid_helpers.yaml, added 2026-07-03)
 # Reset by automation.prepaid_month_counters_reset (00:00:10, day==1; year counters
