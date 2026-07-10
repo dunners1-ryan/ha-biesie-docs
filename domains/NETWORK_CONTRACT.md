@@ -419,6 +419,33 @@ excludes are deliberately changed first (which would grow the DB — see CODING_
 ⚠️ `.storage/lovelace` edits require a full HA restart (not a browser refresh) — see
 CODING_STANDARDS.md and the OPEN TODO in PROJECT_STATE.md.
 
+### Post-restart polish pass (same day, 2026-07-10)
+After the first restart, visual review turned up one real defect and confirmed two non-issues:
+
+- **Fixed — oversized restart buttons on `network-debug`.** The 5 per-AP restart buttons were
+  each a standalone `button`-type card nested inside its own `vertical-stack`, so they got full
+  section-grid sizing instead of sharing a row — rendered as five huge cards. Consolidated into
+  one shared `columns: 4` grid (`lan_wireless_restart_grid`, same pattern as the working
+  `network-control` restart grid) placed once at the top of the LAN Wireless section, covering
+  Gateway/Switch/5×AP. `ap_block()` no longer takes a `restart_entity` param.
+- **Confirmed — no ASUS ROG router restart control exists.** Checked the device registry: the
+  GT-AX11000 (192.168.1.1) is monitored purely via a `ping` binary sensor plus a stats-only
+  source (no `asuswrt` integration configured) — **zero** button/switch entities exist for that
+  device in HA. This isn't a dashboard gap; there is nothing to wire up. If restart control is
+  wanted later, the `asuswrt` integration would need to be added for that device first.
+- **Non-issue — "Failed to fetch dynamically imported module" + garbled entity rows.** Both
+  symptoms appeared identically across unrelated cards on both dashboards right after the
+  restart — a stale frontend JS-chunk cache in the browser tab (chunk hashes changed with the
+  HA version bump), not a card config defect. Resolves with a hard refresh; no YAML change
+  needed or made for this.
+- **Added** a "Total Known Clients" line under the `network-control` LAN table, summing the
+  entities that do have a live client-count sensor (Gateway + AP Garage + AP Office + ZenWiFi),
+  with an explicit note that Bar/Lounge/Passage/Switch counts are excluded (disabled sensors,
+  see IMP-NET03).
+
+⚠️ This polish pass also touched `.storage/lovelace.dashboard_operations` — same restart
+requirement applies again before it's live.
+
 ---
 
 *Last updated: 2026-07-10 — Section 11 (dashboards) added; BUG-NET06 (stale alert severity sensor)
