@@ -912,6 +912,38 @@ arrival_flag`. No entity/logic changes.
 
 ---
 
+### BUG-P19 — `sensor.unknown_unifi_ap_connections`/`_details` case-mismatch false positive
+**Severity:** Medium (user-facing false CRITICAL/WARNING alert)
+**File:** `packages/presence/presence_validation.yaml`
+**Status:** ✅ Fixed 2026-07-10
+
+Both sensors compared each family member's `ap_mac` device_tracker attribute (lowercase,
+e.g. `58:d6:1f:a6:ae:8e`) directly against `sensor.unifi_ap_room_map`'s `rooms` dict keys
+(uppercase, e.g. `58:D6:1F:A6:AE:8E`) with no case normalization:
+
+```jinja
+{{ aps | select('string') | reject('in', map.keys()) | list | count }}
+```
+
+Since the keys never match on case, every legitimately-mapped AP was flagged "unknown" —
+live-observed: all 4 family members correctly connected to mapped APs (Lounge, Bedroom
+Zone) while this sensor reported 2 "unknown" connections, driving `alert.presence_alert`
+to CRITICAL for 2+ hours with a "🔴 WARNING: Unknown Device" dashboard entry that was
+entirely spurious. The four **per-person** sensors in the same file
+(`ryan_unknown_ap`/`vicky_unknown_ap`/`luke_unknown_ap`/`tayla_unknown_ap`) already
+`|upper` the MAC before comparing and correctly read `off` throughout — that inconsistency
+within the same file is what exposed the bug.
+
+**Fix:** added `| map('upper')` to the pipeline in both `Unknown UniFi AP Connections` and
+`Unknown UniFi AP Details`, before the `reject('in', map.keys())` comparison — same
+normalization the per-person sensors already used. Verified live via Supervisor API:
+`sensor.unknown_unifi_ap_connections` dropped 4→0 immediately after `template.reload`;
+`binary_sensor.unknown_unifi_ap_detected` flipped to `off`; `binary_sensor.unknown_ap_alert_active`
+and `alert.presence_alert` self-clear via their existing 2-minute `delay_off` (alerts_presence.yaml)
+— no restart or further action needed, `template:` reload was sufficient.
+
+---
+
 ## Section 11: Trust Model Design
 
 ### Intended Architecture (Three-Entity Chain)

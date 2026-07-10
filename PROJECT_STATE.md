@@ -84,6 +84,15 @@
       `sensor.wan_noc_status` / `alert.network_alert` instead of the severity/context sensors.
       Real fix: add a `time_pattern` trigger to `sensor.network_device_down_alert_severity` in
       `alerts_network.yaml`, same class of fix as BUG-NET04/05. See NETWORK_CONTRACT.md.
+- [ ] **Network dashboard polish pass (2026-07-10, same day) needs another full HA restart.**
+      Post-restart visual review of network-control/network-debug found one real defect (fixed)
+      and two non-issues (browser-cache related, no YAML change). Fixed: 5 oversized per-AP
+      restart buttons on network-debug consolidated into one compact shared grid (they were
+      standalone `button` cards outside a grid wrapper, so they took full section-grid sizing).
+      Added a "Total Known Clients" line to the network-control LAN table. Confirmed no ASUS
+      ROG router restart control exists in HA (device has zero button/switch entities — ping +
+      stats-only, no `asuswrt` integration configured). See NETWORK_CONTRACT.md Section 11
+      "Post-restart polish pass". **Do not open the dashboard's UI editor before restarting.**
 
 *2026-07-10 (alerts dashboard session) — Added "Known-Problem Escalation": a user-triggered
 toggle that removes a recurring/hardware-fault alert (e.g. `alert.critical_sensor_health` for the
@@ -183,6 +192,24 @@ intact post-restart (network-control 3 sections / network-debug 5 sections, `max
 no lovelace/template errors in `ha core logs`, all referenced entities spot-checked live. The
 restart also force-recomputed BUG-NET06's stale severity sensor back to a correct `none`/`normal`
 reading — confirmed self-cleared for now, root cause (no periodic re-trigger) still open.*
+
+*2026-07-10 (network dashboard polish pass, same day) — User screenshotted both dashboards
+post-restart and flagged three things. Fixed one real defect: `network-debug`'s 5 per-AP
+restart buttons were each a standalone `button`-type card outside any grid wrapper, so each
+rendered at full section-grid size instead of sharing a row — consolidated into one shared
+`columns: 4` grid (`lan_wireless_restart_grid`), same pattern as the already-correct
+`network-control` restart grid. Investigated the "where's the ASUS restart button" question:
+checked the device registry, confirmed the ASUS ROG router (GT-AX11000, 192.168.1.1) has zero
+button/switch entities in HA (monitored via `ping` + a stats-only source, no `asuswrt`
+integration) — there's genuinely nothing to wire up, not a dashboard gap. Diagnosed the
+"Failed to fetch dynamically imported module" error and garbled entity-row icons the user saw
+as a stale frontend JS-chunk cache from the HA version bump (identical symptom across unrelated
+cards on both dashboards) — a hard refresh fixes it, not a YAML issue, no dashboard change made
+for it. Also added a "Total Known Clients" line to the network-control LAN table (sums the
+sensors that have live client counts; explicitly notes which are excluded and why). Re-patched
+`.storage/lovelace.dashboard_operations` (backed up first to
+`lovelace.dashboard_operations.bak.20260710_133824`). **Not yet restarted/verified live as of
+this entry** — see OPEN TODO above.*
 
 *2026-07-10 (log-review session) — General `ha core logs` review (not tied to a specific
 bug report), triggered by user request to "check through log issues and fix." Found and
