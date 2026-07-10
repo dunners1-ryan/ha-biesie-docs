@@ -47,18 +47,28 @@ Do NOT remove or rename this entity.
 
 ### Known Bugs
 
-**BUG-CORE01 [LOW] — `sensor.ha_events_per_second` is not events/second**
-`state: "{{ (states.sensor | selectattr('last_changed','defined') | list | count) }}"`
-This counts the total number of sensor entities with a `last_changed` attribute —
-effectively the total sensor entity count (~several hundred). It never changes.
-It does NOT measure events per second. Rename or fix with a time-delta approach.
-Same issue with `sensor.ha_update_rate` which uses `{{ states | list | count }}`.
+**~~BUG-CORE01~~ [LOW] ✅ Doc-drift correction 2026-07-10 — `sensor.ha_events_per_second` is not events/second**
+The described sensors (`sensor.ha_events_per_second`, `sensor.ha_update_rate` — full-registry
+scans on every template render) no longer exist anywhere in the codebase; this entry was
+describing dead code that had already been replaced. The current equivalent is
+`sensor.ha_event_rate_1m` (`packages/sensors/filter.yaml`), a `statistics` platform sensor
+counting `sensor.update_ticker` changes over a rolling 1min window — a properly lightweight
+implementation, not a whole-state-machine scan. Per user instruction 2026-07-10, added an
+inline comment on that sensor explaining why it must stay this cheap (Raspberry Pi
+performance) rather than reintroducing the expensive pattern this bug originally described.
 
-**BUG-CORE02 [LOW] — `sensor.ha_stability_score` has hardcoded error count**
-`{% set errors = 1 %}  # you can later count log errors`
-The `errors` variable is hardcoded to 1 and is not used in any condition.
-The sensor still works (CPU/load thresholds are correct) but the comment is
-misleading and the variable is dead code.
+**~~BUG-CORE02~~ [LOW] ✅ FIXED 2026-07-10 — `sensor.ha_stability_score` has hardcoded error count**
+Confirmed live and real: `{% set errors = 1 %}  # you can later count log errors` was still
+present in `packages/core/core_helpers.yaml`. The `errors` variable was hardcoded to 1 and
+never used in any condition — dead code with a misleading comment.
+**Fix applied:** removed the dead `errors` variable and comment entirely. Separately, while
+in this sensor: `ha_stability_score` never factored in CPU temperature at all (only
+`ha_system_health` did), so an overheating Pi with normal CPU/load would still show
+"stable" — added `temp > 85` (critical) / `temp > 70` (degraded) thresholds, matching
+`ha_system_health`'s existing critical threshold. This sensor drives the color of the "Home
+Assistant Health" card on the Home dashboard view, which was also extended (same session) to
+display CPU temperature and uptime alongside CPU/load/RAM — see PROJECT_STATE.md session log
+2026-07-10.
 
 ---
 
@@ -165,10 +175,16 @@ healthy → delayed → stale → (reset on next condition change) → repeat.
 confirmed back to `healthy` immediately. Also cleared `input_boolean.openweathermap_api_limited`,
 which had been stuck `on` since 2026-07-04 as a downstream side effect of the flapping bug (the
 matching recovery automation never fired because its `not_from: [unknown, unavailable]` guard
-blocked on the template-reload transition — separate minor gap, not fixed).
+blocked on the template-reload transition — **✅ fixed 2026-07-06 gap closed 2026-07-10**: removed
+the `not_from: [unknown, unavailable]` guard from `weather_api_recovery`'s trigger entirely.
+Recovery only needs `to: "healthy"` — where it came from doesn't matter, the action is
+idempotent, and the automation's own condition already checks
+`input_boolean.openweathermap_api_limited == "on"` before doing anything. This was the one
+trigger in `weather_core.yaml` where the usual not_from stability-guard pattern was actively
+harmful rather than protective.
 
-**BUG-WEA02 [LOW] — Inline comment mismatch in threshold**
-`above: 14400 # 1hr` — 14400 seconds is 4 hours, not 1 hour. Update comment.
+**~~BUG-WEA02~~ [LOW] ✅ FIXED 2026-07-10 — Inline comment mismatch in threshold**
+`above: 14400 # 1hr` — 14400 seconds is 4 hours, not 1 hour. Comment corrected to `# 4hr`.
 
 ---
 

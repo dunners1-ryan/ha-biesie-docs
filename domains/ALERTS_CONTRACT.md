@@ -7,6 +7,28 @@
 #
 # Scope: All 13 packages/alerts/*.yaml files
 #        Plus cross-domain aggregation in alerts_summary.yaml
+# Last updated: 2026-07-10 (same day, 4th pass) — found and fixed the REAL
+# root cause of the recurring "Configuration error" on custom:auto-entities
+# cards: this repo's vendored auto-entities.js does not YAML-parse
+# filter.template output, it naively whitespace/comma-splits it — mapping
+# rows (- entity: X / secondary_info: Y) get shredded into garbage tokens.
+# All 5 filter.template blocks reverted to bare-entity-id-per-line (the
+# already-proven-safe format). New rule added to CODING_STANDARDS.md. See
+# Section 4C "Real bug found post-restart". 3rd restart this session
+# required to load the fix.
+# Last updated: 2026-07-10 (3rd pass) — Known-Problem Escalation
+# redesigned from whole-domain to per-device (critical_sensor_health,
+# network_alert, device_power_fault, presence_alert use 22 static
+# input_boolean.problem_device_* helpers; camera_health/security_alert stay
+# domain-level); fixed pre-existing alert.device_power_fault resolver bug;
+# added sensor.suppressed_alert_entities for correct per-entity dashboard
+# hiding. See Section 4C (supersedes 4B).
+# Last updated: 2026-07-10 (2nd pass) — Known-Problem Escalation added (new
+# input_boolean.<x>_marked_problem toggle per domain removes a recurring/
+# hardware-fault alert from Global Alert Summary, totals, and Active Alert
+# Binary Sensors, surfacing it instead in a dedicated "Known Problems"
+# section on the Alerts page); camera_health_alert_active/camera_health_context
+# display names fixed (were raw snake_case, now Title Case)
 # Last updated: 2026-07-07 — BUG-A11 restart completed (camera_health notifier
 # fix now live), BUG-A12 (garden TURN_OFF_POND_PUMP action button restored via
 # notify_system_event.yaml actions: field, see NOTIFICATIONS_CONTRACT.md)
@@ -295,13 +317,284 @@ prevents spurious watchman alerts.
 | Context sensor | `sensor.camera_health_context` | ✅ `summary` attribute drives alert message |
 | Alert entity | `alert.camera_health` | ⚠️ repeats 60/240 min, `can_acknowledge: true`, **no `notifiers:`** (removed 2026-07-06, BUG-A11) |
 | Initial-fault delivery | `automation.camera_health_alert_notify_telegram` | ✅ calls `script.notify_security_event` directly |
-| In aggregator trigger | Not confirmed this session | — |
+| In aggregator trigger | **Confirmed 2026-07-10: NOT wired in** | ⚠️ see note |
 
 **PASS with note (BUG-A11).** The initial fault notification works via the automation, not
 the `alert:` entity's own notifier — the `alert:` entity now exists purely for
 dashboard/logbook visibility and repeat-reminder bookkeeping. Do not add a `notifiers:`
 back onto `alert.camera_health` without also removing the automation's direct call, or the
 initial hit will double-deliver (the same BUG-A04 duplicate-delivery pattern).
+
+**Confirmed 2026-07-10:** `sensor.alert_device_entities` (alerts_summary.yaml) only picks up
+context sensors whose entity_id contains the substring `_alert_context`. `sensor.camera_health_context`
+does not match that pattern (it's `camera_health_context`, not `camera_health_alert_context`), so
+camera health's per-camera device rows never flow into the flattened aggregator, the
+`Total Critical/Warning/Info Alert Devices` counts, or the "Active Alert Device Details" card —
+only the raw `binary_sensor.camera_health_alert_active` (via the "Active Alert Binary Sensors"
+card) and `alert.camera_health` (via the raw "Active Alerts"/"Acknowledged" cards) show it. This
+is a pre-existing naming inconsistency, not something fixed this session — flagged here since it's
+the reason camera health didn't already need the Known-Problem exclusion applied to `sensor.alert_device_entities`
+(see Section 4B). If this naming is ever corrected to `sensor.camera_health_alert_context` to match
+convention, camera health's rows will start flowing into that aggregator and should be re-tested
+against the Known-Problem Escalation registry.
+
+---
+
+## Section 4B: Known-Problem Escalation — original 2-domain version (added 2026-07-10)
+
+**⚠️ Superseded same day by Section 4C** — this version only supported whole-domain
+escalation (`critical_sensor_health`, `camera_health`). The user correctly pointed out
+that `critical_sensor_health`'s `devices` list can report multiple, unrelated hardware
+faults at once, so flagging the whole domain would silently swallow a future, genuinely
+new fault alongside the known one. Kept below for history; **Section 4C is authoritative
+for current behavior.**
+
+**Purpose:** a recurring alert driven by a known, ongoing hardware fault (e.g.
+`switch.water_pressure_pump` reporting `unavail` for hours via `alert.critical_sensor_health`)
+can be explicitly escalated to a "known problem" state after being acknowledged once. This
+removes it from the Global Alert Summary tile, the `Total Critical/Warning/Info Alert Devices`
+counts, `Total Active/Unacknowledged Alerts`, and the "Active Alert Binary Sensors" card on both
+the Home dashboard and the Alerts page — without touching the underlying `alert:` entity's own
+lifecycle (it keeps firing/repeating internally exactly as before). The flagged alert is instead
+shown in a dedicated "Known Problems" section on the Alerts page until unmarked or the fault
+clears.
+
+**This is a manual, deliberate toggle — not automatic.** The normal alert → acknowledge flow is
+unchanged; "known problem" is an explicit extra step on top of it.
+
+| Stage | Entity | Notes |
+|---|---|---|
+| Registry | `sensor.problem_marked_alert_entities` (alerts_summary.yaml) | CSV of currently-flagged `alert.*` entity ids. Hardcoded dict of `{alert_entity: helper}` pairs — add one more pair here to wire up a new domain. |
+| Toggles | `input_boolean.critical_sensor_health_marked_problem`, `input_boolean.camera_health_marked_problem` (alerts_helper.yaml) | `initial: false`. Exposed on the Alerts page as "Known Problem Escalation". |
+| Device-level exclusion | `sensor.alert_device_entities.devices` (alerts_summary.yaml) | Rows whose `alert_entity` is in the registry are now excluded from this attribute entirely — this is the single source-of-truth fix that also fixes `Total Critical/Warning/Info Alert Devices`, the per-severity Critical/Warning/Info list cards, and "Active Alert Device Details", since they all read from this attribute. |
+| Problem-only mirror | `sensor.problem_alert_devices` / `sensor.total_problem_alert_devices` (alerts_summary.yaml) | Same flattening loop as `alert_device_entities`, kept as a **separate** sensor holding only the flagged rows. Powers the new "Known Problems" card. |
+| Alert-entity-level exclusion | `sensor.total_active_alerts`, `sensor.total_unacknowledged_alerts` (alerts_summary.yaml) | Exclude `alert.*` entities present in the registry, so the Home dashboard "View Active Alerts" button and the top Global Alert Summary tile both revert to normal/hidden once the only active alert is flagged as a known problem. |
+| Dashboard: Alerts page | `lovelace.dashboard_system` → "Active Alert Binary Sensors" card | Filter changed from a static domain/state `include` to a `filter: template:` that excludes any `*_alert_active` binary sensor whose base name has a `_marked_problem` helper set to `on`. |
+| Dashboard: Alerts page | `lovelace.dashboard_system` → new "Known Problems" section | `conditional` card, visible when `sensor.total_problem_alert_devices > 0`; lists flagged devices from `sensor.problem_alert_devices.devices`. Placed directly under "Active Alert Device Details". |
+| Dashboard: Home page | `lovelace.dashboard_overview` → "Active Alerts" card | Filter changed from a static `domain: alert, state: on` include to the same style of `filter: template:` exclusion (by `alert.*` entity id this time), so a flagged alert stops appearing on Home once marked. |
+
+**Extending to a new domain:** add the `alert.<x>` entity id + a new
+`input_boolean.<x>_marked_problem` helper (alerts_helper.yaml) as one more pair in the
+`registry` dict inside `sensor.problem_marked_alert_entities`, and add the new toggle entity to
+the "Known Problem Escalation" entities card on the Alerts page. No other file needs to change —
+everything downstream reads from the registry sensor.
+
+**Camera health caveat:** see the naming-mismatch note under "Camera Health Domain" above —
+`camera_health` was added to the registry for the Active Alert Binary Sensors / raw Active
+Alerts card fix (that's the concrete complaint this session — the card kept showing
+`camera_health_alert_active` with no way to suppress it), but marking it "problem" has no effect
+on `Total Warning Alert Devices` or "Active Alert Device Details", since camera health's rows
+never reached that aggregator in the first place.
+
+**Display name fix (same session):** `binary_sensor.camera_health_alert_active` and
+`sensor.camera_health_context` were defined with raw snake_case `name:` values (rendering
+literally as `camera_health_alert_active` in the UI, unlike every other domain's Title Case
+binary sensor names). Both renamed to Title Case (`"Camera Health Alert Active"` /
+`"Camera Health Context"`) — `unique_id`/entity_id unchanged, so no automation/dashboard
+references broke.
+
+**⚠️ Requires a full HA restart** — this session edited `.storage/lovelace.dashboard_system` and
+`.storage/lovelace.dashboard_overview` directly (backed up as `lovelace.dashboard_system.bak.20260710_120843`
+and `lovelace.dashboard_overview.bak.20260710_120843`). Per CODING_STANDARDS.md, `.storage/lovelace`
+changes need a full restart, not just a browser refresh — do not open either dashboard's UI editor
+before restarting, or an autosave from the stale in-memory copy will silently revert this edit.
+
+**Post-restart verification round (same day, 2026-07-10) — 2 real bugs found and fixed:**
+
+1. **`custom:auto-entities` `filter: template:` blocks must always resolve to valid YAML, even
+   when empty.** The original "Active Alert Binary Sensors" template (and the new Home page
+   "Active Alerts" template) emitted nothing but blank/whitespace lines when the filtered result
+   was empty — Jinja renders that as an empty string, which YAML parses as `None`, not `[]`. This
+   appears to have wedged the "Active Alert Binary Sensors" card into a persistent "Configuration
+   error" (reproduced live: confirmed via direct backend template rendering that the template
+   itself was syntactically fine and excluded the right entities at the moment of inspection, but
+   the card stayed broken — consistent with the custom card's render pipeline getting stuck after
+   an earlier render pass hit an empty/`None` result and never recovering without a page reload).
+   **Fix:** every `filter.template` in this feature now explicitly emits literal `[]` when its
+   filtered row-list is empty, instead of relying on blank output. Applies to: "Active Alert Binary
+   Sensors" (Alerts page), "Active Alerts" and "Acknowledged Alerts" (Home page), "Acknowledged
+   (N)" (Alerts page, converted from a static `include` filter to a template for the next bug).
+2. **`Total Acknowledged Alerts` and both "Acknowledged" list cards didn't exclude known-problem
+   alerts.** A flagged alert can legitimately be acknowledged (state `off`) independently of being
+   marked a known problem — the two toggles are orthogonal, as designed. But the acknowledged
+   count/lists weren't filtering by the problem registry, so `alert.critical_sensor_health` kept
+   appearing in "Acknowledged (N)" on the Alerts page and "Acknowledged Alerts" on the Home page
+   even after being flagged — defeating the point of the feature ("not shown in... alert totals").
+   **Fix:** `Total Acknowledged Alerts` (alerts_summary.yaml) now excludes registry-matched
+   entities, same pattern as `Total Active/Unacknowledged Alerts`; both dashboard "Acknowledged"
+   cards use the same template-filter exclusion as their "Active" counterparts.
+
+Fix #2 required `template.reload` (called via the Supervisor API, service `template/reload`) to
+take effect — no `alert:` entities changed, so no further HA restart was needed for this round,
+only the reload. Fix #1 (dashboard JSON) needs the browser tab hard-refreshed (or dashboard
+navigated away/back) to clear any already-stuck card instance; if a hard refresh doesn't clear a
+lingering "Configuration error", a full restart will.
+
+**Not a bug, clarified for the user:** "door alert not showing in Active Alert Device Details" —
+`alerts_doors.yaml`'s context sensor sets `domain: "Security"` (pre-existing, unrelated to this
+session), so gate/door events render under the "Security" heading there, not a "Door" heading.
+Confirmed via `grep domain: packages/alerts/alerts_doors.yaml`.
+
+---
+
+## Section 4C: Known-Problem Escalation — per-device redesign (2026-07-10, same day)
+
+**Why redesigned:** the user asked whether escalation was per-device or per-domain, and
+pointed out `alert.critical_sensor_health` specifically can report multiple, unrelated
+bad sensors at once (watchman scanning `group.critical_sensors`, up to 10 possible
+entities). Marking the whole domain "known problem" would have hidden a future, genuinely
+new fault (e.g. `front_door_sensor` going missing) alongside the known one
+(`switch.water_pressure_pump`). Also requested wiring up Network, Power
+(`device_power_fault`), Security, Presence.
+
+**Investigation ruled out the obvious next idea** (an `input_text` CSV of device tokens +
+`input_select` dropdown picker to mark/unmark): it violates **CODING_STANDARDS.md Rule
+5** ("never store structured data in input_text"), 255 chars doesn't fit even 5-6 tokens,
+and `network`/`device_power` key their devices by *friendly name* not entity_id (fragile
+match key, no existing `input_select.set_options` precedent in this repo either). Also
+surfaced a real **pre-existing bug**: the resolver's `candidate1`/`candidate2` logic
+(`alert.` + base, or `alert.` + base + `_alert`) cannot resolve `alert.device_power_fault`
+— `sensor.device_power_alert_context` strips to base `device_power`, and neither
+`alert.device_power` nor `alert.device_power_alert` exist. Device-power rows have
+silently carried a bogus `alert_entity` since that domain was written. **Fixed** via a
+small override map (see below) — this is an independent bug fix, not specific to this
+feature.
+
+### Two mechanisms
+
+**1. Domain-level (unchanged from 4B)** — single-entry domains only, where there's
+nothing more granular to select: `alert.camera_health`, `alert.security_alert` (NEW).
+`sensor.security_alert_context` emits exactly one static `"Security Event"` entry (no
+loop over cameras/entities) — confirmed by reading `alerts_security.yaml`. Registry:
+`sensor.problem_marked_alert_entities` (dict of `{alert_entity: input_boolean}` pairs).
+`critical_sensor_health` **removed** from this dict — migrated to mechanism 2.
+
+**2. Per-device (NEW)** — multi-entry domains: `alert.critical_sensor_health`,
+`alert.network_alert`, `alert.device_power_fault`, `alert.presence_alert`. One static
+`input_boolean.problem_device_<slug>` per possible device (22 total), declared in
+`alerts_helper.yaml`, `initial: false`. Slugs match each device's real object_id
+(entity_id for critical_sensors; friendly-name-derived for network/wan/power, which
+already coincide with those entities' actual object_ids; the two static presence labels
+for presence). Registry: `sensor.device_problem_registry` (alerts_summary.yaml) — a dict
+attribute `map` from raw `d.device`/`d.name` value → its governing
+`input_boolean.problem_device_*` id. Single source of truth, read via
+`state_attr('sensor.device_problem_registry','map')` everywhere else instead of
+duplicating the 22-entry dict.
+
+| Domain | Group backing it | Members today |
+|---|---|---|
+| critical_sensor_health | `group.critical_sensors` (alerts_system_health.yaml) | 10 |
+| network_alert | `group.network_devices` + `group.wan_services` (alerts_network.yaml) | 7 + 2 |
+| device_power_fault | `group.device_power_monitored` (alerts_device_power.yaml) | 1 (RPi; add a helper when UPS/NAS entries are uncommented) |
+| presence_alert | N/A — 2 static sub-type labels, not a group | 2 (`"Unknown Device"`, `"Occupancy Anomaly"`) |
+
+**Maintenance rule:** adding a new member to any of the 4 groups above requires adding a
+matching `input_boolean.problem_device_<slug>` helper (alerts_helper.yaml) **and** a
+matching line in `sensor.device_problem_registry`'s `map` (alerts_summary.yaml) — the
+per-device toggle card on the dashboard only shows what's in that registry.
+
+### Row-level exclusion
+
+A device row in `sensor.alert_device_entities` / `sensor.problem_alert_devices`
+(alerts_summary.yaml) is "problem" if EITHER `alert_entity` is in the domain-level
+registry, OR `device_problem_registry.map.get(d.device)` resolves to an `input_boolean`
+that's `on`. Both flattening sensors now share this per-row check (previously
+`problem_alert_devices` gated by domain-level membership only, at the whole-alert level).
+
+### New sensor: `sensor.suppressed_alert_entities`
+
+Needed because a raw `binary_sensor.X_alert_active` / `alert.X` can't partially reflect
+per-device suppression — if `water_pressure_pump` is flagged but `front_door_sensor`
+newly goes missing under the same `critical_sensor_health` alert, the binary sensor must
+keep showing (something real remains). Lists every alert_entity that's currently
+on/off (not idle) **and** where every device in its current `devices` list is
+individually covered by mechanism 1 or 2 — guarded against the vacuous-truth case (an
+empty `devices` list must NOT count as "fully covered"; several unrelated domains like
+water/garden/doors legitimately have empty `devices` while `on`).
+
+This sensor replaces the 4 dashboard templates' hardcoded
+`is_state('input_boolean.critical_sensor_health_marked_problem','on')` /
+`camera_health_marked_problem` checks from the 4B version — they now check
+`alert_entity not in states('sensor.suppressed_alert_entities').split(',')` instead, and
+automatically extend to every newly-wired domain with no further dashboard edits needed.
+`Total Active/Unacknowledged/Acknowledged Alerts` (alerts_summary.yaml) switched from
+checking the domain-level registry to checking this sensor instead (a superset covering
+both mechanisms).
+
+### Dashboard changes (same restart-required edit as 4B)
+
+- "Known Problem Escalation" (Alerts page, `lovelace.dashboard_system`): swapped the
+  `critical_sensor_health_marked_problem` row for `security_alert_marked_problem`
+  (camera_health unchanged).
+- New "Known Problem Escalation (Per-Device)" card, same section: `custom:auto-entities`
+  with `filter.template` showing a `problem_device_*` toggle only if that device is
+  either currently reported by a live `_alert_context.devices` list, or already `on` (so
+  an existing flag stays manageable after the device recovers). Keeps the visible list
+  short instead of always showing all 22 helpers.
+- "Active Alert Binary Sensors" (Alerts page) and "Acknowledged (N)" (Alerts page):
+  simplified to check `sensor.suppressed_alert_entities`.
+- "Active Alerts" / "Acknowledged Alerts" (Home page, `lovelace.dashboard_overview`):
+  same simplification.
+
+### Verified live via Supervisor API (before restart, template-render only)
+
+- `sensor.device_problem_registry.map` = 22 entries, confirmed.
+- Toggled `input_boolean.problem_device_water_pressure_pump` on: `total_critical_alert_devices`
+  0→(back to normal once re-toggled), `problem_alert_devices.devices` correctly shows only
+  the water_pressure_pump row, `suppressed_alert_entities` correctly includes
+  `alert.critical_sensor_health` (since it was the *only* bad critical sensor at the time
+  — full coverage). Partial-coverage case (two simultaneous unrelated critical-sensor
+  faults) not live-testable without breaking a second real sensor; verified by code
+  inspection instead.
+- All 5 rewritten dashboard `filter.template` blocks render valid YAML against live state
+  (rendered via `/core/api/template`, parsed with `yaml.safe_load` before applying).
+
+**⚠️ Requires a full HA restart** to load the `.storage/lovelace.*` edits (same rule as
+4B) — backed up as `lovelace.dashboard_system.bak.20260710_181527` and
+`lovelace.dashboard_overview.bak.20260710_181527`. The YAML changes (helpers, template
+sensors) do NOT need a restart — `input_boolean.reload` + `template.reload` (both called
+via the Supervisor API this session) are sufficient, and were confirmed live before the
+dashboard edits were made.
+
+### Real bug found post-restart: `filter.template` mapping rows are NOT YAML-parsed
+
+The `- entity: X\n  secondary_info: last-changed` mapping-row format used in all 5
+rewritten `filter.template` blocks above (and the "Known Problem Escalation (Per-Device)"
+card) looked correct — validated as proper YAML via `yaml.safe_load()` in this session's
+own testing — and was WRONG for this repo's actual installed card. This repo's vendored
+`www/community/lovelace-auto-entities/auto-entities.js` does not YAML-parse a
+`filter.template` result at all: its renderer runs
+`"string" == typeof t ? t.split(/[\s,]+/) : t`, and any multi-statement Jinja template
+(anything with a `{% %}` block) always renders to a plain string, so it always hits the
+`.split(/[\s,]+/)` branch — naive whitespace/comma tokenization, not YAML parsing. The
+mapping rows got shredded into garbage tokens (`-`, `entity:`, `sensor.x`, `secondary_info:`,
+`last-changed`, …), producing a persistent "Configuration error" on "Acknowledged (N)" and
+"Known Problem Escalation (Per-Device)" — reproduced live by the user, and **the broken
+state survived two full HA restarts**, ruling out the "stuck card from a boot-time race"
+theory this session initially assumed. Root cause found by reading the vendored JS source
+directly rather than assuming upstream `auto-entities` docs applied to this pinned copy.
+
+**Fix:** all 5 templates reverted to bare-entity-id-per-line output (no `- entity:`
+wrapper, no `secondary_info`, no literal `[]` empty-fallback — emitting nothing when
+there's nothing to show is the already-proven-safe pattern, matching the pre-existing
+Critical/Warning/Info severity cards that have used this exact style successfully all
+along). New standing rule added: **CODING_STANDARDS.md → Dashboard Card Standards →
+"`custom:auto-entities` `filter.template` output MUST be bare entity IDs, one per line."**
+Required a 3rd restart this session (`lovelace.dashboard_system.bak.20260710_212353` /
+`lovelace.dashboard_overview.bak.20260710_212353`) to load; verified clean afterward —
+all 5 templates re-rendered and tokenized correctly against live state, `alert.critical_sensor_health`
+correctly excluded everywhere once `problem_device_water_pressure_pump` is flagged again.
+
+**Secondary observation, not fixed this session:** `input_boolean.problem_device_*`
+helpers reset to `off` (their `initial:` value) across the 2nd and 3rd restarts this
+session despite being manually toggled `on` shortly before each restart — `.storage/core.restore_state`
+showed all 22 helpers with the exact same `last_changed` timestamp clustered at each
+restart's startup moment (the signature of a fresh/reload-time reset, not an individual
+manual toggle persisting). Root cause not confirmed — recorder config has no
+`input_boolean` exclusion, so this isn't an obvious recorder-exclude issue. Flagged as a
+follow-up: if this keeps happening, the known-problem flags won't actually persist across
+restarts, which defeats the point of a long-lived hardware-fault flag. Needs its own
+investigation session.
 
 ---
 
@@ -322,6 +615,7 @@ initial hit will double-deliver (the same BUG-A04 duplicate-delivery pattern).
 | `alert.garden_alert` | `binary_sensor.garden_alert_active` | 60 min | `STD_Alerts` | ✅ |
 | `alert.dash_battery_alert` | `binary_sensor.dash_battery_alert_active` | 30/60 min | `STD_Alerts` | ✅ |
 | `alert.camera_health` | (camera fleet health) | 60/240 min | none (removed 2026-07-06, BUG-A11) | ✅ |
+| `alert.security_alert` | `binary_sensor.security_alert_active` | 5/15/30/60 min | none (removed 2026-07-10, BUG-A10) — repeats delivered by `automation.security_alert_repeat_reminder` instead | ✅ (UI button not yet wired to the repeat automation — see BUG-A10) |
 
 All active alert entities are still nominally configured with `STD_Alerts` as
 `notifiers:` (except `alert.camera_health`, see BUG-A11) — **but `STD_Alerts` itself has
@@ -378,7 +672,8 @@ All thresholds are `input_number` entities:
 
 ### BUG-A01 — `alerts_water.yaml` is an empty stub
 **Severity:** Critical  
-**File:** `packages/alerts/alerts_water.yaml`
+**File:** `packages/alerts/alerts_water.yaml`  
+**Status:** ✅ Doc-drift correction 2026-07-10 — already fixed in live code, no code change needed. `packages/alerts/alerts_water.yaml` is 349 lines with a populated alert pipeline; not a stub. This entry was stale.
 
 All content is commented out. No water alert entity, no context sensor,
 no pipeline entry. Water state changes (depth critical, pump fault) never
@@ -395,7 +690,8 @@ or safety), context sensor with devices list, alert entity.
 
 ### BUG-A02 — `alerts_security.yaml` is an empty stub
 **Severity:** High  
-**File:** `packages/alerts/alerts_security.yaml`
+**File:** `packages/alerts/alerts_security.yaml`  
+**Status:** ✅ Doc-drift correction 2026-07-10 — already fixed in live code, no code change needed. `packages/alerts/alerts_security.yaml` defines `sensor.security_alert_context` and `alert.security_alert` exactly as this entry's fix describes; not a stub. This entry was stale.
 
 No entities. Security events never enter the alert pipeline.
 Security is notified directly via `script.notify_security_event`, but
@@ -409,7 +705,8 @@ exist.
 
 ### BUG-A03 — Temperature domain bypasses central notification script
 **Severity:** High  
-**File:** `packages/alerts/alerts_temperature.yaml` (lines 766–801, ~878–989, ~970–1081)
+**File:** `packages/alerts/alerts_temperature.yaml` (lines 766–801, ~878–989, ~970–1081)  
+**Status:** ✅ Doc-drift correction 2026-07-10 — already fixed in live code, no code change needed. All four routing automations in `alerts_temperature.yaml` call `script.notify_system_event`, not `notify.STD_*`. This is in fact the pattern BUG-A10's fix later reused for 12 other domains. This entry was stale.
 
 Four routing automations (`Route WAN Temp Alert`, `Route LAN Temp Alert`,
 `Route Device Temp Alert`, `Route Storage Temp Alert`) call `notify.STD_*`
@@ -496,7 +793,8 @@ and the other shows `critical`, the notification and dashboard will disagree.
 
 ### BUG-A07 — `sensor.power_alert_context.devices` omits battery-low and prepaid-drift
 **Severity:** Low  
-**File:** `packages/alerts/alerts_power.yaml` (devices attribute)
+**File:** `packages/alerts/alerts_power.yaml` (devices attribute)  
+**Status:** ✅ Doc-drift correction 2026-07-10 — already fixed in live code, no code change needed. The `devices` template in `alerts_power.yaml` has `{% elif battery_low %}` and `{% elif prepaid %}` branches populating the list exactly as this entry's fix describes. This entry was stale.
 
 The `devices` list in `sensor.power_alert_context` only populates when
 `power_grid_offline_alert_active` is on. Battery-low and prepaid-drift
@@ -512,7 +810,8 @@ binary sensors are active.
 
 ### BUG-A08 — `alerts_presence.yaml` is an empty stub
 **Severity:** Low (presence has no formal alert entity design)  
-**File:** `packages/alerts/alerts_presence.yaml`
+**File:** `packages/alerts/alerts_presence.yaml`  
+**Status:** ✅ Doc-drift correction 2026-07-10 — already fixed in live code, no code change needed. `packages/alerts/alerts_presence.yaml` is 193 lines with a populated alert pipeline; not a stub. This entry was stale.
 
 File exists with `input_boolean:` and `alert:` section headers but no
 entities defined. The unknown AP detection is handled by a notification
@@ -557,14 +856,25 @@ elsewhere, reintroduced by the new code. Fixed immediately by adding `from: "off
 binary_sensor trigger and `not_from: ["unknown","unavailable"]` to every severity-sensor
 trigger across all new automations (all now shown with these guards in the code).
 
-**Deliberately NOT fixed (scope decision, not an oversight):** `alert.security_alert`'s
+**Deliberately NOT fixed at the time (scope decision, not an oversight):** `alert.security_alert`'s
 repeat reminders (5/15/30/60 min) — the initial hit already works via
 `script.notify_security_event`; adding a naive on-transition routing automation here would
 reintroduce BUG-A04-style duplicate delivery. Real interval-based repeat logic without
 duplication is a separate, higher-risk follow-up. The pre-existing temperature-domain
 routing automations (`alerts_temperature.yaml`) have the same missing-guard structure as the
 bug just fixed here and were NOT audited/patched this session — flagged as a related latent
-risk.
+risk, still unaudited as of 2026-07-10.
+
+**✅ Repeat reminders — base implementation shipped 2026-07-10.** `alerts_security.yaml`
+removed the dead `notifiers: [STD_Alerts]` from `alert.security_alert` (same pattern as
+BUG-A11) and added `automation.security_alert_repeat_reminder`: a time_pattern-driven
+automation that fires only at exactly 5/15/30/60 elapsed minutes (never at 0), so it
+structurally cannot duplicate the immediate first notification from
+`security_automations.yaml`. Delivery goes through `script.notify_security_event` directly.
+Muted via the existing `input_boolean.security_alert_notify` toggle (does not yet hook the
+alert entity's own "Acknowledge" button — the core `alert:` integration doesn't expose a
+template-readable ack state — that's a follow-up, not this base version). Requires a full HA
+restart (the `alert:` entity's `notifiers:` key changed).
 
 **Second, distinct incident in the same rollout — NOT this session's automations, NOT
 fixed:** the user also caught "Grid Smart Top-Up Decision" (`automation.prepaid_buy_decision_notify`,
@@ -650,7 +960,7 @@ devices; user asked to visually confirm the button renders and works.
 | Media | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A05; 2026-07-06 delivery fixed (BUG-A10) |
 | System Health | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-07-06 delivery fixed (BUG-A10) |
 | Water | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A01; 2026-07-06 tank-low + borehole tiers delivery fixed (BUG-A10) |
-| Security | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A02; repeat reminders deliberately left unfixed 2026-07-06 (see BUG-A10) |
+| Security | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A02; repeat reminders base implementation shipped 2026-07-10 (see BUG-A10) |
 | Presence | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-16 B1; 2026-07-06 delivery fixed (BUG-A10) |
 | Garden | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-29 new; 2026-07-06 delivery fixed (BUG-A10); 2026-07-07 action button restored (BUG-A12) |
 | Dash Batteries | ✅ (x5) | ✅ | ✅ | ✅ (triggered) | PASS | 2026-05-27 new; 2026-07-06 delivery fixed (BUG-A10) |
@@ -685,6 +995,9 @@ devices; user asked to visually confirm the button renders and works.
 ---
 
 *Contract generated: 2026-04-13*
+*Last updated: 2026-07-10 (4th pass) — Found and fixed the real root cause of the "Configuration error" that survived 2 full restarts: this repo's vendored auto-entities.js does NOT YAML-parse `filter.template` output, it whitespace/comma-splits the rendered string — mapping-style rows (`- entity: X` / `secondary_info: Y`) get shredded into garbage tokens. All 5 filter.template blocks (Active Alert Binary Sensors, Acknowledged (N) both dashboards, Active Alerts, Known Problem Escalation (Per-Device)) reverted to bare-entity-id-per-line, the format already proven safe by the pre-existing Critical/Warning/Info cards. New standing rule added to CODING_STANDARDS.md so this isn't repeated. Required a 3rd restart this session. Also flagged (not fixed): input_boolean.problem_device_* helpers aren't persisting their `on` state across restarts — needs its own follow-up session. See Section 4C.*
+*Last updated: 2026-07-10 (3rd pass) — Known-Problem Escalation redesigned per-device (Section 4C, supersedes 4B): critical_sensor_health/network_alert/device_power_fault/presence_alert now use 22 static input_boolean.problem_device_* helpers (one per group member) instead of whole-domain toggles, so an unrelated new fault under the same alert still surfaces; camera_health/security_alert stay domain-level (single-entry alerts). Fixed pre-existing alert.device_power_fault name-resolver bug (silently broken since that domain was written). Added sensor.suppressed_alert_entities for correct per-entity dashboard hiding (full-coverage check, not just domain membership). ⚠️ Requires full HA restart (lovelace.dashboard_system + lovelace.dashboard_overview edited directly, 2nd round this session).*
+*Last updated: 2026-07-10 (2nd pass) — Known-Problem Escalation feature added (Section 4B): input_boolean.<x>_marked_problem registry excludes a flagged alert from Global Alert Summary/totals/Active Alert Binary Sensors on both Home and Alerts dashboards, surfaces it in a new "Known Problems" section instead; camera_health_alert_active/camera_health_context display names fixed to Title Case; confirmed camera_health_context's naming mismatch means it was never wired into the flattened device aggregator.*
 *Last updated: 2026-07-07 — BUG-A11 restart completed (camera_health fix live), BUG-A12 (garden TURN_OFF_POND_PUMP action button restored via notify_system_event.yaml actions: field)*
 *Last updated: 2026-07-06 — BUG-A10 (notify.STD_Alerts broken again, 13 domains fixed via per-domain routing automations), BUG-A11 (alert.camera_health dead notifier removed, needs restart), alerts_camera_health.yaml added to inventory/audit (was missing entirely)*
 *Last updated: 2026-06-19 — BUG-A03 closed (temperature alerts now use script.notify_system_event; verified in code)*  

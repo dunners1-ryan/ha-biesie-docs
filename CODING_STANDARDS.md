@@ -424,6 +424,50 @@ primary: >
 }
 ```
 
+### Rule — `custom:auto-entities` `filter.template` output MUST be bare entity IDs, one per line
+
+The vendored `www/community/lovelace-auto-entities/auto-entities.js` in this repo does
+**not** YAML-parse a `filter.template` result. Its renderer does:
+```js
+e._template = "string" == typeof t ? t.split(/[\s,]+/) : t;
+```
+Any template with more than one Jinja statement (any `{% %}` block) always renders to a
+plain string, so it always takes the `.split(/[\s,]+/)` path — the result is naively
+tokenized on whitespace/commas, **not** parsed as YAML. A mapping/dict row style like
+`- entity: sensor.x\n  secondary_info: last-changed` gets shredded into garbage tokens
+(`-`, `entity:`, `sensor.x`, `secondary_info:`, `last-changed`, …), which breaks the card
+with a silent, persistent "Configuration error" — confirmed live 2026-07-10, survived
+multiple full HA restarts because the card's internal state doesn't self-heal, only a
+fresh render with a corrected template fixes it.
+
+```yaml
+# ✅ CORRECT — bare entity id, one per line (whitespace-split-safe)
+filter:
+  template: >
+    {% for e in states.binary_sensor | selectattr('state','eq','on') | list %}
+      {{ e.entity_id }}
+    {% endfor %}
+
+# ❌ WRONG — dict/mapping rows get shredded by the whitespace splitter, not YAML-parsed
+filter:
+  template: >
+    {% for e in states.binary_sensor | selectattr('state','eq','on') | list %}
+    - entity: {{ e.entity_id }}
+      secondary_info: last-changed
+    {% endfor %}
+```
+
+Do not add a `{% if ... | count == 0 %}[]{% endif %}` "empty list" fallback either — an
+emitted literal `[]` string just becomes one token `"[]"` (a nonexistent entity, silently
+ignored), not an actual empty array. Emitting nothing when there's nothing to show is
+correct and already proven safe (see the Critical/Warning/Info severity cards in
+`alerts_summary.yaml`'s dashboard, which have used this exact bare-token pattern
+successfully since before this rule was written).
+
+If per-row extras (`secondary_info`, per-row `card_mod`, etc.) are genuinely needed, they
+require the `filter.include`/`filter.exclude` static-attribute-matching form instead — not
+`filter.template` in this repo's vendored card version.
+
 ---
 
 ## 🐍 Pyscript Rules

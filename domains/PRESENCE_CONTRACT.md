@@ -523,10 +523,16 @@ but NOT on any other trust scenario.
 
 ---
 
-### BUG-P04 — Security automation trust conditions commented out ("for testing")
+### ~~BUG-P04~~ — ✅ Doc-drift correction 2026-07-10 — Security automation trust conditions commented out ("for testing")
 **Severity:** High  
 **File:** `security/security_automations.yaml`  
-**Impact:** Trust and presence checks are bypassed in all 4 intruder automations
+**Status:** Already fixed in live code, no code change needed. `security_automations.yaml`
+actively checks `binary_sensor.staff_on_site`, `input_boolean.guest_mode`, and
+`binary_sensor.low_trust_present` (e.g. lines 931, 1130, 1509-1511, 1663) — none of the "for
+testing" comments referenced below exist anymore. This entry was stale. Note: a live comment
+at line 34 flags `staff_on_site` vs `low_trust_present` as `DUPLICATE` checks in the same
+condition block — worth a small cleanup pass, but not a functional bug.  
+**Was — Impact:** Trust and presence checks are bypassed in all 4 intruder automations
 
 All four intruder response automations have trust conditions disabled:
 
@@ -554,10 +560,15 @@ partial filtering, but it also has broken trust input (BUG-P01).
 
 ---
 
-### BUG-P05 — `holiday_mode` produces `intruder_high` state but no automation handles it
+### ~~BUG-P05~~ — ✅ Doc-drift correction 2026-07-10 — `holiday_mode` produces `intruder_high` state but no automation handles it
 **Severity:** High  
 **File:** `security/security_logic.yaml`, `security/security_automations.yaml`  
-**Comment in security_automations.yaml line 35:** `holiday_mode: ❌ DOES NOTHING → BROKEN`
+**Status:** Already fixed in live code, no code change needed.
+`binary_sensor.security_intruder_active` (security_logic.yaml) is `on` for
+`sensor.security_correlation` = `intruder` OR `intruder_high`, and all three intruder
+automations trigger off that unified binary sensor rather than watching
+`security_correlation` directly — holiday escalation is not dropped. This entry was stale.  
+**Was — Comment in security_automations.yaml line 35:** `holiday_mode: ❌ DOES NOTHING → BROKEN`
 
 ```yaml
 # security_logic.yaml — sensor.security_correlation
@@ -622,41 +633,51 @@ No conditions. No AP correlation. Fires on every gate open and overwrites
 
 ---
 
-### BUG-P08 — Unknown AP sensors use inconsistent device tracker entity
+### ~~BUG-P08~~ — ✅ FIXED 2026-07-10 — Unknown AP sensors use inconsistent device tracker entity
 **Severity:** Medium  
 **File:** `presence/presence_validation.yaml:35–45`
 
-```yaml
-# presence_validation.yaml (unknown AP detection):
-state_attr('device_tracker.ryan_iphone', 'ap_mac')   ← no _tracker suffix
+**Confirmed live and real** (unlike most of this contract's other stale entries): checked
+`.storage/core.entity_registry` — `device_tracker.ryan_iphone` (no `_tracker` suffix, and the
+`vicky`/`luke`/`tayla` equivalents) **do not exist as registered entities at all**.
+`state_attr()` on a nonexistent entity always returns `None`, so the unknown-AP count sensors
+were permanently stuck at 0 since creation — silently dead, not just degraded.
 
-# presence_core.yaml (AP location):
-state_attr('device_tracker.ryan_iphone_tracker', 'ap_mac')   ← _tracker suffix
+Cross-checked against `.storage/person` (the "People" integration) to find the canonical
+entity: each person's `device_trackers` list includes the `_tracker`-suffixed UniFi entity
+(platform `unifi`) alongside their `mobile_app` geofence tracker — matching what
+`presence_core.yaml` already used.
+
+```yaml
+# presence_validation.yaml (unknown AP detection) — WAS:
+state_attr('device_tracker.ryan_iphone', 'ap_mac')   ← entity doesn't exist, always None
+
+# presence_core.yaml (AP location) — already correct:
+state_attr('device_tracker.ryan_iphone_tracker', 'ap_mac')   ← real unifi-platform entity
 ```
 
-If these are different registered entities with different `ap_mac` attributes,
-the unknown AP count will always be zero regardless of actual AP connections.
-
-**Fix:** Verify both entity names resolve to the same UniFi tracker. If not,
-align `presence_validation.yaml` to use `_tracker` suffix.
+**Fix applied:** `presence_validation.yaml`'s `Unknown UniFi AP Connections` and `Unknown
+UniFi AP Details` sensors now read `device_tracker.<name>_iphone_tracker` for all four family
+members, matching `presence_core.yaml` and the People integration's registered trackers.
 
 ---
 
-### BUG-P09 — `house_departure_event` logbook message wrong
+### ~~BUG-P09~~ — ✅ FIXED 2026-07-10 — `house_departure_event` logbook message wrong
 **Severity:** Low  
-**File:** `presence/presence_boundary.yaml:200`
+**File:** `presence/presence_boundary.yaml:210`
+
+Confirmed live and real: the entry automation's `logbook.log` correctly says "entry", but the
+departure automation's — a copy-paste of the same block — still said "entry" too.
 
 ```yaml
 - alias: "House: Departure Event"
   action:
     - action: logbook.log
       data:
-        message: "House entry event recorded."   ← should be "departure"
+        message: "House entry event recorded."   ← was wrong, now "House departure event recorded."
 ```
 
-Copy-paste bug. Logbook entry says "entry" for a departure event.
-
-**Fix:** Change message to "House departure event recorded."
+**Fix applied:** Changed message to "House departure event recorded."
 
 ---
 
@@ -1037,12 +1058,12 @@ brief hallway trips at night. This is well-calibrated for the use case.
 | BUG-P01 | **Critical** | ✅ Fixed | `input_boolean.low_trust_present` never auto-set — trust model broken for all staff visits | presence_trust.yaml |
 | BUG-P02 | **High** | ✅ Fixed | `input_boolean.staff_on_site` legacy toggle pollutes trust sensors | security_core.yaml |
 | BUG-P03 | **High** | ✅ Fixed 2026-05-17 | `boundary_permissive_window` always false — gate-open-too-long alert permanently disabled | security_core.yaml |
-| BUG-P04 | **High** | 🔧 S2/S3 | All 4 intruder automation trust conditions commented out "for testing" | security_automations.yaml |
-| BUG-P05 | **High** | Open | `holiday_mode` produces `intruder_high` state but no automation handles it | security_logic.yaml |
+| BUG-P04 | **High** | ✅ Doc-drift, already fixed (2026-07-10) | All 4 intruder automation trust conditions commented out "for testing" | security_automations.yaml |
+| BUG-P05 | **High** | ✅ Doc-drift, already fixed (2026-07-10) | `holiday_mode` produces `intruder_high` state but no automation handles it | security_logic.yaml |
 | BUG-P06 | **Medium** | ✅ Fixed 2026-05-17 | `input_boolean.arrival_detected` never set by boundary resolver | presence_boundary.yaml |
 | BUG-P07 | **Medium** | ✅ Fixed 2026-04-15 | `presence_test_arrival` test automation in production, race-conditions real resolver | presence_boundary.yaml |
-| BUG-P08 | **Medium** | Open | Unknown AP sensors use `device_tracker.*_iphone` vs `*_iphone_tracker` inconsistency | presence_validation.yaml |
-| BUG-P09 | **Low** | Open | `house_departure_event` logbook message says "entry" not "departure" | presence_boundary.yaml |
+| BUG-P08 | **Medium** | ✅ Fixed 2026-07-10 | Unknown AP sensors use `device_tracker.*_iphone` vs `*_iphone_tracker` inconsistency | presence_validation.yaml |
+| BUG-P09 | **Low** | ✅ Fixed 2026-07-10 | `house_departure_event` logbook message says "entry" not "departure" | presence_boundary.yaml |
 | BUG-P10 | **Low** | ✅ N/A | Duplicate `staff` variable — both lines are in different sensors; both correct | security_logic.yaml |
 | BUG-P11 | **Low** | ✅ Fixed 2026-04-30 | Trust model lives in `context/` not `presence/` (architecture violation) | presence_trust.yaml |
 | BUG-P12 | **Low** | ✅ Fixed 2026-05-17 | Startup sync gap: gardener not restored on HA restart | presence_trust.yaml |
@@ -1051,13 +1072,14 @@ brief hallway trips at night. This is well-calibrated for the use case.
 | BUG-P16 | **High** | ✅ Fixed 2026-07-06 | `notify_presence_events.yaml` critical branch silently failing + presence anomaly alert had zero delivery | notify_presence_events.yaml, alerts_presence.yaml |
 | BUG-P17 | **High** | ✅ Fixed 2026-07-08 | `house_entry_event` never set `arrival_detected` — pedestrian front-gate/door arrivals got no arrival lighting | presence_boundary.yaml |
 
-**Open: 4 issues — 0 critical, 2 high, 2 medium, 0 low**  
-**Fixed/closed: 9 issues (S1 closed P01/P02/P03/P06/P10/P11/P12; S2 closed P13; P04 deferred to S2/S3 router)**
+**Open: 0 issues**  
+**Fixed/closed: 13 issues (S1 closed P01/P02/P03/P06/P10/P11/P12; S2 closed P13; S2/S3 router closed P04/P05 — confirmed 2026-07-10; P08/P09 fixed 2026-07-10)**
 
 The trust model chain is now structurally sound. BUG-P04 (commented-out
-trust conditions) will be addressed in the S2/S3 classifier rebuild — not by
-uncommenting the old code, which referenced `input_boolean.staff_on_site`
-(now deprecated).
+trust conditions) was addressed by the S2/S3 classifier rebuild — confirmed live 2026-07-10,
+not by uncommenting the old code, which referenced `input_boolean.staff_on_site`
+(now deprecated); trust filtering runs via `sensor.security_correlation` /
+`binary_sensor.low_trust_present` instead.
 
 ---
 

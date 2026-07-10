@@ -634,12 +634,15 @@ was inconsistent.
 
 ---
 
-### BUG-N07 [LOW] Water tank full notification can never fire
+### ~~BUG-N07~~ [LOW] ✅ Doc-drift correction 2026-07-10 — Water tank full notification can never fire
 
 **File:** `packages/notifications/water_notifications.yaml`  
-**Description:** Automation `water_tank_full_notification` triggers on
+**Status:** Already fixed in live code, no code change needed. `water_tank_full_notification`'s
+trigger already reads `binary_sensor.water_tank_full_depth` (`from: "off"` → `to: "on"`), not
+the dead `sensor.water_state == "full"` path. This entry was stale.  
+**Was:** Automation `water_tank_full_notification` triggered on
 `sensor.water_state → "full"`. Per Water Domain Contract, this state is never produced.
-Automation is dead code.  
+Automation was dead code.  
 **Fix:** Change trigger state to `"idle"` after verifying with water state machine, or
 remove automation and replace with a `done_message` on the water alert entity.
 

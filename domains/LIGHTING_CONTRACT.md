@@ -258,10 +258,12 @@ Security lighting uses `night_confirmed` — correct (wider gate for safety).
 
 ## Section 7: Bugs
 
-### BUG-L01 [HIGH] Night departure doesn't turn off entrance lights
+### ~~BUG-L01~~ [HIGH] ✅ Doc-drift correction 2026-07-10 — Night departure doesn't turn off entrance lights
 
 **File:** `packages/lighting/lighting_departure.yaml`
-**Description:** `scene_night_away` is missing `switch.entrance_down_lights`.
+**Status:** Already fixed in live code, no code change needed. `Scene Night Away` in
+`lighting_scenes.yaml` already sets `switch.entrance_down_lights: "off"`. This entry was stale.
+**Was:** `scene_night_away` is missing `switch.entrance_down_lights`.
 Evening routine turns on entrance_down_lights at civil_night. Night departure
 applies scene_night_away which doesn't include this switch — lights stay on
 after everyone leaves at night.
@@ -271,10 +273,13 @@ scene_night_away in departure to catch all internal lights.
 
 ---
 
-### BUG-L02 [HIGH] scene_night_away missing main_entrance_light off
+### ~~BUG-L02~~ [HIGH] ✅ Doc-drift correction 2026-07-10 — scene_night_away missing main_entrance_light off
 
 **File:** `packages/lighting/lighting_scenes.yaml`
-**Description:** `scene_night_away` turns on `laundry` and `office_entrance`
+**Status:** Not a bug — `main_entrance_light` is intentionally omitted from `Scene Night Away`
+by design (inline comment: "stays on overnight as deterrence, same as boundary lights; only
+turns off via morning wake routine"). This entry was stale.
+**Was:** `scene_night_away` turns on `laundry` and `office_entrance`
 for deterrence but does not explicitly turn off `main_entrance_light`.
 Evening routine and boundary automation can turn this on. Night departure
 leaves it on.
@@ -282,24 +287,31 @@ leaves it on.
 
 ---
 
-### BUG-L03 [HIGH] Arrival nobody-home scenario uses wrong entity
+### ~~BUG-L03~~ [HIGH] ✅ Doc-drift correction 2026-07-10 — Arrival nobody-home scenario uses wrong entity
 
 **File:** `packages/lighting/lighting_arrival_night.yaml`
-**Description:** Scenario 1 (nobody home) checks `binary_sensor.anyone_home`
+**Status:** Already fixed in live code, no code change needed. Both branches in
+`lighting_arrival_night.yaml` already use `binary_sensor.anyone_connected_home`. This entry
+was stale.
+**Was:** Scenario 1 (nobody home) checked `binary_sensor.anyone_home`
 which is the HA mobile app geofence sensor — unreliable for local presence
 detection. The authoritative entity is `binary_sensor.anyone_connected_home`
-(AP-based). Scenario 1 silently never fires.
+(AP-based). Scenario 1 silently never fired.
 **Fix:** Replace `binary_sensor.anyone_home` → `binary_sensor.anyone_connected_home`.
 
 ---
 
-### BUG-L04 [MEDIUM] Morning routine has no time-based fallback
+### ~~BUG-L04~~ [MEDIUM] ✅ Doc-drift correction 2026-07-10 — Morning routine has no time-based fallback
 
 **File:** `packages/lighting/lighting_morning.yaml`
-**Description:** Morning wake only triggers on `binary_sensor.living_areas_occupied`.
+**Status:** Already fixed in live code, no code change needed. Morning wake trigger already
+has three paths: `binary_sensor.living_areas_occupied`, a time trigger at
+`input_datetime.morning_weekday_start`, and `binary_sensor.cam14_lounge_motion_valid`. This
+entry was stale.
+**Was:** Morning wake only triggered on `binary_sensor.living_areas_occupied`.
 Wife doesn't carry phone → AP doesn't join → anyone_connected_home may be
 insufficient for confidence scoring → living_areas_occupied may not reach
-threshold. No time-based fallback exists.
+threshold. No time-based fallback existed.
 **Fix:** Add time trigger at `input_datetime.morning_weekday_start` (weekdays only)
 and `binary_sensor.cam14_lounge_motion_valid` as additional trigger paths.
 Once-per-day gate handles duplicates.
@@ -317,11 +329,13 @@ see Section 4 ⚠️ note.
 
 ---
 
-### BUG-L06 [LOW] Departure trigger missing from: "off" guard
+### ~~BUG-L06~~ [LOW] ✅ Doc-drift correction 2026-07-10 — Departure trigger missing from: "off" guard
 
 **File:** `packages/lighting/lighting_departure.yaml`
-**Description:** Trigger on `input_boolean.full_departure_detected` has no
-`from: "off"` constraint. Can fire on HA restart if boolean is ON at boot.
+**Status:** Already fixed in live code, no code change needed. The trigger on
+`input_boolean.full_departure_detected` already has `from: "off"`. This entry was stale.
+**Was:** Trigger on `input_boolean.full_departure_detected` had no
+`from: "off"` constraint. Could fire on HA restart if boolean was ON at boot.
 **Fix:** Add `from: "off"` to trigger.
 
 ---
@@ -392,11 +406,14 @@ and weekend paths. Any trigger after noon is rejected.
 
 ---
 
-### BUG-L09 [LOW] lighting_entertainment.yaml and lighting_energy_saving.yaml are empty
+### ~~BUG-L09~~ [LOW] ✅ Doc-drift correction 2026-07-10 — lighting_entertainment.yaml and lighting_energy_saving.yaml are empty
 
 **Files:** both
-**Description:** Both files are empty stubs. `entertainment_mode_on` button
-exists in helpers but lighting_entertainment.yaml has no automation to respond.
+**Status:** Already fixed in live code, no code change needed. `lighting_entertainment.yaml`
+(161 lines) and `lighting_energy_saving.yaml` (108 lines) are both populated — neither is an
+empty stub. This entry was stale.
+**Was:** Both files were empty stubs. `entertainment_mode_on` button
+existed in helpers but lighting_entertainment.yaml had no automation to respond.
 Energy saving mode button similarly orphaned.
 **Fix:** Either implement or remove the helper buttons. Low priority.
 

@@ -5,7 +5,8 @@
 
 ## ⚠️ OPEN TODO
 
-- [ ] **Security repeat reminders (`alert.security_alert`, 5/15/30/60min) intentionally left broken this session** — the initial hit already works; adding real interval-based repeat logic without duplicating it is a separate, higher-risk feature. See NOTIFICATIONS_CONTRACT.md §7.
+- [x] **Security repeat reminders — base implementation shipped 2026-07-10.** `alert.security_alert`'s `notifiers: [STD_Alerts]` removed (was dead — same class as BUG-A11); a new `automation.security_alert_repeat_reminder` (`alerts_security.yaml`) now delivers the 5/15/30/60min reminders via `script.notify_security_event` directly, gated to fire only at those exact elapsed-minute marks so it structurally cannot duplicate the immediate first notification. Muted via the existing `input_boolean.security_alert_notify` toggle — does NOT yet hook the alert entity's native "Acknowledge" button (no template-readable ack state exposed by the `alert:` integration); that's a follow-up. **⚠️ Requires a full HA restart** (`alert:` entity `notifiers:` changed). See ALERTS_CONTRACT.md BUG-A10.
+- [ ] **Follow-up from BUG-A10 (still open):** `automation.security_alert_repeat_reminder`'s "Acknowledge" button on the `alert.security_alert` dashboard card has no effect on repeat delivery (see item above). Also still unaudited: `alerts_temperature.yaml`'s routing automations have the same missing-guard structure as the BUG-A10 reload false-positive class already fixed elsewhere this week (prepaid/network/security) — flagged, not checked this session.
 - [x] **CORRECTED 2026-07-10 (was miscategorized as "not attributable to YAML"):** the hourly `ServiceNotFound: notify.ryan_iphone16_mobile_app` / `ap_0223_1001` / `honor_10_dash_mobile_app` / `honor_x7_dash_mobile_app` / `telegram_bot_5527` errors (5 at a time, ~once/hour) ARE attributable to YAML — they're `notify.STD_Alerts` (`configuration.yaml`, `platform: group`) calling each of those 5 tokens as bare `notify.<x>` services, which no longer exist post-migration (see NOTIFICATIONS_CONTRACT.md §7). The earlier repo-wide grep that found "zero references" was searching for `service:`/`action:` call sites and missed the `services:` list inside the `STD_Alerts` group definition itself. This is the same already-known, deliberately-left-broken `STD_Alerts` group documented in NOTIFICATIONS_CONTRACT.md §7 (option (b) chosen 2026-07-06: 13 domains got parallel working delivery automations instead of fixing the group) — not a separate mystery. No further action needed; the log noise is the accepted cost of that decision. Correcting the mischaracterization here so a future session doesn't re-investigate this as unattributable.
 - [ ] **Telegram photo attachment unreachable (infra, not YAML)** — `telegram_bot.send_photo`
       fails with "Failed to load URL: All connection attempts failed" for
@@ -14,6 +15,174 @@
       timeout). Check reverse proxy container status and whether `10.10.1.5` is still the
       correct LAN IP for it. Text/push notifications and Telegram message text + buttons are
       unaffected — only the inline photo in Telegram fails. See SECURITY_CONTRACT.md BUG-S61.
+- [x] **Known-Problem Escalation feature (2026-07-10) — restart completed, live-verified same day,
+      2 follow-up bugs found and fixed post-restart.** `.ha_run.lock` confirmed a real core restart at
+      13:04. Verified via Supervisor API (`/core/api/states`, `/core/api/template`) that the registry
+      sensor, `sensor.problem_alert_devices`, and the exclusion logic all work correctly against live
+      state. Found and fixed two real bugs surfaced by the user during verification: (1) the
+      "Active Alert Binary Sensors" card got stuck on "Configuration error" because its
+      `filter.template` could render blank instead of literal `[]` when nothing matched — fixed
+      everywhere in this feature; (2) `Total Acknowledged Alerts` and both "Acknowledged" list cards
+      (Home + Alerts page) weren't excluding known-problem alerts, so a flagged-and-acknowledged
+      alert (both toggles can be true independently) kept reappearing there. Fixed via `template.reload`
+      (no further restart needed — no `alert:` entities touched this round). See ALERTS_CONTRACT.md
+      Section 4B "Post-restart verification round". Also clarified (not a bug): "door alert missing
+      from Active Alert Device Details" is pre-existing — `alerts_doors.yaml` labels its context
+      sensor `domain: "Security"`, so it renders there instead.
+- [x] **Known-Problem Escalation redesigned per-device (2026-07-10, same day) — shipped, live,
+      user-verified working.** The original version was whole-domain-only; the user correctly
+      pointed out `alert.critical_sensor_health` can report multiple unrelated hardware faults at
+      once, so flagging the whole domain would hide a future genuinely-new fault. Redesigned: 22
+      static `input_boolean.problem_device_*` helpers (one per member of `group.critical_sensors` /
+      `group.network_devices` / `group.wan_services` / `group.device_power_monitored`, plus 2 for
+      presence's static sub-types) replace the single `critical_sensor_health_marked_problem`
+      toggle; `camera_health`/`security_alert` (NEW) stay domain-level since their alerts are
+      structurally single-entry. New `sensor.device_problem_registry` (device→helper map) and
+      `sensor.suppressed_alert_entities` (per-entity full-coverage check) added to
+      `alerts_summary.yaml`. Also fixed a **pre-existing** bug found during design review:
+      `alert.device_power_fault` could never be resolved by the aggregator's name-resolver (base
+      strips to `device_power`, neither `alert.device_power` nor `alert.device_power_alert` exist)
+      — device-power rows have silently carried a bogus `alert_entity` since that domain was
+      written; fixed via an override map.
+      **Real bug found post-deploy (3 restarts total this session to fully resolve):** the
+      "Configuration error" the user kept seeing on "Acknowledged (N)" and "Known Problem
+      Escalation (Per-Device)" survived TWO full restarts, ruling out the "stuck card from boot
+      race" theory. Root cause, found by reading the vendored `auto-entities.js` source directly:
+      this card version does NOT YAML-parse `filter.template` output — it naively
+      whitespace/comma-splits the rendered string. The mapping-row format used in 5 templates
+      (`- entity: X\n  secondary_info: Y`) got shredded into garbage tokens. Fixed by reverting all
+      5 to bare-entity-id-per-line (the format already proven safe by the pre-existing
+      Critical/Warning/Info cards) — 3rd restart loaded the fix, confirmed clean via Supervisor API
+      re-render of every affected template against live state. **New standing rule added to
+      CODING_STANDARDS.md** (Dashboard Card Standards) so this exact mistake isn't repeated.
+      **Not fixed, flagged as follow-up:** `input_boolean.problem_device_*` helpers reset to `off`
+      across restarts 2 and 3 despite being manually toggled `on` beforehand —
+      `.storage/core.restore_state` shows all 22 helpers resetting in lockstep at each restart's
+      startup moment, not preserving individual manual toggles. Recorder has no `input_boolean`
+      exclusion, so root cause unconfirmed — needs its own investigation session, since it
+      currently means known-problem flags don't reliably survive a restart. See ALERTS_CONTRACT.md
+      Section 4C (supersedes 4B) for full detail, including the "Real bug found post-restart"
+      writeup.
+- [x] **Network dashboard rebuild (2026-07-10) — shipped and verified live.** The
+      `network-control` and `network-debug` views on `.storage/lovelace.dashboard_operations`
+      were rebuilt (WAN/LAN consolidation, new NAS/UPS debug sections); required a full HA
+      restart per CODING_STANDARDS.md, which has since happened (HA 2026.7.1, core state
+      RUNNING). Post-restart verification: both views confirmed intact in `.storage`
+      (network-control 3 sections / network-debug 5 sections, both `max_columns: 3`), no
+      lovelace/template errors in `ha core logs`, and every entity referenced by either view
+      spot-checked live via the REST API. See NETWORK_CONTRACT.md Section 11.
+- [ ] **BUG-NET06 (discovered 2026-07-10) — self-cleared on restart, root cause still
+      unfixed.** `sensor.network_device_down_alert_severity` is a trigger-based template
+      sensor that only recomputes on state changes of
+      `binary_sensor.network_device_down_alert_active` / `group.network_devices` — no
+      periodic re-evaluation. Was observed stuck at `critical` since 2026-07-09T21:14:33
+      despite both watched entities reading normal, feeding a false `critical` into
+      `sensor.network_alert_context` with an empty `devices` list. The 2026-07-10 HA restart
+      forced a recompute and it now correctly reads `none`/`normal` — but the underlying gap
+      (no `time_pattern` trigger) is unfixed and the same startup-race could recur on a future
+      restart. Worked around in the network-control dashboard by keying its status banner off
+      `sensor.wan_noc_status` / `alert.network_alert` instead of the severity/context sensors.
+      Real fix: add a `time_pattern` trigger to `sensor.network_device_down_alert_severity` in
+      `alerts_network.yaml`, same class of fix as BUG-NET04/05. See NETWORK_CONTRACT.md.
+
+*2026-07-10 (alerts dashboard session) — Added "Known-Problem Escalation": a user-triggered
+toggle that removes a recurring/hardware-fault alert (e.g. `alert.critical_sensor_health` for the
+stuck-`unavail` `switch.water_pressure_pump`) from the Global Alert Summary, the alert totals,
+and the "Active Alert Binary Sensors" card on both the Home and Alerts dashboards — without
+touching the underlying `alert:` entity's own on/off/repeat lifecycle. The flagged alert shows
+instead in a new "Known Problems" section on the Alerts page. Redesigned same day from a
+whole-domain toggle to per-device (22 static `input_boolean.problem_device_*` helpers) after the
+user pointed out `alert.critical_sensor_health` can report multiple unrelated hardware faults at
+once; `camera_health`/`security_alert` stay domain-level since those alerts are structurally
+single-entry. Also fixed a pre-existing bug: `alert.device_power_fault` could never be resolved by
+the aggregator's name-resolver. Full detail, including a real "Configuration error" root-cause
+bug found post-deploy (this repo's vendored `auto-entities.js` doesn't YAML-parse
+`filter.template` output — it whitespace-splits it, so mapping-row templates get shredded into
+garbage tokens; fixed by reverting to bare-entity-id-per-line, new rule added to
+CODING_STANDARDS.md) and camera_health/camera_health_context display-name fixes: see
+ALERTS_CONTRACT.md Section 4C. Required 3 full HA restarts total this session; all verified live
+via Supervisor API before and after each. Not fixed, flagged as follow-up:
+`input_boolean.problem_device_*` helpers aren't reliably persisting their `on` state across
+restarts — needs its own investigation session.*
+
+*2026-07-10 (doc-audit + fix session) — Read PROJECT_STATE, CODING_STANDARDS, and all 11
+domain contracts; verified every "open" bug claim against live YAML instead of trusting the
+docs. Found ~14 bugs marked open across ALERTS/LIGHTING/NOTIFICATIONS/PRESENCE/INFRA/SECURITY
+contracts that were already fixed in code — closed all of them out with dated Status notes in
+their respective contracts (see each file's changelog). Also fixed the bugs that were still
+genuinely live:*
+
+*PRESENCE — BUG-P08: `presence_validation.yaml`'s unknown-AP sensors read
+`device_tracker.<name>_iphone` (no `_tracker` suffix), which doesn't exist in
+`.storage/core.entity_registry` at all — `state_attr()` on a nonexistent entity always
+returns `None`, so both sensors were permanently stuck at 0 since creation. Cross-checked
+`.storage/person` (People integration) to confirm the canonical entity is the
+`_tracker`-suffixed UniFi tracker (already used correctly in `presence_core.yaml`); aligned
+`presence_validation.yaml` to match. BUG-P09: departure automation's `logbook.log` said
+"House entry event recorded" (copy-paste from the entry automation) — fixed to "departure".*
+
+*ALERTS — BUG-A10 follow-up: `alert.security_alert` had the same dead-`notifiers:` problem
+BUG-A11 already fixed for `camera_health` (`STD_Alerts` broken since 2026-06-28). Removed
+`notifiers: [STD_Alerts]`; added `automation.security_alert_repeat_reminder` as a base
+interval-repeat implementation — see OPEN TODO above for details and the follow-up gap
+(Acknowledge button not wired up).*
+
+*INFRA — BUG-CORE02: removed dead `{% set errors = 1 %}` from `sensor.ha_stability_score`
+(`core_helpers.yaml`); also added `temp > 85` (critical) / `temp > 70` (degraded) thresholds
+to that sensor, since it previously ignored CPU temperature entirely despite driving the
+"Home Assistant Health" dashboard card's color — a genuinely overheating Pi with normal
+CPU/load would have shown green. BUG-CORE01: the sensors this entry described no longer
+exist (already replaced by the lightweight `sensor.ha_event_rate_1m` `statistics`-platform
+sensor in `packages/sensors/filter.yaml`); added an inline comment there explaining why it
+must stay cheap (Raspberry Pi performance) instead of reverting to a full-registry-scan
+pattern. BUG-WEA02: fixed `# 1hr` → `# 4hr` comment on the 14400s threshold
+(`weather_core.yaml`). BUG-WEA01 follow-up gap: `weather_api_recovery`'s
+`not_from: [unknown, unavailable]` guard was blocking recovery on the exact
+template-reload transition it needed to catch — removed the guard (recovery only needs
+`to: "healthy"`; action is idempotent, condition already checks the limited-mode boolean).*
+
+*SECURITY — Issue 7: added `from: "off"` to `security_capture_each_camera_motion` and
+`security_track_movement_path` (both had bare `to: "on"`, could fire on restart);
+`security_event_start` has no on/off shape (triggers off a camera-name-valued sensor) so
+added `not_from: ["unknown", "unavailable"]` instead. Also closed Issue 8 in the same file as
+stale — its "Deferred to S2/S3" trust-model-disabled claim was already resolved by the S2/S3
+classifier rebuild (verified: zero `# disable for testing` matches repo-wide,
+`security_automations.yaml` actively checks `staff_on_site`/`guest_mode`/`low_trust_present`).*
+
+*DASHBOARD — Home page's existing "Home Assistant Health" mushroom card
+(`.storage/lovelace.dashboard_overview`, Home view) showed CPU/Load/RAM only; extended its
+`secondary` template to add CPU temperature and uptime (both already computed by
+`sensor.ha_system_monitor_*` / `sensor.ha_uptime_hours`, just not surfaced). Edited via direct
+JSON patch with a byte-exact round-trip verification before/after (single-field diff
+confirmed, nothing else in the file touched) — same file another in-progress session had
+already made unrelated edits to today; confirmed via diff that those were preserved.
+**⚠️ Requires a full HA restart** (`.storage/lovelace` changed) — do not open the Home
+dashboard's UI editor before restarting.*
+
+*2026-07-10 (network dashboard session) — Consolidated the Network domain into two rebuilt views
+on `dashboard_operations`: `network-control` (at-a-glance status + primary controls — WAN health
+banner, bandwidth/loss/jitter tiles, consolidated LAN device markdown table, restart-button grid,
+NAS/UPS protection) and `network-debug` (deep-dive — WAN quality history, per-device UniFi
+Gateway/Switch/ASUS/5×AP/ZenWiFi breakdowns, plus brand-new NAS (Synology Guardians) and UPS
+(EcoFlow River Pro) diagnostic sections that weren't on any dashboard before). Both now use the
+`sections` layout at `max_columns: 3` (tablet-safe), matching the pattern already used by
+power-control/security-control/water-control. Added breadcrumb chip-card navigation between the
+two views (mirrors the existing Home-page pattern); Home page's "Network Health" card and the
+Alerts summary card already pointed to the correct URLs (`/dashboard-operations/network-control`,
+`/dashboard-system/alerts`) — no change needed there. Confirmed via the HA REST API
+(`/api/states`, `/api/history/period`) that AP/ASUS CPU, memory, and ping-RTT sensors have zero
+recorder history — excluded by the `sensor.ap_*_cpu_*` / `sensor.asus_*_cpu_*` / `sensor.*_ping_*`
+recorder globs in `configuration.yaml` — so those are shown as gauges/badges (current state only)
+rather than history graphs; WAN quality, NAS, and UPS metrics do have recorder history and got
+trend graphs instead. Discovered a live stale-state bug in the alert severity pipeline while
+validating dashboard data — see BUG-NET06 above and NETWORK_CONTRACT.md. File backed up first
+(`lovelace.dashboard_operations.bak.20260710_125027`) per established `.storage` edit precedent;
+JSON validity and all ~113 referenced entity IDs confirmed live via the API before writing.
+**Restarted and verified 2026-07-10** — HA 2026.7.1, core state RUNNING, both views confirmed
+intact post-restart (network-control 3 sections / network-debug 5 sections, `max_columns: 3`),
+no lovelace/template errors in `ha core logs`, all referenced entities spot-checked live. The
+restart also force-recomputed BUG-NET06's stale severity sensor back to a correct `none`/`normal`
+reading — confirmed self-cleared for now, root cause (no periodic re-trigger) still open.*
 
 *2026-07-10 (log-review session) — General `ha core logs` review (not tied to a specific
 bug report), triggered by user request to "check through log issues and fix." Found and

@@ -788,18 +788,29 @@ in `security_helpers.yaml` (D3 — Group D).
 ---
 
 ### ISSUE 7 — No `from:` constraints on motion triggers
-**Priority: MEDIUM | Status: Partially resolved 2026-05-17 (S3)**
+**Priority: MEDIUM | Status: ✅ FIXED 2026-07-10**
 
 `security_visitor` and `security_arrival_detected` deleted in S3 — no longer applicable.
 `security_arrival_stage1_vehicle` and `_departure_stage1_vehicle` use `from: "off"` ✓.
-Remaining open: `security_capture_each_camera_motion`, `security_track_movement_path`,
-`security_event_start` — low risk, deferred to S4.
+The three remaining triggers, deferred since S3, are now fixed:
+- `security_capture_each_camera_motion` — added `from: "off"` to the shared multi-camera
+  `to: "on"` trigger.
+- `security_track_movement_path` — same fix, same trigger shape.
+- `security_event_start` — this one has no `to:`/`from:` at all (fires on any state change
+  of `sensor.security_trigger_camera`, a camera-name-valued sensor, not a binary on/off), so
+  the applicable guard is `not_from: ["unknown", "unavailable"]` instead — added, preventing
+  a fake event start when the sensor recovers from a restart.
 
 ---
 
 ### ISSUE 8 — Trust model disabled — security runs blind
 **Priority: MEDIUM | Risk to fix: MEDIUM**  
-**Status:** 🔧 Deferred to S2/S3 — NOT a simple uncomment. See note below.
+**Status:** ✅ Doc-drift correction 2026-07-10 — the S2/S3 classifier rebuild this entry
+calls out as "the fix" has shipped. Confirmed live: zero matches repo-wide for
+`# disable for testing`; `security_automations.yaml` actively checks
+`binary_sensor.staff_on_site`, `input_boolean.guest_mode`, and `binary_sensor.low_trust_present`
+in the intruder-response conditions (see PRESENCE_CONTRACT.md ~~BUG-P04~~). This entry was
+stale, left open in this file even after the underlying work merged.
 
 **Symptom:** Security notifications fire even when maid, gardener, or contractor is on
 site — no suppression occurs.

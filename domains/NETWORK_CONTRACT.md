@@ -187,6 +187,26 @@ The self-referencing `has_value('sensor.unifi_cpu')` has been corrected.
 `sensor.unifi_memory_5m_max` availability now reads `has_value('sensor.unifi_gateway_memory_utilization')`.
 The circular `has_value('sensor.unifi_memory_5m_max')` has been corrected.
 
+### BUG-NET06 [MEDIUM] — Open — discovered 2026-07-10, not fixed
+**File:** `packages/alerts/alerts_network.yaml`
+**Problem:** `sensor.network_device_down_alert_severity` is a trigger-based template sensor
+(`trigger: state` on `binary_sensor.network_device_down_alert_active` and
+`group.network_devices` only — no time-based re-evaluation). Live-observed stuck at `critical`
+since 2026-07-09T21:14:33 despite `group.network_devices` = `on` and
+`binary_sensor.network_device_down_alert_active` = `off` at time of discovery. Most likely cause:
+a startup-time evaluation (an AP briefly `unavailable` during an HA restart, pushing the down-count
+to ≥2) that never re-fired because `group.network_devices` hasn't changed state since. This feeds
+`sensor.network_alert_context` = `critical` with an empty `devices` attribute list — a false
+CRITICAL reading with no actual cause, which would show a misleading banner on any dashboard that
+reads the severity/context sensors directly instead of the underlying `alert.network_alert` state.
+**Workaround applied (dashboard only, not a code fix):** the new `network-control` dashboard
+(Section 11) keys its WAN status banner off `sensor.wan_noc_status` / `sensor.wan_health_score`
+and its "Active Network Alerts" card off the `alert.network_alert` domain state (`idle`, correctly
+reflecting reality) instead of the stale severity/context sensors.
+**Real fix (not yet applied):** add a `time_pattern` trigger (e.g. every 5 min) to
+`sensor.network_device_down_alert_severity` so it re-evaluates even when its watched entities don't
+change state — same class of fix as BUG-NET04/05.
+
 ### ~~BUG-NET03~~ [HIGH] — ✅ Fixed 2026-06-19
 WAN packet loss formula rewritten using ping pass/fail binary count approach.
 `wan_*_packet_loss` sensors now use `state_characteristic: count` (successful pings) and
@@ -345,11 +365,64 @@ DSM → Control Panel → Hardware & Power → General:
 | ~~BUG-NET01~~ | ~~Medium~~ | ~~Fix `sensor.unifi_cpu_5m_max` availability~~ — **FIXED 2026-06-19** |
 | ~~BUG-NET02~~ | ~~Medium~~ | ~~Fix `sensor.unifi_memory_5m_max` self-referencing availability~~ — **FIXED 2026-06-19** |
 | ~~BUG-NET03~~ | ~~High~~ | ~~Fix WAN packet loss formula (currently meaningless)~~ — **FIXED 2026-06-19** |
+| BUG-NET06 | Medium | `network_device_down_alert_severity` has no periodic re-evaluation trigger — can stick at a stale `critical` indefinitely. See Section 6. |
 | IMP-NET01 | Low | Add `sensor.network_alert_context` to `sensor.alert_device_entities` aggregator (verify wired — B3 done 2026-04-14) |
 | IMP-NET02 | Low | Add ISP name/plan to a descriptive input_text for context on dashboard |
+| IMP-NET03 | Low | Several UniFi diagnostic entities are disabled by the integration by default (`sensor.ap_bar_clients`, `sensor.ap_lounge_clients`, `sensor.ap_passage_clients`, `sensor.usw_ultra_poe_clients`, all per-port PoE switch/link-speed sensors) — inconsistent with `ap_garage`/`ap_office` which have clients enabled. Enable in the UniFi integration entity list if per-AP client counts / per-port PoE control become needed; the network-control LAN table degrades gracefully to "—" for these today. |
 
 ---
 
+## Section 11: Dashboards (added 2026-07-10)
+
+Two views on `dashboard_operations` (`.storage/lovelace.dashboard_operations`), same
+`sections`/`max_columns: 3` pattern used by power-control/security-control/water-control.
+Linked to each other via a breadcrumb chip-card at the top of each view's first section, and
+from the Home page's "Network Health" card (chips: Network Control / Network Debug).
+
+### `network-control` (path: `network-control`) — at-a-glance + primary controls
+- **WAN section:** NOC-status banner (pulses on degraded/critical/offline), download/upload +
+  peak-5m tiles, packet-loss/jitter tiles, per-provider (CF/Google/MS) latency tiles, a
+  consolidated markdown status line for the Gateway/ISP plan/WAN services group, two 24–48h
+  trend graphs (WAN health score, per-provider latency), and the existing "Active Network
+  Alerts" `auto-entities` card.
+- **LAN section:** one consolidated markdown table (Gateway/Switch/5×AP/ZenWiFi — status,
+  clients, CPU, memory) instead of per-device entity cards, a 24h LAN client-count trend graph,
+  a 7-button restart grid (Gateway/Switch/5×AP, each with a tap confirmation), and a
+  conditional "Unknown AP Detected" tile (only renders when
+  `binary_sensor.unknown_unifi_ap_detected` is on).
+- **NAS & UPS Protection section:** carried over from the pre-existing control view (NAS
+  shutdown-imminent tile, UPS reserve tile, auto-shutdown controls, manual shutdown/WoL
+  buttons) — this section was already in good shape and needed no redesign.
+
+### `network-debug` (path: `network-debug`) — deep-dive, reorganised from the old version
+Replaces the old `network-debug` view, which had duplicated WAN latency tiles across two
+sections, duplicated AP Garage blocks, and ~10 CPU/memory gauge cards with no way to see trends.
+Five sections: **WAN** (quality metrics, live 5-min + 7-day latency/loss graphs, ISP throughput
+gauges+graph), **LAN Core** (Gateway/Switch/ASUS ROG router — badges + compact entities + current
+gauges + the two graphs that actually have recorder history), **LAN Wireless** (5-day AP
+connectivity history-graph, one compact badge-only block per AP + a shared restart grid instead
+of 5× duplicated gauge cards, ZenWiFi mesh node, 7-day client-count graph), and two sections that
+were previously **not on any dashboard**: **NAS** (Synology Guardians — drive/volume status,
+CPU/memory/throughput trend graphs, reboot/shutdown/WoL buttons) and **UPS** (EcoFlow River Pro —
+reuses the pre-built `sensor.ups_status_card` / `sensor.ups_load_markdown` display strings,
+battery-level and AC in/out power trend graphs, key settings).
+
+**Design constraint that shaped both views:** `configuration.yaml`'s recorder `exclude.entity_globs`
+(`sensor.ap_*_cpu_*`, `sensor.asus_*_cpu_*`, `sensor.asus_*_memory_*`, `sensor.*_ping_*`,
+`sensor.*_uptime`, `sensor.*_last_boot`) means AP/ASUS CPU, memory, and ping-RTT sensors have
+**zero recorder history** — confirmed empirically via `/api/history/period` before building
+(0 data points over 2 days vs. tens of thousands for non-excluded sensors). Those are shown as
+gauges/badges (current value only) rather than history graphs on both views; this is intentional,
+not an oversight — don't "fix" it by adding trend graphs for those entities unless the recorder
+excludes are deliberately changed first (which would grow the DB — see CODING_STANDARDS.md).
+
+⚠️ `.storage/lovelace` edits require a full HA restart (not a browser refresh) — see
+CODING_STANDARDS.md and the OPEN TODO in PROJECT_STATE.md.
+
+---
+
+*Last updated: 2026-07-10 — Section 11 (dashboards) added; BUG-NET06 (stale alert severity sensor)
+discovered and documented, IMP-NET03 (disabled UniFi diagnostic entities) added.*
 *Last updated: 2026-06-19 — BUG-NET01/02/03 closed (CPU/memory availability and packet loss formula all corrected; verified in code)*
 *Last updated: 2026-05-28 — network_nas.yaml added; NAS graceful shutdown + WoL restore pipeline documented (Section 10)*
-*Source: packages/network/network_helpers.yaml, packages/alerts/alerts_network.yaml, packages/network/network_ups.yaml, packages/network/network_nas.yaml*
+*Source: packages/network/network_helpers.yaml, packages/alerts/alerts_network.yaml, packages/network/network_ups.yaml, packages/network/network_nas.yaml, .storage/lovelace.dashboard_operations*
