@@ -426,7 +426,7 @@ right MAC. The discrepancy should be verified.
 | `suppress_security_after_restart` | `homeassistant: start` | N/A | ✅ Event trigger |
 | `presence_test_arrival` | `main_gate_sensor → on` | None | **⚠️ TEST AUTOMATION** |
 | `presence_debug_logger` | multiple state changes | None | Low (logging only) |
-| `presence_marker_reset` | `input_text.* state` | None | Low |
+| `presence_marker_reset` | `input_text.* state` | None | Low (mode: restart, BUG-P18 2026-07-10) |
 | `presence_snapshot_who_home` | `time_pattern /1` + `homeassistant: start` | N/A | ✅ **Added S8 2026-05-19** — low risk, idempotent write |
 
 No critical `from:` violations for binary safety triggers. However
@@ -865,6 +865,29 @@ arrival_mode` = bedrooms already occupied) should stay minimal as-is — front_h
 security_light and patio should NOT be added to quiet mode's turn-on list. The
 front+back-security-then-patio-off-at-bedtime behavior the user wants is exactly what
 Scenario 2 ("Someone Home") already does; no lighting-side change was needed there.
+
+---
+
+### BUG-P18 — `presence_marker_reset` missing `mode: restart`, dropping clears on overlapping arrivals/departures
+**Severity:** Low
+**File:** `packages/presence/presence_boundary.yaml`
+**Status:** ✅ FIXED 2026-07-10
+
+**Symptom:** Log-review session found repeated `WARNING ... [homeassistant.components.
+automation.presence_marker_reset] Presence Marker Reset: Already running` entries in
+`ha core logs`.
+
+**Root cause:** `presence_marker_reset` triggers on state changes to `input_text.
+last_arrival_person` / `input_text.last_departure_person`, delays 10s, then clears
+whichever entity triggered it. It had no `mode:` set, defaulting to `mode: single`. If a
+second person arrived/departed within that 10s window, the automation was still "running"
+(inside its delay) for the first event — the second trigger was dropped instead of queued,
+so that entity's value was never cleared. Its sibling automation in the same file,
+`presence_clear_arrival_flag` (same debounce-then-clear pattern), already uses `mode:
+restart` for exactly this reason.
+
+**Fix:** Added `mode: restart` to `presence_marker_reset`, matching `presence_clear_
+arrival_flag`. No entity/logic changes.
 
 ---
 

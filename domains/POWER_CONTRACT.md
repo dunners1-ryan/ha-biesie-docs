@@ -2011,6 +2011,48 @@ domains) — see PROJECT_STATE.md 2026-07-09c.
 
 ---
 
+### Issue 20 — ✅ RESOLVED 2026-07-10: three log-review bugs (geyser dropped triggers, invalid state_class, unguarded state passthrough)
+**Priority:** P3 — log noise + one real dropped-action risk, not observed as a live incident
+**Files:** `packages/power/geyser_automations.yaml`, `packages/power/power_statistics.yaml`, `packages/power/power_templates.yaml`
+
+Found during a general `ha core logs` review session (unrelated to any specific bug report).
+
+**20a — `geyser_turn_on` `mode: single` dropped same-second trigger collisions.**
+The automation defines several `trigger: time` entries sharing the exact same wall-clock
+`at:` value, disambiguated only by `trigger.id` + a template condition on season/weekday
+(`morning_winter_weekday` / `morning_winter_saturday` both at `04:00:00`, `morning_
+standard_weekday` / `morning_standard_saturday` both at `04:30:00`) — plus, more
+importantly, `midday` and `midday_force_check` both fire at `14:00:00` daily, but
+`midday_force_check` runs genuinely different bypass logic (force the tank to heat even
+when the solar gate hasn't cleared). With `mode: single`, when both same-time triggers
+fire, whichever loses the race is dropped via "Already running" — observed live in
+`ha core logs` at `04:00:00.398` on 2026-07-10. On a winter Saturday, or at 14:00 on any
+day the force-check should fire, this could silently drop the geyser's intended turn-on.
+**Fix:** changed to `mode: queued`, matching the existing precedent in the same file
+(`geyser_period_energy_snapshot`, `geyser_daily_minimum_check`) for automations with
+legitimately-overlapping triggers — nothing gets dropped, each trigger's branch still only
+executes if its own condition matches.
+
+**20b — `sensor.inverter_production_7d_mean`/`_30d_mean` had an invalid device_class/
+state_class pairing.** Both declared `device_class: energy` with `state_class:
+measurement` — HA's device class registry requires `total`/`total_increasing`/`None` for
+`energy`, since these sensors are derived daily averages (kWh/day), not cumulative totals.
+Recorder logged a WARNING on every state write. Confirmed via `.storage/energy` and the
+lovelace dashboard search that neither sensor feeds the Energy dashboard (only used on a
+custom mushroom-card), so no functional dependency on `device_class: energy`.
+**Fix:** removed `device_class: energy` from both, keeping `state_class: measurement`
+(the semantically correct pairing for an average) and `unit_of_measurement: kWh`.
+
+**20c — `sensor.house_power` propagated `sensor.inverter_load_power`'s raw state,
+including "unavailable," with no numeric guard.** `template.validators` logged an ERROR
+("Received invalid sensor state: unavailable for entity sensor.house_power, expected a
+number") whenever the solarman source briefly went `unavailable` (e.g. post-restart
+reconnect). The sibling sensor immediately above it in the same file, `Battery SOC`,
+already guards with `| float(0)`. **Fix:** added the same `| float(0)` guard to House
+Power's state template.
+
+---
+
 ## 12. Error Signatures (Watchman-Confirmed)
 
 These entities appear in watchman_report.txt as missing or unavailable. Map these to the issues above.

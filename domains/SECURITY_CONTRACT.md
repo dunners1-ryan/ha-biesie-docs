@@ -1770,6 +1770,30 @@ triggered by restart/reload timing.
 
 ---
 
+### BUG-S64 — `input_text.security_last_path` missing `max: 255`, silently dropping writes over 100 chars
+**Priority: LOW | Status: ✅ FIXED 2026-07-10**
+
+**Symptom:** Log-review session found repeated `WARNING ... [homeassistant.components.
+input_text] Invalid value: <zone chain> (length range 0 - 100)` entries in `ha core logs`,
+e.g. `"Rear Left — Pond → Street Upper (outside) → Driveway (inside gate) → Carport →
+Driveway (inside gate)"`.
+
+**Root cause:** `security_track_movement_path` (`security_automations.yaml`) builds a
+5-zone rolling path string (`path[-5:] | join(' → ')`) and writes it to `input_text.
+security_last_path`. With the current zone name lengths (e.g. "Street Upper (outside)",
+"Driveway (inside gate)"), a full 5-zone path regularly exceeds 100 characters. The helper
+definition in `security_helpers.yaml` never set `max:` on this field, leaving it at HA's
+default of 100 — this entity's own row in this contract's entity table (Section on input_
+text inventory) already documented `max: 255`, but the YAML never matched it. Every write
+over 100 chars was silently rejected by `input_text.set_value`, so the tracked path simply
+stopped updating whenever it grew past 5 short zone names.
+
+**Fix:** Added `max: 255` to `input_text.security_last_path` in `security_helpers.yaml`,
+matching the documented spec and its `max: 255` siblings (`security_motion_sequence`,
+`security_event_images`, `door_alert_last_open`) in the same file.
+
+---
+
 ### S18 — Notification severity/sound classification overhaul (2026-07-06)
 
 **Priority: MEDIUM | Status: ✅ APPLIED 2026-07-06**

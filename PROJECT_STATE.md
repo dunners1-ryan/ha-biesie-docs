@@ -6,7 +6,7 @@
 ## ⚠️ OPEN TODO
 
 - [ ] **Security repeat reminders (`alert.security_alert`, 5/15/30/60min) intentionally left broken this session** — the initial hit already works; adding real interval-based repeat logic without duplicating it is a separate, higher-risk feature. See NOTIFICATIONS_CONTRACT.md §7.
-- [ ] **Intermittent `ServiceNotFound: notify.ryan_iphone16_mobile_app` (and 3 sibling) errors observed in core logs during 2026-07-06 testing**, not attributable to any YAML in this repo (repo-wide grep found zero references to those bare action names) — real notifications still arrived in the same test runs, so this looks like an HA-core-level artifact of `notify.send_message` targeting multiple notify entities, not a functional break. Flagged for awareness, not fixed (no YAML fix available).
+- [x] **CORRECTED 2026-07-10 (was miscategorized as "not attributable to YAML"):** the hourly `ServiceNotFound: notify.ryan_iphone16_mobile_app` / `ap_0223_1001` / `honor_10_dash_mobile_app` / `honor_x7_dash_mobile_app` / `telegram_bot_5527` errors (5 at a time, ~once/hour) ARE attributable to YAML — they're `notify.STD_Alerts` (`configuration.yaml`, `platform: group`) calling each of those 5 tokens as bare `notify.<x>` services, which no longer exist post-migration (see NOTIFICATIONS_CONTRACT.md §7). The earlier repo-wide grep that found "zero references" was searching for `service:`/`action:` call sites and missed the `services:` list inside the `STD_Alerts` group definition itself. This is the same already-known, deliberately-left-broken `STD_Alerts` group documented in NOTIFICATIONS_CONTRACT.md §7 (option (b) chosen 2026-07-06: 13 domains got parallel working delivery automations instead of fixing the group) — not a separate mystery. No further action needed; the log noise is the accepted cost of that decision. Correcting the mischaracterization here so a future session doesn't re-investigate this as unattributable.
 - [ ] **Telegram photo attachment unreachable (infra, not YAML)** — `telegram_bot.send_photo`
       fails with "Failed to load URL: All connection attempts failed" for
       `https://ha.dunners.tech/...`. Root cause: `ha.dunners.tech` resolves internally to
@@ -14,6 +14,49 @@
       timeout). Check reverse proxy container status and whether `10.10.1.5` is still the
       correct LAN IP for it. Text/push notifications and Telegram message text + buttons are
       unaffected — only the inline photo in Telegram fails. See SECURITY_CONTRACT.md BUG-S61.
+
+*2026-07-10 (log-review session) — General `ha core logs` review (not tied to a specific
+bug report), triggered by user request to "check through log issues and fix." Found and
+fixed 5 real bugs across presence/security/power, plus corrected one stale OPEN TODO
+attribution (see above). All changes validated via `ha core check`.*
+
+*PRESENCE — `presence_marker_reset` (`presence_boundary.yaml`) was missing `mode:
+restart`, dropping the 10s auto-clear of `last_arrival_person`/`last_departure_person`
+when two people arrived/departed within the same 10s window ("Already running" in logs).
+Fixed to match its sibling `presence_clear_arrival_flag`'s established mode. See
+PRESENCE_CONTRACT.md BUG-P18.*
+
+*SECURITY — `input_text.security_last_path` (`security_helpers.yaml`) was missing `max:
+255`, silently rejecting the 5-zone movement-path writes from `security_track_movement_
+path` once the joined zone names exceeded HA's default 100-char limit — this contract
+already documented `max: 255` for this field, the YAML just never matched it. See
+SECURITY_CONTRACT.md BUG-S64.*
+
+*POWER (3 fixes, see POWER_CONTRACT.md Issue 20 for full detail):*
+*(a) `geyser_turn_on` (`geyser_automations.yaml`) had `mode: single` with several
+same-second triggers (04:00 winter-weekday/Saturday; critically, 14:00 `midday` vs
+`midday_force_check`) — a losing trigger was silently dropped via "Already running,"
+observed live at 04:00:00.398 on 2026-07-10. Changed to `mode: queued`, matching existing
+precedent elsewhere in the same file.*
+*(b) `sensor.inverter_production_7d_mean`/`_30d_mean` (`power_statistics.yaml`) paired
+`device_class: energy` with `state_class: measurement` — an invalid combination per HA's
+device class registry (energy requires total/total_increasing/None), since these are
+derived daily averages not cumulative totals. Removed `device_class: energy`; confirmed
+via `.storage/energy` neither sensor feeds the Energy dashboard.*
+*(c) `sensor.house_power` (`power_templates.yaml`) passed `sensor.inverter_load_power`'s
+raw state straight through with no numeric guard, causing a `template.validators` ERROR
+whenever the solarman source briefly went `unavailable`. Added `| float(0)`, matching the
+sibling `Battery SOC` sensor's existing pattern in the same file.*
+
+*Investigated but NOT changed (already fine or out of scope for YAML):* the prepaid
+tariff-rate dict lookup warning in `prepaid_strategy.yaml` was already fixed in a prior
+session (`.get(this.state, 0)` already in place — the log line predated that fix).
+hikvision_next malformed-event warnings, Sonoff cloud 504s, EcoFlow MQTT keepalive drops,
+solarman `total_increasing` noise, and the daily `gitupdate.sh`→`sync_docs.sh` chain's one
+observed `return code: 1` at 05:00:05 (re-tested manually post-session — clone/push both
+succeeded, looks like a transient network blip, not a reproducible bug) are all
+infra/third-party-integration-level and not expressible as a package YAML fix — consistent
+with this repo's existing pattern for this class of issue.*
 
 *2026-07-09c (security S17d) — Fixed three related wrong-camera-image bugs in
 `security_automations.yaml`'s router (BUG-S62, SECURITY_CONTRACT.md): (1) RUNG 5
