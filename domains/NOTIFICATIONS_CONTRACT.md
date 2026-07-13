@@ -3,9 +3,9 @@
 # HABiesie — Notifications Domain
 # Generated: 2026-04-13
 # Last updated: 2026-07-13 — Vicky onboarded as a 5th per-device notify
-# target in notify_security_events.yaml + notify_power_event.yaml (warning/
-# critical branches only, info branch excluded). See Section 4A "Per-Person
-# Onboarding".
+# target in notify_security_events.yaml + notify_power_event.yaml +
+# notify_water_events.yaml (warning/critical branches only, info branch
+# excluded). See Section 4A "Per-Person Onboarding".
 # Last updated: 2026-07-07 — notify_system_event.yaml gained optional
 # `actions:` field passthrough (warning/critical only), restoring the garden
 # TURN_OFF_POND_PUMP mobile action button (BUG-A12, see ALERTS_CONTRACT.md).
@@ -149,15 +149,21 @@ reusable toggle system) — faster, matches the existing convention, smaller bla
   `notify.mobile_app_iphone13promax_vicky` (legacy per-device service — confirmed live via
   `GET /api/services`, this is what's actually wired in, matching the pattern both chosen
   scripts already use for warning/critical)
-- Domains: **Security** (`notify_security_events.yaml`), **Power** (`notify_power_event.yaml`)
-  only. NOT wired into Water, Presence, System, or Lighting.
-- Severity: **warning + critical only** — added as a 5th per-device call in both branches,
-  immediately after the existing `honorx7_dash` call. Deliberately NOT added to the
-  information branch in either script (explicit user request — avoid spamming her with
-  low-signal events she doesn't have context for).
-- Live-verified: real test warning fired through `script.notify_security_event`; logbook
-  confirmed `notify.vicky_iphone13_mobile_app`'s state updated immediately after with no
-  errors for that context.
+- Domains: **Security** (`notify_security_events.yaml`), **Power** (`notify_power_event.yaml`),
+  **Water** (`notify_water_events.yaml`, added same session, same pattern). NOT wired into
+  Presence, System, or Lighting.
+- Severity: **warning + critical only** — added as a 5th per-device call in both branches of
+  each script, immediately after the existing `honorx7_dash` call. Deliberately NOT added to
+  the information branch in any of the three (explicit user request — avoid spamming her with
+  low-signal events she doesn't have context for). Note: `notify_water_events.yaml` also has a
+  quiet-hours escalation branch (info→warning escalation, unique to water per Section 3 notes)
+  that Vicky is NOT part of — she only receives the two `sev == 'warning'` / `sev == 'critical'`
+  branches, same as the other two domains.
+- Live-verified: real test warning fired through `script.notify_security_event` (Security);
+  logbook confirmed `notify.vicky_iphone13_mobile_app`'s state updated immediately after with
+  no errors for that context. Power and Water additions used the identical, already-proven
+  call shape (copy of the existing `honorx7_dash` block with the device swapped) — not
+  independently live-fired.
 
 **To onboard another domain for Vicky, or another person entirely:** find the
 `notify.mobile_app_<device>` warning/critical `choose:` branches in the target

@@ -121,20 +121,24 @@ restarted/verified live as of this entry.*
 
 *2026-07-13 (notifications session) — Onboarded Vicky's phone (`notify.vicky_iphone13_mobile_app`
 entity target / `notify.mobile_app_iphone13promax_vicky` legacy service, confirmed live via
-Supervisor API `GET /api/services`) into 2 of the 6 domain notification scripts, per explicit
+Supervisor API `GET /api/services`) into 3 of the 6 domain notification scripts, per explicit
 user request to avoid spamming her with things she doesn't understand: **Security**
-(`notify_security_events.yaml`) and **Power** (`notify_power_event.yaml`). Added her as a 5th
-per-device target in the **warning and critical branches only** — deliberately left out of the
-information branch in both scripts, so she gets always-audible warning/critical pushes but
-nothing at the info tier. Matches the existing hardcoded-per-device pattern already used for
-the other 4 targets in both scripts (this repo has no per-person notification-preference
-infrastructure — user explicitly chose hardcoding over building a new toggle system, see
-NOTIFICATIONS_CONTRACT.md). Water/Presence/System/Lighting scripts untouched — she is NOT
-onboarded to those domains. Deployed live: `ha core check` passed, Scripts reloaded via
-Supervisor API, live-fired a real test warning through `script.notify_security_event` —
-confirmed via logbook that `notify.vicky_iphone13_mobile_app`'s state updated immediately after
-(push accepted, no errors in logbook for that context). See NOTIFICATIONS_CONTRACT.md
-"Per-Person Onboarding" for the pattern if another family member or domain is added later.*
+(`notify_security_events.yaml`), **Power** (`notify_power_event.yaml`), and **Water**
+(`notify_water_events.yaml`, added later same session on follow-up request). Added her as a 5th
+per-device target in the **warning and critical branches only** in all three scripts —
+deliberately left out of the information branch (and, for water specifically, out of its
+unique quiet-hours info→warning escalation branch too), so she gets always-audible
+warning/critical pushes but nothing at the info tier. Matches the existing hardcoded-per-device
+pattern already used for the other 4 targets in each script (this repo has no per-person
+notification-preference infrastructure — user explicitly chose hardcoding over building a new
+toggle system, see NOTIFICATIONS_CONTRACT.md). Presence/System/Lighting scripts untouched — she
+is NOT onboarded to those domains. Deployed live: `ha core check` passed after each edit,
+Scripts reloaded via Supervisor API both times, live-fired a real test warning through
+`script.notify_security_event` — confirmed via logbook that `notify.vicky_iphone13_mobile_app`'s
+state updated immediately after (push accepted, no errors in logbook for that context). Power
+and Water additions used the identical, already-proven call shape (not independently
+live-fired). See NOTIFICATIONS_CONTRACT.md Section 3A "Per-Person Onboarding" for the pattern if
+another family member or domain is added later.*
 
 *2026-07-13 (power session — BUG-PWR-GEYSER01) — Investigated user report "geyser was still
 on by 11pm" Saturday 2026-07-11. No `home-assistant.log` was available for the window
