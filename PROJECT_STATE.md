@@ -100,6 +100,23 @@
       self-heal a dropped Tuya Cloud command. Revisit only if a turn-on command-drop is
       actually observed live; see POWER_CONTRACT.md Issue 21 for the reasoning.
 
+*2026-07-13 (notifications session) — Onboarded Vicky's phone (`notify.vicky_iphone13_mobile_app`
+entity target / `notify.mobile_app_iphone13promax_vicky` legacy service, confirmed live via
+Supervisor API `GET /api/services`) into 2 of the 6 domain notification scripts, per explicit
+user request to avoid spamming her with things she doesn't understand: **Security**
+(`notify_security_events.yaml`) and **Power** (`notify_power_event.yaml`). Added her as a 5th
+per-device target in the **warning and critical branches only** — deliberately left out of the
+information branch in both scripts, so she gets always-audible warning/critical pushes but
+nothing at the info tier. Matches the existing hardcoded-per-device pattern already used for
+the other 4 targets in both scripts (this repo has no per-person notification-preference
+infrastructure — user explicitly chose hardcoding over building a new toggle system, see
+NOTIFICATIONS_CONTRACT.md). Water/Presence/System/Lighting scripts untouched — she is NOT
+onboarded to those domains. Deployed live: `ha core check` passed, Scripts reloaded via
+Supervisor API, live-fired a real test warning through `script.notify_security_event` —
+confirmed via logbook that `notify.vicky_iphone13_mobile_app`'s state updated immediately after
+(push accepted, no errors in logbook for that context). See NOTIFICATIONS_CONTRACT.md
+"Per-Person Onboarding" for the pattern if another family member or domain is added later.*
+
 *2026-07-13 (power session — BUG-PWR-GEYSER01) — Investigated user report "geyser was still
 on by 11pm" Saturday 2026-07-11. No `home-assistant.log` was available for the window
 (current log had rotated out), so root cause was found by querying the recorder DB
