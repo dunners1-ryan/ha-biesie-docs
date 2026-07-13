@@ -15,11 +15,20 @@ internet connection (WAN). It feeds the alert pipeline for connectivity failures
 quality degradation.
 
 **Scope:**
-- LAN device reachability (UniFi gateway, APs, ASUS router)
+- LAN device reachability (UniFi gateway, APs, ASUS routers)
 - WAN internet reachability (DNS ping to OpenDNS, Google)
 - WAN quality metrics: latency, jitter, packet loss (approximated)
 - ISP speed utilisation (download/upload as % of subscribed max)
 - Derived NOC-style status: healthy / degraded / critical / offline
+
+**Topology correction (2026-07-13):** the actual internet-facing WAN router is the
+**ASUS ZenWiFi XD6 (192.168.1.3)**, not the ASUS ROG router. The ASUS ROG router
+(GT-AX11000, 192.168.1.1) exists solely to provide a dual-LAG (link-aggregated) bonded
+LAN connection for the Synology NAS's throughput (see `network_nas.yaml` / NAS bond
+notes in Section 10) — it does not route WAN traffic. `sensor.unifi_gateway_*` (UniFi
+Dream Machine) sits downstream of the ZenWiFi doing LAN routing/AP control for the
+UniFi-managed devices. Both dashboards and `PROJECT_STATE.md` previously mislabeled the
+ASUS ROG router as "WAN Router" — corrected across both in this session. See Section 11.
 
 **Not in scope:**
 - Media server availability → `alerts_media.yaml`
@@ -102,6 +111,24 @@ group.network_device_restart_times          — AP + router uptime (dashboard on
 
 APs migrated from `binary_sensor.ap_*_ping` (ping platform, UI-configured) to UniFi state wrappers on 2026-04-21.
 Old ping entries can be removed from Settings → Devices & Services → Ping.
+
+#### Router devices (asuswrt integration) — NOT in `group.network_devices`
+
+```
+sensor.zenwifi_xd6_*        ASUS ZenWiFi XD6, 192.168.1.3 — the actual WAN router
+                             cpu_usage, memory_usage, devices_connected, uptime, last_boot,
+                             download/upload (speed). No ping/state/button entity exposed —
+                             dashboards treat cpu_usage unavailable as the offline proxy.
+sensor.asus_rog_router_*     ASUS ROG GT-AX11000, 192.168.1.1 — NAS dual-LAG bond only,
+                             not a WAN router. Same asuswrt sensor set, plus
+                             binary_sensor.asus_rog_router_ping (this ping IS in
+                             group.network_devices, monitoring the LAG link itself, not WAN).
+```
+
+⚠️ **Known gap:** `sensor.zenwifi_xd6_*` (the real WAN router) has no entity in
+`group.network_devices`, so a ZenWiFi outage is not directly alerted — it would only
+surface indirectly via `wan_down_alert_active` if it also takes the whole household
+offline. See IMP-NET04 in Section 8.
 
 ### Alert Pipeline (alerts_network.yaml)
 
@@ -369,6 +396,7 @@ DSM → Control Panel → Hardware & Power → General:
 | IMP-NET01 | Low | Add `sensor.network_alert_context` to `sensor.alert_device_entities` aggregator (verify wired — B3 done 2026-04-14) |
 | IMP-NET02 | Low | Add ISP name/plan to a descriptive input_text for context on dashboard |
 | IMP-NET03 | Low | Several UniFi diagnostic entities are disabled by the integration by default (`sensor.ap_bar_clients`, `sensor.ap_lounge_clients`, `sensor.ap_passage_clients`, `sensor.usw_ultra_poe_clients`, all per-port PoE switch/link-speed sensors) — inconsistent with `ap_garage`/`ap_office` which have clients enabled. Enable in the UniFi integration entity list if per-AP client counts / per-port PoE control become needed; the network-control LAN table degrades gracefully to "—" for these today. |
+| IMP-NET04 | Medium | `sensor.zenwifi_xd6_*` (the actual WAN router, 192.168.1.3) is not a member of `group.network_devices` or any alert group — a ZenWiFi outage isn't directly alerted, only indirectly via `wan_down_alert_active` if it takes WAN connectivity down too. It exposes no ping/state entity (asuswrt sensors only), so adding it would need a template binary_sensor keyed off `sensor.zenwifi_xd6_cpu_usage` availability, same pattern as the AP `_connected` wrappers. Not yet implemented — dashboard-only visibility added 2026-07-13 (Section 11). |
 
 ---
 
@@ -446,8 +474,40 @@ After the first restart, visual review turned up one real defect and confirmed t
 ⚠️ This polish pass also touched `.storage/lovelace.dashboard_operations` — same restart
 requirement applies again before it's live.
 
+### Topology correction pass (2026-07-13)
+
+User flagged that both dashboards (and `PROJECT_STATE.md`) had the WAN router wrong: the
+**ASUS ZenWiFi XD6 (192.168.1.3)** is the actual internet-facing WAN router; the **ASUS ROG
+router (192.168.1.1)** exists only to provide a dual-LAG bonded LAN connection for the
+Synology NAS and does not route WAN traffic. Previously the ZenWiFi appeared only as
+"ZenWiFi Mesh" in the LAN wireless table/section, and the ASUS ROG router didn't appear on
+`network-control` at all (only as "ASUS ROG Router (Secondary LAN)" on `network-debug`).
+
+- **`network-control`:** Added a "WAN Router (ASUS ZenWiFi XD6 · 192.168.1.3)" status line
+  at the top of the WAN markdown block (above the UniFi Gateway line, now labelled
+  "downstream LAN routing" instead of "WAN Edge"). LAN table: ZenWiFi row renamed
+  "ZenWiFi (WAN Router)" and moved to the top; added a new "ASUS ROG (NAS Dual-LAG)" row
+  directly below it (previously absent from this view). LAN Client Count graph updated to
+  match (both series renamed/added).
+- **`network-debug`:** Added a new "WAN Router — ASUS ZenWiFi XD6" block (clients/CPU/mem
+  badges + uptime/last-boot/devices-connected entities) in the WAN section. Relabelled the
+  LAN Core heading from "ASUS ROG Router (Secondary LAN)" to "ASUS ROG Router (NAS Dual-LAG
+  only — not WAN)". Relabelled the Wireless section's ZenWiFi block heading to note it's
+  also the WAN router (kept in place since it does still provide mesh wifi coverage; full
+  detail lives in the new WAN-section block to avoid re-introducing the pre-2026-07-10
+  duplication this rebuild removed).
+- **Not done (flagged, not fixed):** `group.network_devices` still doesn't monitor the
+  ZenWiFi — see IMP-NET04, Section 8.
+- Both `.storage/lovelace.dashboard_operations` and `.storage/lovelace.operations_debug`
+  backed up before editing (`*.bak.20260713_185021`). **⚠️ Requires a full HA restart**
+  before either dashboard's changes take effect (see CODING_STANDARDS.md).
+
 ---
 
+*Last updated: 2026-07-13 — Topology correction: ZenWiFi XD6 (192.168.1.3) identified as the
+actual WAN router; ASUS ROG router (192.168.1.1) corrected to its real role (NAS dual-LAG
+only). Both dashboards and PROJECT_STATE.md updated; IMP-NET04 added (ZenWiFi not in any
+alert group).*
 *Last updated: 2026-07-10 — Section 11 (dashboards) added; BUG-NET06 (stale alert severity sensor)
 discovered and documented, IMP-NET03 (disabled UniFi diagnostic entities) added.*
 *Last updated: 2026-06-19 — BUG-NET01/02/03 closed (CPU/memory availability and packet loss formula all corrected; verified in code)*

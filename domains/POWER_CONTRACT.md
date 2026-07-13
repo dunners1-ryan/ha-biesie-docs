@@ -2100,14 +2100,21 @@ that didn't change); on a failure the critical alert fires first and is the
 authoritative signal, so this is not considered worth touching every branch's
 messaging to suppress.
 
-**Not fixed as part of this incident, scoped out deliberately:** the equivalent
-`switch.turn_on` call sites (7 of them) don't have the same verification wrapper.
-Turn-on failures are already substantially self-healing via this file's existing
-redundant windows (midday forced minimum, 20:00 daily minimum check, evening
-early/late fallbacks all re-attempt turning the geyser on later in the day if an
-earlier attempt didn't take) — turn-off has no equivalent backstop, which is exactly
-why this incident went undetected for 2h15m. Revisit if a turn-on command-drop
-incident is ever actually observed.
+**UPDATE 2026-07-13, same day — turn-on scope reversed at user's request.** Originally
+scoped out on the reasoning above (turn-on self-heals via midday-forced-minimum/20:00-
+check/evening-early-late fallbacks re-attempting later the same day). That reasoning
+holds for midday and evening, but **not for the morning window** — there is no later
+same-day fallback for a dropped morning turn-on; the result is cold showers with zero
+automated recovery until the next scheduled window hours later. User flagged this
+directly ("add to turn on because if miss morning window then cold for showers") after
+a same-day, unrelated cold-geyser report (see Issue 22) prompted the question. Added
+`script.geyser_verified_turn_on`, an exact mirror of `geyser_verified_turn_off` (same
+5-min-wait/retry/5-min-wait/critical-alert shape). All 7 `switch.turn_on` call sites
+(morning, midday solar-gated, midday forced minimum, evening early, evening standard,
+manual-run start, 20:00 daily-minimum-check forced run) now route through it — E7 in
+the file's own History block. Deployed live: YAML validated, `ha core check` passed,
+Automations + Scripts reloaded via Supervisor API, confirmed `script.geyser_verified_turn_on`
+live via REST API with correct `mode: queued` / `max: 5` attributes.
 
 ### Issue 22 — ✅ FIXED 2026-07-13: BUG-PWR-GEYSER02 — evening maid-day threshold boost
 ### was Thursday-only, should be Mon+Thu like every other maid-day check in this file

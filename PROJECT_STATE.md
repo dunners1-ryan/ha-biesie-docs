@@ -93,12 +93,31 @@
       ROG router restart control exists in HA (device has zero button/switch entities — ping +
       stats-only, no `asuswrt` integration configured). See NETWORK_CONTRACT.md Section 11
       "Post-restart polish pass". **Do not open the dashboard's UI editor before restarting.**
-- [ ] **Geyser turn-ON command verification not added (2026-07-13, deliberately scoped out
-      of BUG-PWR-GEYSER01).** Only turn-OFF got the retry+escalation wrapper
-      (`script.geyser_verified_turn_off`) — turn-on relies on this file's existing redundant
-      windows (midday forced minimum, 20:00 daily check, evening early/late fallback) to
-      self-heal a dropped Tuya Cloud command. Revisit only if a turn-on command-drop is
-      actually observed live; see POWER_CONTRACT.md Issue 21 for the reasoning.
+- [x] **Geyser turn-ON command verification — added 2026-07-13, same day as the turn-off
+      fix, at user's explicit request** ("add to turn on because if miss morning window
+      then cold for showers"). Originally scoped out (see superseded note this file used
+      to carry, now removed) on the reasoning that turn-on self-heals via midday-forced-
+      minimum/20:00-check/evening fallbacks re-attempting later the same day — true for
+      midday/evening, not true for morning, which has no same-day backstop. Added
+      `script.geyser_verified_turn_on` (exact mirror of `geyser_verified_turn_off`); all 7
+      `switch.turn_on` call sites now route through it. See POWER_CONTRACT.md Issue 21
+      "UPDATE 2026-07-13" for full detail.
+
+*2026-07-13 (network topology correction session) — User flagged that the dashboards (and
+this file) had the WAN router wrong: the **ASUS ZenWiFi XD6 (192.168.1.3)** is the actual
+internet-facing WAN router, not the ASUS ROG router (192.168.1.1), which exists solely to
+provide a dual-LAG bonded LAN connection for the Synology NAS. Corrected `network-control`
+(added a WAN Router status line for ZenWiFi at the top of the WAN section; LAN table now
+leads with a "ZenWiFi (WAN Router)" row followed by a new "ASUS ROG (NAS Dual-LAG)" row,
+previously absent from this view entirely) and `network-debug` (new WAN-section block for
+ZenWiFi; ASUS ROG heading relabeled from "Secondary LAN" to "NAS Dual-LAG only — not WAN").
+Fixed this file's "Network" hardware line (was `WAN Router: ASUS ROG`). Updated
+NETWORK_CONTRACT.md Section 1/3/8/11 with the corrected topology, the new router entity
+reference, and IMP-NET04 (the ZenWiFi still isn't in `group.network_devices` or any alert
+group — dashboard visibility only, alerting not yet wired up). Both `.storage/lovelace.*`
+files backed up before editing and validated as parseable JSON with unchanged section
+counts. **⚠️ Requires a full HA restart** (`.storage/lovelace` changed) — not yet
+restarted/verified live as of this entry.*
 
 *2026-07-13 (notifications session) — Onboarded Vicky's phone (`notify.vicky_iphone13_mobile_app`
 entity target / `notify.mobile_app_iphone13promax_vicky` legacy service, confirmed live via
@@ -764,7 +783,8 @@ files are authoritative for actual file inventory.
 - Pressure pump: `switch.water_pressure_pump`
 
 ### Network
-- Gateway: UniFi Dream Machine | APs: 5x UniFi | WAN Router: ASUS ROG
+- WAN Router: ASUS ZenWiFi XD6 (192.168.1.3) | Gateway: UniFi Dream Machine (downstream LAN routing) | APs: 5x UniFi
+- ASUS ROG router (192.168.1.1) — NOT a WAN router; provides dual-LAG bonded LAN connectivity for the Synology NAS only (corrected 2026-07-13, was previously mislabeled "WAN Router: ASUS ROG" here)
 
 ---
 
