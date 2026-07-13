@@ -250,7 +250,8 @@ via HACS and must be updated manually or via HACS UI.
 | `solcast_solar` | v4.5.2 | Solar PV forecast (Solcast API) | `solcast_solar/` cache dir + UI |
 | `hikvision_next` | 1.1.1 | NVR cameras (16ch DS-7116HGHI-F1) | `packages/security/cameras_core.yaml` |
 | `sonoff` | 3.11.1 | EWElink smart switches (pumps, lights) | `packages/integrations/sonoff.yaml` |
-| `localtuya` | 5.2.3 | LocalTuya devices (water tank depth) | UI-only (no YAML config) |
+| `tuya` | (cloud) | Tuya Cloud devices: geyser heat pump switch, pool pump, pond filter pump, water tank depth sensor | UI-only (no YAML config) |
+| `localtuya` | 5.2.3 | Installed, unused — zero entities registered as of 2026-07-13 | UI-only (no YAML config) |
 | `load_shedding` | 1.5.2 | Eskom load shedding schedule | `packages/power/load_shedding.yaml` |
 | `pyscript` | 1.7.0 | Python scripting in HA | `pyscript/sync_power_groups.py` |
 | `alarmo` | 1.10.18 | Software alarm panel (DSC/zone interface target) | ⚠️ UI-only — no package YAML; `alarm_control_panel.dsc_partition_1` stub referenced in `security_automations.yaml` |
@@ -271,10 +272,31 @@ integration fails, the entire power domain goes unavailable.
 (`DS-7116HGHI-F1...`). Deprecation warning in HA — will break in HA 2027.2.
 Bug should be filed upstream at maciej-or/hikvision_next.
 
-**`localtuya`** — The water tank depth sensor (`sensor.water_tank_depth_validated`)
-is a Tuya device managed by LocalTuya. All device config is UI-only (stored in
-`.storage/localtuya`). A false reconnect event can trigger a spurious tank-full
-abort — see `input_boolean.water_refill_aborted_due_to_safety` in WATER_CONTRACT.md.
+**`tuya`** — **Corrected 2026-07-13** (was previously misattributed to `localtuya`
+throughout this doc and CLAUDE.md — confirmed via `.storage/core.entity_registry`
+and `.storage/core.config_entries`, which show a single `tuya` config entry and
+zero `localtuya` entities). All Tuya-branded devices in this house run on the
+**cloud** Tuya integration: `switch.geyser_heat_pump_switch`, `switch.pool_pump_switch`,
+`switch.pond_filter_pump_switch_1`, and the water tank level sensor cluster
+(`sensor.water_tank_level_sensor_*`, feeding the template sensor
+`sensor.water_tank_depth_validated` — see WATER_CONTRACT.md). All device config is
+UI-only (stored in `.storage/core.config_entries` + `.storage/core.entity_registry`,
+not `.storage/localtuya`). Being a cloud integration (not local push/poll), a
+Tuya API stall can leave HA's cached entity state showing stale/last-known values
+— including "on" — for hours with **no `unavailable` transition**, since the
+integration doesn't proactively mark entities unavailable on a missed cloud
+round-trip. See POWER_CONTRACT.md BUG-PWR-GEYSER01 for a confirmed incident
+(2026-07-11) where this caused the geyser to keep running ~2h15m past its
+scheduled turn-off. A false reconnect event on the water tank sensor can also
+trigger a spurious tank-full abort — see
+`input_boolean.water_refill_aborted_due_to_safety` in WATER_CONTRACT.md.
+
+**`localtuya`** — Installed via HACS but has zero entities configured (confirmed
+2026-07-13 via entity registry). Not in active use; every Tuya device in this
+house is actually on the cloud `tuya` integration above. Candidate for removal
+if no future local-control need is identified — local push would avoid the
+cloud-stall failure mode noted above, but re-pairing devices under `localtuya`
+is manual per-device work, not done as part of this fix.
 
 **`alarmo`** — Software alarm panel (by nielsfaber). Installed and updated to 1.10.18 (2026-05-17). No active automations wired — referenced as comment stubs only in `security_automations.yaml` (`alarm_control_panel.dsc_partition_1` hook target for DSC physical alarm). Config is UI-only. No package YAML exists. Future use: DSC/IDS integration bridge when S6+ alarm wiring is done.
 

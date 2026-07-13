@@ -2051,6 +2051,115 @@ reconnect). The sibling sensor immediately above it in the same file, `Battery S
 already guards with `| float(0)`. **Fix:** added the same `| float(0)` guard to House
 Power's state template.
 
+### Issue 21 — ✅ FIXED 2026-07-13: BUG-PWR-GEYSER01 — geyser ran ~2h15m past scheduled
+### hard-off, Tuya Cloud command silently dropped, no error surfaced anywhere
+**Priority:** P1 — real live incident (not just log noise), safety/energy-waste impact
+**Files:** `packages/power/geyser_automations.yaml`
+**Reported by:** user, "geyser was still on by 11pm" Saturday 2026-07-11
+
+**What happened.** `geyser_turn_off`'s winter evening hard-off branch fired exactly as
+designed at **21:00:00** on 2026-07-11 (Saturday, winter, sports_night off — all
+conditions correct) and issued `switch.turn_off` on `switch.geyser_heat_pump_switch`.
+Confirmed directly from the recorder DB (`home-assistant_v2.db` events table — no
+`home-assistant.log` was available for this window, current log rotated out): the
+`switch.turn_off` service call is recorded at 21:00:00, and the automation entity's
+`last_triggered` updated at the same moment. **The physical switch never responded.**
+It stayed reported "on" through the 21:30 and 22:00 default-branch logbook checks
+(`Geyser: on` both times), and its paired power sensor
+(`sensor.geyser_heat_pump_power`) recorded **zero updates for ~3 hours** (18:56 →
+22:10), frozen rather than marked `unavailable`. Around 22:10–22:40 the device
+suddenly resumed reporting and climbed to ~1090W — a real reheat cycle, meaning it had
+never actually stopped being able to run, it just wasn't listening to HA. The user
+manually forced it off via the dashboard at **23:14:51**, which worked immediately
+(switch state confirmed off 2 seconds later).
+
+**Root cause.** Not an automation logic bug — `geyser_turn_off` behaved correctly.
+`switch.geyser_heat_pump_switch` is on the **Tuya Cloud** integration (`platform:
+tuya` — see INFRA_CONTRACT.md, whose `localtuya` attribution for all Tuya devices in
+this house was also stale/wrong as of this same session; confirmed via
+`.storage/core.entity_registry` that `localtuya` has zero registered entities). Being
+a cloud-polled integration rather than local push, a Tuya API stall can leave HA's
+cached entity state at its last-known value — including "on" — for hours, with no
+`unavailable` transition to flag the failure, because the integration doesn't
+proactively invalidate on a missed round-trip. The command was accepted by HA and
+handed to the integration; it just never reached the device.
+
+**Fix — `script.geyser_verified_turn_off`** (added to `geyser_automations.yaml`,
+E5 2026-07-13). All 10 `switch.turn_off` call sites in the file (AM battery
+protection, morning hard-off ×2 (normal + extended), midday hard-off, evening
+hard-off ×4 (winter/standard × normal/sports), orchestrator emergency off, manual-run
+completion) now route through this script instead of calling `switch.turn_off`
+directly: issue the command → wait up to 5 min for confirmed `off` → if not, retry
+once → wait up to 5 min again → if still on, log a warning and fire a **critical**
+`notify_power_event` naming the likely cause and telling the user to check the Tuya
+app / physical switch directly. Timeouts are fixed (not helper-configurable) — no
+tuning need identified. **Known cosmetic limitation, accepted as a tradeoff:** each
+branch's own "Turned OFF" logbook/notify still fires immediately after the script
+returns regardless of outcome (it always meant "command issued," not "confirmed" —
+that didn't change); on a failure the critical alert fires first and is the
+authoritative signal, so this is not considered worth touching every branch's
+messaging to suppress.
+
+**Not fixed as part of this incident, scoped out deliberately:** the equivalent
+`switch.turn_on` call sites (7 of them) don't have the same verification wrapper.
+Turn-on failures are already substantially self-healing via this file's existing
+redundant windows (midday forced minimum, 20:00 daily minimum check, evening
+early/late fallbacks all re-attempt turning the geyser on later in the day if an
+earlier attempt didn't take) — turn-off has no equivalent backstop, which is exactly
+why this incident went undetected for 2h15m. Revisit if a turn-on command-drop
+incident is ever actually observed.
+
+### Issue 22 — ✅ FIXED 2026-07-13: BUG-PWR-GEYSER02 — evening maid-day threshold boost
+### was Thursday-only, should be Mon+Thu like every other maid-day check in this file
+**Priority:** P2 — real logic bug, but not what caused the specific incident that surfaced it
+**Files:** `packages/power/geyser_automations.yaml`, `packages/power/power_state.yaml`
+**Reported by:** user, "geyser was at low temp at 8pm... thought we fixed this... turns on
+earlier on monday/thursday night after maid has been here" (2026-07-13, Monday)
+
+**What the user reported.** Cold geyser Monday evening, manually turned on, with an
+expectation (from a prior session) that maid days — Monday **and** Thursday — get earlier
+evening heating to cover the extra hot-water demand.
+
+**Investigated via recorder DB** (same method as BUG-PWR-GEYSER01, since the current
+`home-assistant.log` doesn't cover arbitrary history): the user's manual `switch.turn_on`
+actually fired at **18:07:43**, not 8pm — corroborated by the physical timer photo they
+sent, showing its own clock at 18:13. Today's (2026-07-13, Monday) midday run was strong —
+5.04 kWh delta, tank confirmed at temperature at 15:00 midday hard-off. The tank simply
+cooled during the ~3h standby gap before the already-scheduled 18:30 standard evening
+fallback — the user's manual toggle landed about 20 minutes ahead of what the automation
+was already going to do on its own. **This specific incident was not caused by a bug** —
+normal winter standby loss, automation was on schedule.
+
+**But investigating it surfaced a real, separate bug matching the user's stated
+expectation.** Branch 3 (`geyser_turn_on`, evening early start) boosts the
+midday-adequacy threshold on high-usage days so a maid day's extra draw doesn't get
+misread as "midday did enough" — but the condition checked `now().weekday() == 3`
+(Thursday only). Everywhere else in this same file "maid day" is defined as
+`now().weekday() in [0, 3]` (Monday **and** Thursday — see the morning-extension logic,
+Branch 1). The Thursday-only version was inconsistent with the file's own established
+definition, and matches exactly what the user described expecting. Duplicated in three
+places in `geyser_automations.yaml` (Branch 3's condition + its logbook message + its
+notify message) and once more in `power_state.yaml`'s `sensor.geyser_daily_status`
+`midday_adequacy` attribute (dashboard-facing status text). **Fix:** all four spots
+changed to `now().weekday() in [0, 3]`; user-facing text changed from "Thursday
+high-usage day" to "maid day high-usage". Did not rename the underlying helper
+(`input_number.geyser_thursday_high_usage_extra_kwh`) to avoid touching any dashboard
+entity-id bindings — only its `name:` friendly-name label was corrected (now "Geyser
+Maid-Day High-Usage Extra Energy") with a comment explaining the intentional entity-id/
+label mismatch.
+
+**Note:** with today's actual midday delta (5.04 kWh) even the corrected, boosted
+threshold (3.0 + 1.5 = 4.5 kWh) was cleared — confirmed live post-fix via
+`sensor.geyser_daily_status.midday_adequacy`, which now reads `Adequate (5.04 / 4.5 kWh)
+— early start 17:00 [maid day, high-usage]`. So this bug would not have changed
+tonight's outcome even if it had been in place all along; it will matter on a future
+Monday where midday solar is more marginal (delta lands between 3.0 and 4.5 kWh).
+
+Deployed live: YAML syntax validated, `ha core check` passed, Automations + Template
+Entities + Helpers reloaded via the Supervisor API; confirmed post-reload via the REST
+API that both the helper's friendly name and the sensor's live `midday_adequacy` text
+reflect the fix.
+
 ---
 
 ## 12. Error Signatures (Watchman-Confirmed)
