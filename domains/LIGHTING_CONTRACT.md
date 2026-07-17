@@ -490,6 +490,28 @@ extended to turn on `switch.front_house_security_light` with a 15-min bedtime-ga
 
 ---
 
+### BUG-L18 [LOW] — ✅ FIXED 2026-07-17 — `bar_bedtime_cutoff` sent "Bar closed" on every
+bedtime, even when the bar was never opened that evening
+**File:** `packages/lighting/lighting_bar_presence.yaml`
+**Reported by:** user, after receiving a "🌙 Bar closed due to bedtime (no presence)" push and
+asking whether it should only fire if the bar was actually open going into bedtime
+
+`bar_bedtime_cutoff` triggered on every `input_boolean.bedtime_mode` → `on` transition, gated only
+by `binary_sensor.bar_occupied` being `off` (nobody physically there right now) — it never checked
+whether the bar had been used at all that evening before turning off the patio lights/Apple TV and
+sending the "closed" notification. On a night the bar was never opened, this still fired,
+producing a misleading push.
+
+**Fix:** added an `or` condition requiring at least one of `switch.back_house_security_light`
+(the base bar lighting, turned on unconditionally by `lighting_bar_presence` on arrival),
+`switch.pool_patio_down_lights`, or `media_player.bar_apple_tv` to be `on` before the automation
+proceeds — matches the user's expectation that this should only fire for a bar that was actually
+open.
+
+**Deployed live:** `automation.reload` via Supervisor API.
+
+---
+
 ## Section 8: Cross-Domain Dependencies
 
 | Entity | Provider | Consumed by |
@@ -638,4 +660,7 @@ DONE 2026-06-29
 entertaining_mode entity name clarified; Sonoff outage (BUG-L10) documented; checklist updated.*
 *Updated: 2026-06-14 — BUG-L11 (morning wake noon ceiling); BUG-L12 (arrival cooldown always-blocked); BUG-L13 (nobody-home missing front security light); BUG-L14 (wrong garage entity in arrival scenarios).*
 *Audited by: claude.ai session — live file review*
+*Updated: 2026-07-17 — BUG-L18 closed: `bar_bedtime_cutoff` now requires the bar to have actually
+been open (base bar lighting / patio lights / Apple TV) before firing, instead of notifying
+"Bar closed" on every bedtime regardless of use.*
 *Next review: After new AI cameras installed (cam motion valid sensors change)*

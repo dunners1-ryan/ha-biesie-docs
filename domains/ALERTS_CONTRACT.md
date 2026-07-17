@@ -1037,6 +1037,72 @@ specifically).
 
 ---
 
+### BUG-A14 — Critical Sensor Health trusted Watchman's cached scan instead of live state,
+causing false CRITICAL pushes on every reload
+**Severity:** Medium
+**Files:** `packages/alerts/alerts_system_health.yaml`
+**Status:** ✅ FIXED 2026-07-17
+
+`sensor.watchman_missing_entities` is a periodic scan (not a live feed) that Critical Sensor
+Health reads to decide which `group.critical_sensors` members are `missing`/`unavail`. An entity
+that blips `unavailable` for only a few seconds during a template/automation/helper reload can be
+caught by an unlucky Watchman scan and stay cached as `unavail` until the next scan cycle
+(~15–20 min later) — holding `binary_sensor.critical_sensor_health_alert_active` (and the push
+notification it drives) falsely critical long after the entity actually recovered.
+
+**Live-caught:** after a "Reload Helpers" action, `sensor.inverter_1_battery` and
+`binary_sensor.inverter_1_grid` both read fine (61%, `on`) via the REST API and Developer Tools,
+but the dashboard still showed "3 critical devices" including both of them, and a fresh push cited
+`sensor.inverter_1_battery` as `unavail`. `switch.water_pressure_pump` was the only genuinely bad
+entity (unavailable since 2026-07-16, unrelated ongoing hardware/integration fault).
+
+**Fix:** every place that consumes Watchman's cached list (`Critical Sensor Health Alert Active`,
+`Critical Sensor Health Alert Context` state + `devices` attribute, `Route Critical Sensor Health
+Alert`'s condition and notify message, and `alert.critical_sensor_health`'s own message) now
+cross-checks `states(i.id) in ['unavailable','unknown']` before counting an entity as bad —
+Watchman's cache is used only to know *which* entities to check, not to decide their live status.
+
+**Deployed live:** `template.reload` + `automation.reload` via Supervisor API; verified post-reload
+that `sensor.critical_sensor_health_alert_context.devices` correctly lists only
+`switch.water_pressure_pump`, with the two recovered entities gone.
+
+### BUG-A15 — "Known Problem Escalation (Per-Device)" dashboard card never rendered — Jinja
+`{% set %}` inside a `for` loop doesn't escape to the outer scope
+**Severity:** Low (feature was silently dead since introduction, not a false-alert risk)
+**Files:** `.storage/lovelace.dashboard_system` (gitignored — not in this repo's git history)
+**Status:** ✅ FIXED 2026-07-17, **not yet live — requires a full HA restart**
+
+The per-device known-problem toggle card (see `alerts_helper.yaml`'s "PER-DEVICE" registry) is a
+`custom:auto-entities` card whose `filter.template` built its "relevant devices" list with
+`{% set relevant = [] %}` followed by `{% set relevant = relevant + [d.name] %}` **inside nested
+`for` loops**. In Jinja2, a plain `{% set %}` reassignment inside a `for` loop is scoped to that
+loop and does not propagate back to the outer template — so `relevant` was silently still `[]`
+after every loop, every render, since the card was written. `device in relevant` was therefore
+always `False`, and since no `input_boolean.problem_device_*` toggle had ever been switched on
+(there was no way to, for the same reason), the filter always returned nothing and `show_empty:
+false` hid the card permanently. Not a rendering/component bug — the template logic itself never
+worked.
+
+**Fix:** rewrote the filter using a `namespace()` object (`{% set ns = namespace(relevant=[]) %}` /
+`{% set ns.relevant = ns.relevant + [...] %}`), matching the pattern already used correctly
+elsewhere in `alerts_summary.yaml`.
+
+**Not yet live:** `.storage/lovelace` edits require a full HA restart (browser refresh is not
+enough, per CODING_STANDARDS.md). File backed up to
+`.storage/lovelace.dashboard_system.bak.20260717_221823` before editing. Restart deferred —
+confirm with user before running.
+
+**Relationship to the 2026-07-10 fix (Section 4C, 4th pass):** that session fixed a *different*,
+now-confirmed-separate bug in this same card — the vendored `auto-entities.js` not YAML-parsing
+`filter.template` mapping-style output, fixed by reverting to bare-entity-id-per-line. That fix
+was real and correct, but this card's *filter logic itself* (which entities to even attempt to
+show) was independently broken the whole time by the scoping bug above — so the card kept
+rendering nothing regardless. It went unnoticed for a week because "nothing to show" is the
+expected 99%-of-the-time state; it only became observable once a real per-device candidate
+(`switch.water_pressure_pump`) was actually active and still didn't appear.
+
+---
+
 ## Section 9: Summary of Pipeline Audit Results
 
 | Domain | Binary | Context | Alert entity | Aggregator | Result | Updated |
@@ -1047,7 +1113,7 @@ specifically).
 | Temperature | ✅ (x4) | ✅ (x4) | ✅ (x4) | ✅ (triggered) | PASS | 2026-06-19 BUG-A03 |
 | Device Power | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A04; 2026-07-06 delivery fixed (BUG-A10) |
 | Media | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A05; 2026-07-06 delivery fixed (BUG-A10) |
-| System Health | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-07-06 delivery fixed (BUG-A10) |
+| System Health | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-07-06 delivery fixed (BUG-A10); 2026-07-17 Watchman-cache staleness false positives fixed (BUG-A14) |
 | Water | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A01; 2026-07-06 tank-low + borehole tiers delivery fixed (BUG-A10) |
 | Security | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A02; repeat reminders base implementation shipped 2026-07-10 (see BUG-A10) |
 | Presence | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-16 B1; 2026-07-06 delivery fixed (BUG-A10) |
@@ -1086,6 +1152,13 @@ specifically).
 ---
 
 *Contract generated: 2026-04-13*
+*Last updated: 2026-07-17 (2nd pass) — BUG-A14 (Critical Sensor Health cross-checks live entity
+state against Watchman's cached scan now, instead of trusting stale cache entries — false
+positives on `inverter_1_battery`/`inverter_1_grid` after a reload live-caught and fixed);
+BUG-A15 found and fixed (Known Problem Escalation (Per-Device) card's filter template had a
+classic Jinja `{% set %}`-inside-`for`-loop scoping bug that made it render nothing since
+introduction — independent of, and layered underneath, the 2026-07-10 auto-entities.js parsing
+fix; requires a full HA restart, not yet applied).*
 *Last updated: 2026-07-17 — BUG-A13 (gate alerts gained fresh camera evidence per send + a Cancel Alert button that mutes repeats for the current open cycle; also corrected the Doors Domain table's stale STD_Alerts escalation-delivery description)*
 *Last updated: 2026-07-10 (4th pass) — Found and fixed the real root cause of the "Configuration error" that survived 2 full restarts: this repo's vendored auto-entities.js does NOT YAML-parse `filter.template` output, it whitespace/comma-splits the rendered string — mapping-style rows (`- entity: X` / `secondary_info: Y`) get shredded into garbage tokens. All 5 filter.template blocks (Active Alert Binary Sensors, Acknowledged (N) both dashboards, Active Alerts, Known Problem Escalation (Per-Device)) reverted to bare-entity-id-per-line, the format already proven safe by the pre-existing Critical/Warning/Info cards. New standing rule added to CODING_STANDARDS.md so this isn't repeated. Required a 3rd restart this session. Also flagged (not fixed): input_boolean.problem_device_* helpers aren't persisting their `on` state across restarts — needs its own follow-up session. See Section 4C.*
 *Last updated: 2026-07-10 (3rd pass) — Known-Problem Escalation redesigned per-device (Section 4C, supersedes 4B): critical_sensor_health/network_alert/device_power_fault/presence_alert now use 22 static input_boolean.problem_device_* helpers (one per group member) instead of whole-domain toggles, so an unrelated new fault under the same alert still surfaces; camera_health/security_alert stay domain-level (single-entry alerts). Fixed pre-existing alert.device_power_fault name-resolver bug (silently broken since that domain was written). Added sensor.suppressed_alert_entities for correct per-entity dashboard hiding (full-coverage check, not just domain membership). ⚠️ Requires full HA restart (lovelace.dashboard_system + lovelace.dashboard_overview edited directly, 2nd round this session).*

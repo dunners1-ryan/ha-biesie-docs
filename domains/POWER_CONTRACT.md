@@ -2169,6 +2169,33 @@ reflect the fix.
 
 ---
 
+### Issue 23 — ✅ FIXED 2026-07-17: BUG-PWR-BATTERY01 — `float(0)` fallback made an
+`unavailable` battery sensor read as "0% — always below threshold"
+**File:** `packages/alerts/alerts_power.yaml`
+**Priority:** P1 — guaranteed false CRITICAL push on any Solarman hiccup or reload
+**Reported by:** user, got a "[GRID] Power Alert — Power Event → Battery Low · unavailable%
+Duration: 0 min" push right after a "Reload Helpers"
+
+**Root cause:** `Power Battery Low Alert Active` compared
+`states('sensor.inverter_1_battery') | float(0) < input_number.inverter_battery_soc_warning_trigger`.
+When `sensor.inverter_1_battery` goes `unavailable` (Solarman reconnect, or a brief blip during
+any template/automation/helper reload), `float(0)` silently substitutes **0%** — which is always
+below the 30% warning threshold, so the binary sensor read `on` regardless of the battery's real
+state. The push message showed the literal state text "unavailable%" (from the raw string
+interpolation) while the numeric comparison driving the alert used the phantom 0% — confirmed
+live: `sensor.inverter_1_battery` was genuinely `unavailable` at the time, `float(0)` made the
+comparison `True`.
+
+**Fix:** added a `has_value('sensor.inverter_1_battery')` guard before the numeric comparison —
+same pattern as the BUG-NET01/02 availability fixes in NETWORK_CONTRACT.md. An unavailable sensor
+no longer contributes a phantom reading either way.
+
+**Deployed live:** `template.reload` via Supervisor API; verified post-reload with the sensor
+still genuinely `unavailable` — `binary_sensor.power_battery_low_alert_active` correctly read
+`off` instead of the previous false `on`.
+
+---
+
 ## 12. Error Signatures (Watchman-Confirmed)
 
 These entities appear in watchman_report.txt as missing or unavailable. Map these to the issues above.
@@ -2533,4 +2560,6 @@ Three statistics sensors defined in `power_statistics.yaml` are NOT appearing in
 
 The YAML parses correctly. Pre-existing statistics sensors load as 'unavailable'. HA logs show no error. Investigation needed: check if statistics platform rejects standard_deviation characteristic in HA 2026.6, or if source entity incompatibility is the cause. Dashboard cards that reference these sensors will show "unavailable" — acceptable until resolved.
 *Updated by: Deep audit — all 22 power package files read, POWER_DEPENDENCY_ANALYSIS.md incorporated, watchman cross-referenced, legacy automations checked*
+*Last updated: 2026-07-17 — Issue 23 (BUG-PWR-BATTERY01) closed: `has_value()` guard added to
+`Power Battery Low Alert Active` so an unavailable battery sensor no longer reads as a phantom 0%.*
 *Last updated: 2026-06-19 — Issues 10/11/12/13 closed (code verified); Issue 8 corrected (group renamed house_security_power_sensors); watchman table updated; legacy automations table updated (all deleted/migrated 2026-06-18)*

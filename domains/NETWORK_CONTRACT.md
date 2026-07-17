@@ -215,7 +215,7 @@ The self-referencing `has_value('sensor.unifi_cpu')` has been corrected.
 `sensor.unifi_memory_5m_max` availability now reads `has_value('sensor.unifi_gateway_memory_utilization')`.
 The circular `has_value('sensor.unifi_memory_5m_max')` has been corrected.
 
-### BUG-NET06 [MEDIUM] — Open — discovered 2026-07-10, not fixed
+### ~~BUG-NET06~~ [MEDIUM] — ✅ FIXED 2026-07-17
 **File:** `packages/alerts/alerts_network.yaml`
 **Problem:** `sensor.network_device_down_alert_severity` is a trigger-based template sensor
 (`trigger: state` on `binary_sensor.network_device_down_alert_active` and
@@ -227,13 +227,21 @@ to ≥2) that never re-fired because `group.network_devices` hasn't changed stat
 `sensor.network_alert_context` = `critical` with an empty `devices` attribute list — a false
 CRITICAL reading with no actual cause, which would show a misleading banner on any dashboard that
 reads the severity/context sensors directly instead of the underlying `alert.network_alert` state.
-**Workaround applied (dashboard only, not a code fix):** the new `network-control` dashboard
-(Section 11) keys its WAN status banner off `sensor.wan_noc_status` / `sensor.wan_health_score`
-and its "Active Network Alerts" card off the `alert.network_alert` domain state (`idle`, correctly
-reflecting reality) instead of the stale severity/context sensors.
-**Real fix (not yet applied):** add a `time_pattern` trigger (e.g. every 5 min) to
-`sensor.network_device_down_alert_severity` so it re-evaluates even when its watched entities don't
-change state — same class of fix as BUG-NET04/05.
+**Interim workaround (dashboard only, not a code fix, still in place):** the `network-control`
+dashboard (Section 11) keys its WAN status banner off `sensor.wan_noc_status` /
+`sensor.wan_health_score` and its "Active Network Alerts" card off the `alert.network_alert`
+domain state instead of the stale severity/context sensors.
+**Root-cause fix applied 2026-07-17:** added a `time_pattern: minutes: "/5"` trigger to
+`sensor.network_device_down_alert_severity` (same class of fix as BUG-NET04/05) so it
+periodically re-evaluates even when its watched entities don't change state. Live-verified the
+bug reproducing in real time immediately before the fix: a `template.reload` (itself unrelated —
+triggered while investigating a "why won't this clear on reload/restart" report) caused all 5 APs
+to blip `unavailable` during the UniFi reconnect, freezing the severity/context sensors at
+`critical` again exactly as this entry predicted, while `alert.network_alert` and
+`binary_sensor.network_device_down_alert_active` correctly stayed `idle`/`off` throughout —
+confirming the diagnosis before applying the fix. Post-fix reload confirmed the new trigger
+self-corrects the stale value within one 5-min cycle without needing another reload/restart.
+Applied via `template.reload` (no restart needed — no `alert:`/`group:` structure changed).
 
 ### ~~BUG-NET07~~ [MEDIUM] — ✅ Fixed 2026-07-13 — WAN Health Score / Packet Loss graphs showed "No statistics found"
 **File:** `packages/network/network_helpers.yaml`
@@ -412,7 +420,7 @@ DSM → Control Panel → Hardware & Power → General:
 | ~~BUG-NET01~~ | ~~Medium~~ | ~~Fix `sensor.unifi_cpu_5m_max` availability~~ — **FIXED 2026-06-19** |
 | ~~BUG-NET02~~ | ~~Medium~~ | ~~Fix `sensor.unifi_memory_5m_max` self-referencing availability~~ — **FIXED 2026-06-19** |
 | ~~BUG-NET03~~ | ~~High~~ | ~~Fix WAN packet loss formula (currently meaningless)~~ — **FIXED 2026-06-19** |
-| BUG-NET06 | Medium | `network_device_down_alert_severity` has no periodic re-evaluation trigger — can stick at a stale `critical` indefinitely. See Section 6. |
+| ~~BUG-NET06~~ | ~~Medium~~ | ~~`network_device_down_alert_severity` has no periodic re-evaluation trigger — can stick at a stale `critical` indefinitely.~~ — **FIXED 2026-07-17**, see Section 6. |
 | IMP-NET01 | Low | Add `sensor.network_alert_context` to `sensor.alert_device_entities` aggregator (verify wired — B3 done 2026-04-14) |
 | IMP-NET02 | Low | Add ISP name/plan to a descriptive input_text for context on dashboard |
 | IMP-NET03 | Low | Several UniFi diagnostic entities are disabled by the integration by default (`sensor.ap_bar_clients`, `sensor.ap_lounge_clients`, `sensor.ap_passage_clients`, `sensor.usw_ultra_poe_clients`, all per-port PoE switch/link-speed sensors) — inconsistent with `ap_garage`/`ap_office` which have clients enabled. Enable in the UniFi integration entity list if per-AP client counts / per-port PoE control become needed; the network-control LAN table degrades gracefully to "—" for these today. |
@@ -530,6 +538,11 @@ sensor in `group.network_devices`, plus `sensor.zenwifi_xd6_uptime` added to bot
 restart-tracking groups. Applied live via Reload Template Entities + Reload Groups, no
 restart required; verified via API (`group.network_devices` state and `entity_id`
 attribute both confirmed to include the new member).*
+*Last updated: 2026-07-17 — BUG-NET06 closed: added `time_pattern: minutes: "/5"` trigger to
+`sensor.network_device_down_alert_severity` so it self-corrects a stale `critical` reading instead
+of needing a state-change event. Reproduced the bug live via a `template.reload` immediately
+before applying the fix (confirmed severity/context freezing while `alert.network_alert` stayed
+correctly `idle`), then confirmed the fix self-heals within one 5-min cycle post-reload.*
 *Last updated: 2026-07-13 — Topology correction: ZenWiFi XD6 (192.168.1.3) identified as the
 actual WAN router; ASUS ROG router (192.168.1.1) corrected to its real role (NAS dual-LAG
 only). Both dashboards and PROJECT_STATE.md updated; IMP-NET04 added (ZenWiFi not in any

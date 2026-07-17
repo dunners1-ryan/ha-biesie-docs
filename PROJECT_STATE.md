@@ -5,6 +5,35 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **Four alert-reliability bugs found and fixed, same session, 2026-07-17 — triggered by the
+      user asking "why do I still get this alert after reload/restart".** (1) **BUG-NET06 real fix**
+      (see entry below, and NETWORK_CONTRACT.md) — added the missing `time_pattern` re-evaluation
+      trigger; reproduced the bug live via a `template.reload` right before fixing it. (2)
+      **BUG-PWR-BATTERY01** (POWER_CONTRACT.md Issue 23) — `Power Battery Low Alert Active` used
+      `float(0)` as its fallback, so `sensor.inverter_1_battery` going `unavailable` read as a
+      phantom 0% (always "below threshold"), firing a false CRITICAL "Battery Low" push after a
+      "Reload Helpers"; fixed with a `has_value()` guard. (3) **BUG-A14** (ALERTS_CONTRACT.md) —
+      Critical Sensor Health trusted `sensor.watchman_missing_entities`'s periodic scan without
+      cross-checking live state, so a reload-induced blip on `inverter_1_battery`/`inverter_1_grid`
+      stayed cached as `unavail` for ~20 min after those entities actually recovered (confirmed via
+      REST API and Developer Tools showing them healthy while the dashboard still listed them
+      critical); fixed by cross-checking `states(id)` everywhere the Watchman cache is consumed.
+      (4) **BUG-L18** (LIGHTING_CONTRACT.md) — `bar_bedtime_cutoff` sent "Bar closed" on every
+      bedtime regardless of whether the bar was ever opened that evening; added a guard requiring
+      the base bar light / patio lights / Apple TV to actually be on first. **All four deployed live
+      via `template.reload` + `automation.reload` (Supervisor API), no restart required.**
+      Also found and fixed, but **not yet live**: **BUG-A15** — the "Known Problem Escalation
+      (Per-Device)" dashboard card (`.storage/lovelace.dashboard_system`) has never once rendered
+      anything since it was introduced, due to a classic Jinja `{% set %}`-inside-`for`-loop scoping
+      bug in its filter template (the list it built never escaped the loop, so the filter always saw
+      an empty list). Fixed using the `namespace()` pattern already used correctly elsewhere in this
+      repo; file backed up to `.storage/lovelace.dashboard_system.bak.20260717_221823` before
+      editing. Per CODING_STANDARDS.md this needs a full HA restart to take effect — **deferred,
+      confirm with user before running.** Also noteworthy: like the concurrent-session note above,
+      all four of the live-deployed fixes landed via `git add .`-style sweeps into two of that other
+      session's commits (`88433c8d` network/power/bar-bedtime, `06713d21` critical-sensor-health) —
+      content correct and unaffected, just attributed to unrelated commit messages (BUG-P20/L17 and
+      BUG-A13/S68 respectively), same as flagged in the entry above.
 - [x] **Follow-up to the grounds-rear fix above — two more bugs found live-testing it, shipped 2026-07-17 same day.** After reloading, user got a real "⚠️ Perimeter activity" push whose body read `zones: Beds | ... | cam: cam15_passage` (an inside passage camera) — title and body flatly disagreed. Root cause: `security_event_classification`'s `reason` attribute computed `perim` from the *derived* `binary_sensor.security_perimeter_motion` (itself built from `security_perimeter_front_motion`/`_rear_motion` one hop removed), while the `state:` block that produces the title reads those two front/rear sensors directly — same "chained template lags its inputs" class as BUG-NET05/06/S63. Fixed by making `reason` read the same two sensors directly. Separately, the same push still showed the wrong "Camera:" field (Cam12-Back-Pond instead of the correct Cam15-Passage shown in the actual attached image) — this one was a regression risk from the fix above: making `security_last_motion_camera` update on every motion event (instead of only medium/high-confidence ones) means, for the common case of per-zone-image notifications, any camera firing anywhere on the property in the few seconds before delivery now overwrites it. Fixed by having `notify_security_events.yaml` prefer the camera name already embedded correctly in the message text (`security_event_classification`'s `reason`, captured atomically at classification time — guaranteed consistent with the image) over the volatile global tracker, falling back to the old logic unchanged for branches that don't embed `reason`. See SECURITY_CONTRACT.md BUG-S69/BUG-S70. **No restart required — automation/script YAML only, `Reload Automations` covers it.** Also noteworthy: discovered mid-session that another concurrent editing session was active on this same repo (see its commits `88433c8d`/`06713d21`, BUG-P20/L17/A13/S68) — my in-progress `security_logic.yaml` edit got swept into their commit via a `git add .`-style script rather than landing in its own commit. Content is correct and unaffected, just attributed to an unrelated commit message — flagging in case the commit history looks confusing later.
 - [x] **Gate alert camera evidence + Cancel Alert button (BUG-A13); dogs_inside_prompt buttons actually wired for the first time (BUG-S68) — shipped 2026-07-17.** User asked for two things on the same theme (main gate / front security gate alerts, and the "everyone left, are the dogs inside?" prompt): (1) attach a *fresh* camera view — not a cached frame — to a gate alert at the moment it fires and again on every escalation; (2) a way to cancel further repeats on a false-positive gate-open; (3) turn the dogs-inside departure prompt into a real two-way ON/OFF toggle. Implementation: `notify_gate_opened`, `route_door_sustained_open_escalation`, and `route_door_alert_repeat_reminder` (`alerts_doors.yaml`) now run `camera.snapshot` immediately before every send (`camera.ipcam03_driveway` for `main_gate_sensor`, `camera.cam04_car_port_front` for `front_security_gate_sensor`, picked dynamically on the escalation path). New `input_boolean.gate_alert_snoozed` mutes `route_door_sustained_open_escalation`/`route_door_alert_repeat_reminder` for the rest of the current open cycle only — new automation `gate_alert_cancel_from_notification` sets it from a "Cancel Alert" tap (phone action `CANCEL_GATE_ALERT` or Telegram `/cancel_gate_alert`), new automation `gate_alert_snooze_reset` auto-clears it once `sensor.door_alert_context` returns to `normal`, so a dismissal can't suppress a later genuine event. Needed a new `actions`/`telegram_action` passthrough on `script.notify_security_event` (mirrors the `notify_system_event` pattern from BUG-A12) — while wiring that, discovered `dogs_inside_prompt` had **never** actually attached a button despite NOTIFICATIONS_CONTRACT.md claiming otherwise since 2026-06-14 (the script had no `actions:` mechanism at all) — the departure "🐕 Dogs home alone?" push now carries real "🐕 Yes, Inside" (`DOGS_INSIDE_ON`, existing handler) and "🚫 Not Inside" (`DOGS_INSIDE_OFF`, new handler `dogs_inside_off_from_notification`) buttons. See ALERTS_CONTRACT.md BUG-A13, SECURITY_CONTRACT.md BUG-S68, NOTIFICATIONS_CONTRACT.md script field docs. **No restart required — automations + script only, `Reload Automations` + `Reload Scripts` covers it.** Not yet live-verified: a real gate-open cycle and a real departure event, to confirm the Telegram `inline_keyboard` renders correctly now that it's templated (new technique for `telegram_bot.send_message` specifically) and that both button pairs work end-to-end. Known gap, not addressed: the 5/10/30/60 min repeat reminder only triggers off `group.tier1_perimeter` (main gate only) — front security gate never gets repeat nags, only the one-shot critical escalation.
 - [x] **Grounds-rear stale image/camera-name bug + Event Timeline gap + daytime noise downgrade — shipped 2026-07-17.** User reported a pool/pond "Activity in grounds" push showing a 4-day-stale IPCam04-Pool-Bar image and a mismatched "Camera: Cam04-Car-Port-Front" field for a `cam12_back_pond, conf: low` event, plus the Overview dashboard's Security Status card not lining up (correct real-time camera name next to the same stale image). Root cause: `security_capture_best_snapshot`'s medium/high-confidence gate (same class as BUG-S47) never wrote `input_text.security_image_grounds_rear` or the two GLOBAL trackers (`security_last_motion_camera`/`security_last_motion_image`) for cam12/cam09 — both structurally can never reach medium/high confidence alone. Fixed by moving these writes into `security_capture_each_camera_motion` (fires unconditionally on every motion event). Also found and fixed the same gate blocking the security-control dashboard's Event Timeline (`input_text.security_event_session`) from ever showing low-confidence-only events. Separately, per user request, `grounds_low_confidence` (RUNG 7b — cam04/cam07/cam09/cam12 NVR/no-AI daytime false positives with nobody home) now downgrades a single uncorroborated daytime occurrence to `information` severity, escalating back to `warning` on a repeat within 15min, multi-camera corroboration, or nighttime (new `counter.security_grounds_low_confidence_count`). Overview dashboard's "Camera:" markdown line also reformatted to match the operations dashboard's friendly-name style (was showing raw `camera.cam12_back_pond` entity IDs). See SECURITY_CONTRACT.md BUG-S65/BUG-S66/IMPROVEMENT-S67. **No restart required — `Reload Automations` covers the automation changes; the new `counter:` helper needs a YAML reload-all (or restart if it doesn't appear) to register.**
@@ -74,19 +103,13 @@
       (network-control 3 sections / network-debug 5 sections, both `max_columns: 3`), no
       lovelace/template errors in `ha core logs`, and every entity referenced by either view
       spot-checked live via the REST API. See NETWORK_CONTRACT.md Section 11.
-- [ ] **BUG-NET06 (discovered 2026-07-10) — self-cleared on restart, root cause still
-      unfixed.** `sensor.network_device_down_alert_severity` is a trigger-based template
-      sensor that only recomputes on state changes of
-      `binary_sensor.network_device_down_alert_active` / `group.network_devices` — no
-      periodic re-evaluation. Was observed stuck at `critical` since 2026-07-09T21:14:33
-      despite both watched entities reading normal, feeding a false `critical` into
-      `sensor.network_alert_context` with an empty `devices` list. The 2026-07-10 HA restart
-      forced a recompute and it now correctly reads `none`/`normal` — but the underlying gap
-      (no `time_pattern` trigger) is unfixed and the same startup-race could recur on a future
-      restart. Worked around in the network-control dashboard by keying its status banner off
-      `sensor.wan_noc_status` / `alert.network_alert` instead of the severity/context sensors.
-      Real fix: add a `time_pattern` trigger to `sensor.network_device_down_alert_severity` in
-      `alerts_network.yaml`, same class of fix as BUG-NET04/05. See NETWORK_CONTRACT.md.
+- [x] **BUG-NET06 — root-cause fix actually applied 2026-07-17.** `sensor.network_device_down_alert_severity`
+      was a trigger-based template sensor with no periodic re-evaluation, so a reload/restart-time
+      race (2+ APs briefly `unavailable` during UniFi reconnect) could freeze it at a stale
+      `critical` indefinitely. Added a `time_pattern: minutes: "/5"` trigger. Live-verified the bug
+      reproducing in real time (a `template.reload` froze severity/context at `critical` again
+      while `alert.network_alert` correctly stayed `idle`) immediately before applying the fix, then
+      confirmed the new trigger self-corrects within one 5-min cycle. See NETWORK_CONTRACT.md.
 - [ ] **Network dashboard polish pass (2026-07-10, same day) needs another full HA restart.**
       Post-restart visual review of network-control/network-debug found one real defect (fixed)
       and two non-issues (browser-cache related, no YAML change). Fixed: 5 oversized per-AP
