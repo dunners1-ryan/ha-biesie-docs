@@ -5,6 +5,30 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **Water % full dashboard card recalibrated off `sensor.water_state` + predictive-fill threshold recalibration — 2026-07-17.** User asked to review the `card_mod` styling on the borehole/water status cards, which led to two fixes. (1) The `sensor.water_tank_level` status card on both Home Overview and the `water-control` page (`.storage/lovelace.dashboard_overview` + `.storage/lovelace.dashboard_operations` — same card duplicated verbatim on both) re-derived its own bucket cutoffs (`pct<15`/`pct<30`/`pct≥60`) independently of `sensor.water_state`'s real classification; converted to %, the actual live thresholds (`water_depth_critical`=12.8%, `water_depth_minimum_safety`=17.9%, `water_depth_low`=41.0%) don't match 15/30/60 at all — a second, drift-prone threshold system same class as the orphaned `water_policy_helpers.yaml` problem already flagged in WATER_CONTRACT.md Recommendation 2. Fixed by making the card read `sensor.water_state` directly instead of recomputing its own buckets, and added a `fault`/`unavailable`/`unknown` branch that didn't exist before (a Tuya dropout previously rendered as green "System Normal"). Both files are `.storage`-only (gitignored, NOT covered by `gitupdate.sh`) — **requires a full HA restart** per CODING_STANDARDS.md; do not open the dashboard UI editor first. (2) Separately recalibrated `input_number.water_predictive_fill_threshold_percent` YAML `initial:` 50 → 75 (`water_helpers.yaml`) per WATER_CONTRACT.md's own existing "Threshold calibration" recommendation (50% sat below all demand targets, so Branch 4.7 predictive fill rarely fired independently of the ordinary demand-target fill). **Live entity value is still 50%** — `initial:` only seeds a helper on first creation, does not retroactively update an existing one; needs a manual dashboard slider bump to 75% to actually apply. See WATER_CONTRACT.md "Predictive Fill Helpers" and "Dashboard % full card recalibration" (Section 5).
+- [x] **Load-control disabled-too-long reminder alert (Issue 24) + Appliance Control dashboard
+      cleanup + Geyser Temperature tile display fix — shipped 2026-07-17.** Started from the user
+      asking why they got no alert for the geyser not running midday; investigation (live logbook +
+      history via Supervisor API) found the critical "poor midday, forcing 60-min run" alert *did*
+      fire correctly at 15:00 as designed — the real gap was the ~5.3h (09:32→14:55) window before
+      that, while `input_boolean.load_control_geyser_enabled` sat manually disabled with zero
+      proactive alerting (only a one-time info-tier "just disabled" push at 09:32). Fixed with a new
+      shared `input_number.load_control_disabled_alert_hours` (default 2.5h) and
+      `automation.load_control_disabled_too_long_alert` in `load_control.yaml` — fires once per
+      continuous off-streak on any of the three `load_control_*_enabled` toggles once past the
+      threshold (geyser/borehole → critical, pool → warning). See POWER_CONTRACT.md Issue 24 for
+      full detail. Same session, on the live dashboard (`.storage/lovelace.dashboard_operations`,
+      not git-tracked): added the new threshold helper to the existing shared "Appliance Controls"
+      card (Power view); folded the long per-device tuning-slider tails on the separate "Appliance
+      Control" view's Geyser/Pool cards behind a closed-by-default `custom:fold-entity-row` section
+      (space + prevents accidental slider drags while scrolling); fixed the geyser "🌡️ Temperature"
+      tile, which showed "⏳ Heating" any time the tank wasn't at temperature — including when the
+      switch was off and the geyser was simply idle outside an active window — now distinguishes
+      idle-off from actually-heating. **Required a full HA restart** (`.storage/lovelace` changes)
+      — completed same session, confirmed Core API back online and the new automation present/`on`
+      afterward. Also noteworthy: like other entries below, the `load_control.yaml` code change
+      landed inside another session's concurrent commit (`88433c8d`) rather than its own — content
+      correct and unaffected, just not reflected in that commit's message.
 - [x] **Four alert-reliability bugs found and fixed, same session, 2026-07-17 — triggered by the
       user asking "why do I still get this alert after reload/restart".** (1) **BUG-NET06 real fix**
       (see entry below, and NETWORK_CONTRACT.md) — added the missing `time_pattern` re-evaluation

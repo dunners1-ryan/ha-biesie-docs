@@ -129,7 +129,7 @@
 | `energy_state.yaml` | Orchestrator state, economy score, loss analysis, statistics sensors | State |
 | `grid_risk.yaml` | grid_risk_level, grid_risk_status, grid_dependency_eta | State |
 | `grid_state.yaml` | grid_state_health (stable/risk/unstable/offline) | State |
-| `load_control.yaml` | Load enable/disable helpers + turn-off automations (geyser/pool/borehole) | Helpers + Automation |
+| `load_control.yaml` | Load enable/disable helpers + turn-off automations (geyser/pool/borehole) + disabled-too-long reminder alert (Issue 24, 2026-07-17) | Helpers + Automation |
 | `load_shedding.yaml` | **EMPTY** — content migrated to `packages/load_shedding/` (2026-04-21) | — |
 | `prepaid_core.yaml` | Prepaid balance, drift model, utility meters, automations | Core + Derived |
 | `prepaid_helpers.yaml` | All prepaid input_number helpers | Helpers |
@@ -2193,6 +2193,75 @@ no longer contributes a phantom reading either way.
 **Deployed live:** `template.reload` via Supervisor API; verified post-reload with the sensor
 still genuinely `unavailable` — `binary_sensor.power_battery_low_alert_active` correctly read
 `off` instead of the previous false `on`.
+
+---
+
+### Issue 24 — NEW FEATURE 2026-07-17: `load_control.yaml` disabled-too-long reminder alert
+**File:** `packages/power/load_control.yaml`
+**Reported by:** user — root-caused a missed geyser midday alert to `load_control_geyser_enabled`
+being manually left `off` 09:32→14:55 (~5.3h) with zero proactive alerting; the only signal for
+that whole window was the existing `load_control_geyser_turn_off_on_disable` information-tier
+"just disabled" push, and the first thing to actually catch it was the geyser package's own
+15:00 midday-close check — by which point the tank had been cold most of the day and the user
+had already manually re-enabled it and started a run by hand.
+
+**Root cause (design gap, not a bug):** none of the three `load_control_*_enabled` toggles had
+any check for "has this been off a long time" — disabling auto-control is treated as a quiet,
+intentional action (info severity, once, at disable time) with no re-escalation while it stays
+off. Geyser's own 15:00/20:00 checks are schedule-shaped and specific to "tank not at
+temperature" — they don't generalize to pool or borehole, and for geyser they're reactive
+(they catch the symptom at a fixed checkpoint, not the cause as soon as it's been off too long).
+
+**Fix — new shared helper + automation, both in `load_control.yaml`:**
+- `input_number.load_control_disabled_alert_hours` — shared threshold across all three devices,
+  dashboard-tunable, min 1 / max 6 / step 0.5, default **2.5h**.
+- `automation.load_control_disabled_too_long_alert` (entity_id auto-generated from alias:
+  `automation.load_control_disabled_too_long_reminder`) — three `state` triggers, one per
+  `load_control_*_enabled` toggle, each firing once the toggle has been continuously `off` for
+  the templated threshold duration (`for: hours: "{{ states('input_number....') | float(2.5) }}"`).
+  Single-shot per off-streak — re-enabling and disabling again resets it, it does not repeat.
+  Delivers via `script.notify_power_event` directly (same pattern as the three existing
+  `load_control_*_turn_off_on_disable` automations in this file — not routed through the
+  `packages/alerts/` pipeline). Severity: **geyser → critical, pool → warning, borehole →
+  critical** (geyser/borehole treated as safety-relevant — hot water and water-supply lockout;
+  pool stays at the same tier as its "just disabled" notice).
+
+Applied retroactively to the incident that prompted this: with the 2.5h default, today's 09:32
+disable would have pushed a warning/critical around 12:02 — nearly 3h before the old 15:00
+checkpoint, and before the user's own manual intervention at ~12:55.
+
+**Dashboard (`.storage/lovelace.dashboard_operations`, not git-tracked):**
+- Added `input_number.load_control_disabled_alert_hours` to the existing shared "Appliance
+  Controls" entities card on the Power view (`power-details`) — the card that already lists all
+  three `load_control_*_enabled` toggles together, as opposed to duplicating it into each
+  device's own per-device card on the separate "Appliance Control" view (`appliance-control`).
+- Same session, separate but adjacent dashboard cleanup on the `appliance-control` view: folded
+  the long tails of per-device tuning sliders (15 geyser entities from Midday Surplus Threshold
+  down; 9 pool entities from Pool Minimum Run Minutes down) into a closed-by-default
+  `custom:fold-entity-row` section titled "Detailed Thresholds & Timing" in each of the "Geyser
+  Controls" / "Pool Controls" cards — reduces scroll length and stops sliders being accidentally
+  dragged while scrolling on mobile. Borehole's card has no slider entities, left untouched.
+- Also fixed a display bug found while reviewing the geyser view: the "🌡️ Temperature" markdown
+  tile's template only branched on `binary_sensor.geyser_at_temperature` (on/off), so it showed
+  "⏳ Heating · 0 W" any time the tank wasn't at temperature — including when the switch was off
+  and the geyser was idle outside an active window (not actually heating). Added a third branch
+  checking `switch.geyser_heat_pump_switch` so idle-off now reads "💤 Not at temperature · idle
+  (switch off)" instead of falsely claiming active heating.
+- All three `.storage/lovelace.dashboard_operations` edits backed up before writing
+  (timestamped `.bak.*` files alongside the live one — not git-tracked, `.storage` is gitignored,
+  see file listing if ever needed).
+
+**Deployed live:** `packages/power/load_control.yaml` change confirmed via `check_config` (valid)
+before commit; automation confirmed present and `on` (`automation.load_control_disabled_too_long_reminder`,
+never yet triggered) via Supervisor API post-restart. `.storage/lovelace.dashboard_operations`
+edits require the same full HA restart per CODING_STANDARDS.md (not git-tracked) — restart
+completed same session, confirmed Core API back online afterward.
+
+**Note on attribution:** like the concurrent-session note elsewhere in this file's OPEN TODO
+entries, this `load_control.yaml` change landed inside another session's commit (`88433c8d`,
+titled about presence/lighting fixes) via what appears to be a shared `git add .`-style backup
+sweep rather than its own commit — content is correct and unaffected, just not reflected in that
+commit's message. Flagging here so the git history isn't confusing later.
 
 ---
 

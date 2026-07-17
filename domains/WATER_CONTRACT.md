@@ -446,8 +446,11 @@ The weekly summary in water_reporting.yaml also calls telegram directly.
 |---|---|---|
 | `switch.borehole_pump` | Power (energy tracking) | Switch state tracked in load groups |
 | `sensor.water_state` | Alerts | Water alert routing |
+| `sensor.water_state` | Dashboard | Drives "% full" status card text/color on Home Overview + `water-control` (recalibrated 2026-07-17 — see note below) |
 | `binary_sensor.water_tank_refilling` | Dashboard | Visual indicator |
 | `sensor.water_tank_depth_validated` | Dashboard | UI display |
+
+**Dashboard % full card recalibration (2026-07-17)**: The `sensor.water_tank_level` status card on both `.storage/lovelace.dashboard_overview` and `.storage/lovelace.dashboard_operations` (`water-control` page) previously re-derived its own bucket cutoffs (`pct<15` → "VERY LOW WATER", `pct<30` → "Low Water Level", `pct≥60` → green) independently of `sensor.water_state`'s actual classification — a second, drift-prone threshold system duplicating the real one (same class of problem as Recommendation 2 / the orphaned `water_policy_helpers.yaml` thresholds). Converted to % of 1.95m max depth, the real thresholds don't even line up with the card's numbers: `water_depth_critical` (0.25m) = 12.8%, `water_depth_minimum_safety` (0.35m) = 17.9%, `water_depth_low` (0.80m) = 41.0% — none of which are 15/30/60. Fixed by making the card read `sensor.water_state` directly (single source of truth, already driven by the same live input_numbers) instead of re-computing its own buckets — text/color now automatically track whatever those thresholds are tuned to. Also added a `fault`/`unavailable`/`unknown` branch (grey) that didn't exist before, so a Tuya sensor dropout no longer silently renders as green "System Normal". Both dashboard files are `.storage`-only (gitignored, not tracked by `gitupdate.sh`) — per CODING_STANDARDS.md, requires a full HA restart to take effect; do not open the dashboard UI editor before restarting or an autosave from the stale in-memory copy will revert it.
 
 ### Daily Usage Analytics (water_reporting.yaml — added E7 2026-06-14)
 
@@ -500,7 +503,11 @@ sensor.water_effective_fill_target       m  — dynamic pump stop depth.
 
 ```
 input_boolean.water_predictive_fill_enabled          ← default: false — enable after ≥7d of water_usage_today history
-input_number.water_predictive_fill_threshold_percent ← default: 50% — fill when level drops below this AND conserve mode
+input_number.water_predictive_fill_threshold_percent ← YAML initial: 75% (recalibrated 2026-07-17, was 50%)
+                                                         ⚠️ LIVE value still 50% as of 2026-07-17 — YAML `initial:`
+                                                         only seeds a helper on first creation, it does not retroactively
+                                                         update an already-existing input_number. Bump the Helpers
+                                                         dashboard slider to 75% to actually apply the recalibration.
 input_number.water_max_fill_hours_per_day            ← default: 2h — defined; NOT yet wired into automation (future V2)
 ```
 
@@ -515,6 +522,8 @@ input_number.water_max_fill_hours_per_day            ← default: 2h — defined
 **Stop target**: `sensor.water_effective_fill_target` — returns `water_target_depth_full` (1.6m) in conserve+predictive mode; fills tank to maximum buffer capacity instead of demand-plan depth.
 
 **Threshold calibration**: Default 50% (0.975m) is BELOW all current demand targets (≥1.0m Normal). This makes Branch 4.7 rarely fire independently of Branch 4. For genuine proactive pre-fill when tank is comfortable but solar is poor, **set threshold to 70-80%** via Helpers dashboard. Branch 4 handles fills when tank < demand target; Branch 4.7 handles fills when tank is above demand target but below the 70-80% buffer threshold during conserve mode.
+
+**UPDATE 2026-07-17**: `water_helpers.yaml` `initial:` recalibrated 50 → 75 per this recommendation. Live entity value unchanged (still 50%) until manually bumped on the dashboard — see caveat above.
 
 **`water_max_fill_hours_per_day`** (daily pump runtime cap) remains unimplemented — deferred to V2 after data establishes typical fill duration.
 
