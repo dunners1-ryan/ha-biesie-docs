@@ -494,7 +494,7 @@ extended to turn on `switch.front_house_security_light` with a 15-min bedtime-ga
 
 | Entity | Provider | Consumed by |
 |---|---|---|
-| `input_boolean.arrival_detected` | presence_boundary.yaml (`presence_boundary_resolver`, `house_entry_event`), security_automations.yaml (vehicle stage1/stage2) | arrival — sole trigger for `automation.lighting_arrival_night`. See PRESENCE_CONTRACT.md BUG-P17 (2026-07-08) — pedestrian front-gate/door arrivals didn't set this until that fix; driveway-gate/vehicle arrivals always did. |
+| `input_boolean.arrival_detected` | presence_boundary.yaml (`presence_boundary_resolver`, `house_entry_event`), security_automations.yaml (vehicle stage1/stage2) | arrival — sole trigger for `automation.arrival_night_lighting`. See PRESENCE_CONTRACT.md BUG-P17 (2026-07-08) — pedestrian front-gate/door arrivals didn't set this until that fix; driveway-gate/vehicle arrivals always did. **Also see BUG-P20/BUG-L17 (2026-07-17)** — auto-clear deadlock left this stuck `on` and the trigger structurally dead from 2026-03-03 until the 2026-07-17 fix, independent of the P17 fix. |
 | `binary_sensor.night_confirmed` | context_night.yaml | departure, arrival, garage, security lighting |
 | `binary_sensor.civil_night` | context_night.yaml | evening routine, office presence |
 | `binary_sensor.anyone_connected_home` | presence_core.yaml | departure, arrival, boundary, morning |
