@@ -226,18 +226,44 @@ Quiet hours: 22:00–06:00, managed by time-based automations in
 
 Warning and Critical notifications bypass quiet hours in all scripts (correct behavior).
 
-### script.notify_security_event — Extended Fields (2026-06-14)
+### script.notify_security_event — Extended Fields (2026-06-14; actions/telegram_action added 2026-07-17)
 
 Standard fields: `severity`, `title`, `message`, `image`, `source`, `gate_control`
 
 **`dogs_inside_prompt` (bool, default false) — added 2026-06-14:**
-When true, replaces gate action buttons with `DOGS_INSIDE_ON` / `IGNORE` in all severity levels.
-Telegram is suppressed (the mobile action button pattern doesn't work via Telegram).
-Information severity bypasses quiet hours (departure can happen at any time).
+Marks the notification as the dogs-home-alone prompt: bypasses quiet hours at every severity
+(departure can happen at any time) and suppresses the Telegram mirror entirely (phone-action-only
+by design). **Correction 2026-07-17 (see SECURITY_CONTRACT.md BUG-S68):** this doc previously
+claimed `dogs_inside_prompt: true` alone "replaces gate action buttons with DOGS_INSIDE_ON /
+IGNORE" — that was never actually true. The script had no mechanism to attach a mobile action
+button at all until the `actions` field below was added; the prompt was push-text-only with no
+tappable button for its entire life prior to 2026-07-17. The buttons now exist because the
+departure automation explicitly passes `actions:` (see below), not because of `dogs_inside_prompt`
+itself.
 Used by Stage 1 departure sequence — fires after "🚗 Departure — vehicle leaving" notification
-when `dogs_inside = off AND NOT guest_mode AND NOT staff_on_site`.
-Handler: `automation.dogs_inside_from_notification` (security_automations.yaml) — turns on
-`input_boolean.dogs_inside` when DOGS_INSIDE_ON action is tapped.
+when `dogs_inside = off AND NOT guest_mode AND NOT entertaining_mode AND NOT low_trust_present
+AND home_count <= 1`.
+Handlers (security_automations.yaml): `automation.dogs_inside_from_notification` (`DOGS_INSIDE_ON`
+→ turns on `input_boolean.dogs_inside`) and `automation.dogs_inside_off_from_notification`
+(`DOGS_INSIDE_OFF` → turns it off) — added as a pair 2026-07-17 so the prompt is a genuine
+two-way toggle instead of ON-only.
+
+**`actions` (list, optional) — added 2026-07-17:**
+Passthrough list of mobile action buttons, e.g. `[{"action": "SOME_ACTION", "title": "Button
+Label"}]`. Same pattern as `notify_system_event`'s `actions` field below (BUG-A12) — applied to
+the nested `data:` block of every per-device `notify.mobile_app_*` call on the **warning and
+critical branches only**; omitted → resolves to `omit` (no key sent), fully backward-compatible.
+Used by: the departure dogs-inside prompt (`DOGS_INSIDE_ON` / `DOGS_INSIDE_OFF`, severity
+critical) and the gate "Cancel Alert" button (`CANCEL_GATE_ALERT`, `alerts_doors.yaml` — see
+ALERTS_CONTRACT.md BUG-A13).
+
+**`telegram_action` (dict, optional) — added 2026-07-17:**
+Single extra Telegram inline-keyboard button, e.g. `{"action": "some_action", "title": "Button
+Label"}` → rendered as `"Button Label:/some_action"`. Appended to the existing critical-severity
+`inline_keyboard` (alongside the standing `Acknowledge:/ack_security_alert` entry) or, for
+non-critical severities, becomes the notification's only inline button. Not applied when
+`dogs_inside_prompt: true` (Telegram is suppressed for that prompt regardless). Used by the gate
+"Cancel Alert" button (BUG-A13).
 
 ### script.notify_system_event — Extended Fields (2026-07-07)
 

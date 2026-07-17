@@ -1887,6 +1887,33 @@ in `security_helpers.yaml`; branch logic in `security_automations.yaml`.
 
 ---
 
+### BUG-S68 — `dogs_inside_prompt` action buttons never actually existed; departure prompt was ON-only with no tap target at all
+**Priority: LOW | Status: ✅ FIXED 2026-07-17**
+
+**Symptom / doc-drift found:** NOTIFICATIONS_CONTRACT.md's `script.notify_security_event`
+"Extended Fields" entry (dated 2026-06-14) claimed `dogs_inside_prompt: true` "replaces gate
+action buttons with `DOGS_INSIDE_ON` / `IGNORE` in all severity levels." That was never true.
+`notify_security_events.yaml` had no mechanism to attach a mobile action button at all —
+`dogs_inside_prompt` only ever controlled quiet-hours bypass and Telegram suppression. The
+departure "🐕 Dogs home alone?" push (`security_automations.yaml`, Stage 1 departure sequence)
+was pure text with no tappable button for its entire life. Same root-cause class as BUG-A12
+(garden `TURN_OFF_POND_PUMP`) — a handler automation (`dogs_inside_from_notification`) existed
+and was correctly listening for the `DOGS_INSIDE_ON` event, but nothing ever emitted it.
+
+**Fix (bundled with ALERTS_CONTRACT.md BUG-A13, same session):** added `actions` (mobile) and
+`telegram_action` (Telegram) passthrough fields to `script.notify_security_event`, mirroring the
+proven `notify_system_event` pattern from BUG-A12. The departure dogs-prompt call site now passes
+two real buttons — **"🐕 Yes, Inside"** (`DOGS_INSIDE_ON`, existing handler unchanged) and
+**"🚫 Not Inside"** (`DOGS_INSIDE_OFF`, new handler `dogs_inside_off_from_notification`, turns
+`input_boolean.dogs_inside` off) — making it a genuine two-way toggle instead of ON-only. Per
+user request ("turn on or off"). Telegram remains suppressed for this prompt specifically
+(unchanged, deliberate — phone-action-only design).
+
+**Tested:** YAML/`ha core check` clean. Not yet live-verified against a real departure event —
+next vehicle-leaving-alone scenario should confirm both buttons render and both handlers fire.
+
+---
+
 ### S18 — Notification severity/sound classification overhaul (2026-07-06)
 
 **Priority: MEDIUM | Status: ✅ APPLIED 2026-07-06**

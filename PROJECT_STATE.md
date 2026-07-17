@@ -5,6 +5,7 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **Gate alert camera evidence + Cancel Alert button (BUG-A13); dogs_inside_prompt buttons actually wired for the first time (BUG-S68) — shipped 2026-07-17.** User asked for two things on the same theme (main gate / front security gate alerts, and the "everyone left, are the dogs inside?" prompt): (1) attach a *fresh* camera view — not a cached frame — to a gate alert at the moment it fires and again on every escalation; (2) a way to cancel further repeats on a false-positive gate-open; (3) turn the dogs-inside departure prompt into a real two-way ON/OFF toggle. Implementation: `notify_gate_opened`, `route_door_sustained_open_escalation`, and `route_door_alert_repeat_reminder` (`alerts_doors.yaml`) now run `camera.snapshot` immediately before every send (`camera.ipcam03_driveway` for `main_gate_sensor`, `camera.cam04_car_port_front` for `front_security_gate_sensor`, picked dynamically on the escalation path). New `input_boolean.gate_alert_snoozed` mutes `route_door_sustained_open_escalation`/`route_door_alert_repeat_reminder` for the rest of the current open cycle only — new automation `gate_alert_cancel_from_notification` sets it from a "Cancel Alert" tap (phone action `CANCEL_GATE_ALERT` or Telegram `/cancel_gate_alert`), new automation `gate_alert_snooze_reset` auto-clears it once `sensor.door_alert_context` returns to `normal`, so a dismissal can't suppress a later genuine event. Needed a new `actions`/`telegram_action` passthrough on `script.notify_security_event` (mirrors the `notify_system_event` pattern from BUG-A12) — while wiring that, discovered `dogs_inside_prompt` had **never** actually attached a button despite NOTIFICATIONS_CONTRACT.md claiming otherwise since 2026-06-14 (the script had no `actions:` mechanism at all) — the departure "🐕 Dogs home alone?" push now carries real "🐕 Yes, Inside" (`DOGS_INSIDE_ON`, existing handler) and "🚫 Not Inside" (`DOGS_INSIDE_OFF`, new handler `dogs_inside_off_from_notification`) buttons. See ALERTS_CONTRACT.md BUG-A13, SECURITY_CONTRACT.md BUG-S68, NOTIFICATIONS_CONTRACT.md script field docs. **No restart required — automations + script only, `Reload Automations` + `Reload Scripts` covers it.** Not yet live-verified: a real gate-open cycle and a real departure event, to confirm the Telegram `inline_keyboard` renders correctly now that it's templated (new technique for `telegram_bot.send_message` specifically) and that both button pairs work end-to-end. Known gap, not addressed: the 5/10/30/60 min repeat reminder only triggers off `group.tier1_perimeter` (main gate only) — front security gate never gets repeat nags, only the one-shot critical escalation.
 - [x] **Grounds-rear stale image/camera-name bug + Event Timeline gap + daytime noise downgrade — shipped 2026-07-17.** User reported a pool/pond "Activity in grounds" push showing a 4-day-stale IPCam04-Pool-Bar image and a mismatched "Camera: Cam04-Car-Port-Front" field for a `cam12_back_pond, conf: low` event, plus the Overview dashboard's Security Status card not lining up (correct real-time camera name next to the same stale image). Root cause: `security_capture_best_snapshot`'s medium/high-confidence gate (same class as BUG-S47) never wrote `input_text.security_image_grounds_rear` or the two GLOBAL trackers (`security_last_motion_camera`/`security_last_motion_image`) for cam12/cam09 — both structurally can never reach medium/high confidence alone. Fixed by moving these writes into `security_capture_each_camera_motion` (fires unconditionally on every motion event). Also found and fixed the same gate blocking the security-control dashboard's Event Timeline (`input_text.security_event_session`) from ever showing low-confidence-only events. Separately, per user request, `grounds_low_confidence` (RUNG 7b — cam04/cam07/cam09/cam12 NVR/no-AI daytime false positives with nobody home) now downgrades a single uncorroborated daytime occurrence to `information` severity, escalating back to `warning` on a repeat within 15min, multi-camera corroboration, or nighttime (new `counter.security_grounds_low_confidence_count`). Overview dashboard's "Camera:" markdown line also reformatted to match the operations dashboard's friendly-name style (was showing raw `camera.cam12_back_pond` entity IDs). See SECURITY_CONTRACT.md BUG-S65/BUG-S66/IMPROVEMENT-S67. **No restart required — `Reload Automations` covers the automation changes; the new `counter:` helper needs a YAML reload-all (or restart if it doesn't appear) to register.**
 - [x] **Security repeat reminders — base implementation shipped 2026-07-10.** `alert.security_alert`'s `notifiers: [STD_Alerts]` removed (was dead — same class as BUG-A11); a new `automation.security_alert_repeat_reminder` (`alerts_security.yaml`) now delivers the 5/15/30/60min reminders via `script.notify_security_event` directly, gated to fire only at those exact elapsed-minute marks so it structurally cannot duplicate the immediate first notification. Muted via the existing `input_boolean.security_alert_notify` toggle — does NOT yet hook the alert entity's native "Acknowledge" button (no template-readable ack state exposed by the `alert:` integration); that's a follow-up. **⚠️ Requires a full HA restart** (`alert:` entity `notifiers:` changed). See ALERTS_CONTRACT.md BUG-A10.
 - [x] **Follow-up from BUG-A10 — resolved 2026-07-13 (BUG-NET08).** `alerts_temperature.yaml`'s routing automations had NO reload guard at all (worse than network's pre-2026-07-06 state) — fixed same session as the repeat-reminder work below, see that entry. "Acknowledge" button on `alert.security_alert` still has no effect on repeat delivery — genuinely still open, out of scope for the 2026-07-13 repeat-reminder pass (that pass targeted the 16 domains still on dead `STD_Alerts`; `security_alert`/`camera_health` already have their own working repeat mechanism from BUG-A10/A11).
@@ -938,6 +939,25 @@ sensor.door_alert_context                       # SINGLE SOURCE — replaces doo
 # sensor.doors_open_alert_severity DELETED
 ```
 
+### Gate Alert Camera + Cancel (BUG-A13 — added 2026-07-17)
+```
+input_boolean.gate_alert_snoozed                # per-open-cycle mute; auto-clears when
+                                                 # sensor.door_alert_context returns to "normal"
+automation.gate_alert_cancel_from_notification  # handles CANCEL_GATE_ALERT (phone) /
+                                                 # /cancel_gate_alert (Telegram) taps
+automation.gate_alert_snooze_reset              # auto-clear on door_alert_context == normal
+/config/www/gate_alert_main_gate_latest.jpg           # fresh snapshot, camera.ipcam03_driveway
+/config/www/gate_alert_front_security_gate_latest.jpg # fresh snapshot, camera.cam04_car_port_front
+```
+
+### Dogs Inside Notification Toggle (BUG-S68 — added 2026-07-17)
+```
+automation.dogs_inside_off_from_notification    # DOGS_INSIDE_OFF action → turns off
+                                                 # input_boolean.dogs_inside (pairs with the
+                                                 # pre-existing dogs_inside_from_notification/
+                                                 # DOGS_INSIDE_ON handler — see line 1288 below)
+```
+
 ### Water Entities (expanded 2026-04-16)
 ```
 sensor.water_refill_blocked_reason              # "none" or human-readable block reason
@@ -1289,7 +1309,9 @@ input_boolean.inside_bedrooms_armed_manual  ← manual override / DSC stub
 ```
 input_boolean.security_dogs_out  ← suppress rear/pool alarm during garden walk (10min auto-off)
 input_boolean.dogs_inside         ← suppress inside camera alerts when dogs home alone
-                                    (manual — set before leaving, clear on return)
+                                    (manual — set before leaving, clear on return, OR tap
+                                    DOGS_INSIDE_ON/DOGS_INSIDE_OFF on the departure prompt —
+                                    genuinely two-way as of BUG-S68 2026-07-17, see below)
 ```
 
 ### Security Outdoor Corroboration (S11 — 2026-05-22)

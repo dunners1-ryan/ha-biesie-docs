@@ -7,6 +7,21 @@
 #
 # Scope: All 13 packages/alerts/*.yaml files
 #        Plus cross-domain aggregation in alerts_summary.yaml
+# Last updated: 2026-07-17 (BUG-A13) — Gate alerts (main gate + front security
+# gate) gained camera evidence and a cancel control. `notify_gate_opened`,
+# `route_door_sustained_open_escalation`, and `route_door_alert_repeat_reminder`
+# now run camera.snapshot fresh on every send (never reusing a cached frame) —
+# ipcam03 for main_gate_sensor, cam04 for front_security_gate_sensor, picked
+# dynamically for the escalation path since either gate can trigger it. New
+# input_boolean.gate_alert_snoozed + a "Cancel Alert" button (phone action
+# CANCEL_GATE_ALERT, Telegram /cancel_gate_alert) mutes repeats for the rest of
+# the current open cycle only — auto-clears when sensor.door_alert_context
+# returns to normal, so a false-positive dismissal can't suppress a later
+# genuine event. Required adding actions/telegram_action passthrough fields to
+# script.notify_security_event (see NOTIFICATIONS_CONTRACT.md) — same pattern
+# already proven for notify_system_event (BUG-A12). Also corrected the Doors
+# Domain table's escalation-delivery row, which still described the dead
+# STD_Alerts path from before the 2026-07-13 repeat-reminder fix.
 # Last updated: 2026-07-13 (BUG-NET08) — Two bundled fixes. (1) Reload-glitch
 # debounce: `from: "off"` guards (2026-07-06) only catch the unknown/
 # unavailable transient during a `template:` reload, not a second failure
@@ -241,9 +256,10 @@ only indirectly. Only grid-offline data appears in the `devices` attribute.
 | Context sensor | `sensor.door_alert_context` | ✅ UNIFIED (BUG-A06 fixed 2026-04-16) |
 | Alert entity | `alert.door_alert` | ✅ `skip_first: true` |
 | In aggregator trigger | Yes | ✅ |
-| Transient gate open | `automation.notify_gate_opened` → `script.notify_security_event` | ✅ warning |
+| Transient gate open | `automation.notify_gate_opened` → `script.notify_security_event` | ✅ warning, camera snapshot attached (2026-07-17) |
 | Transient gate close | `automation.notify_gate_closed` → `script.notify_security_event` | ✅ information |
-| Escalation alerts | Via `alert.door_alert` → `STD_Alerts` (fires at 5/10/30/60 min) | ✅ |
+| Escalation alerts | ~~Via `alert.door_alert` → `STD_Alerts`~~ **Correction:** `STD_Alerts` is dead (BUG-A10) and was never the live path here — real delivery is `automation.route_door_sustained_open_escalation` (fires once) + `automation.route_door_alert_repeat_reminder` (5/10/30/60 min), both added 2026-07-13, both calling `script.notify_security_event` directly. `alert.door_alert` itself still exists but its `notifiers: [STD_Alerts]` delivery is a no-op. | ✅ working path documented; `alert:` entity delivery still dead but unused |
+| Camera evidence + cancel | `route_door_sustained_open_escalation` / `route_door_alert_repeat_reminder` snapshot the relevant gate camera fresh on every send (ipcam03 for `main_gate_sensor`, cam04 for `front_security_gate_sensor`) and attach a "Cancel Alert" button (phone action `CANCEL_GATE_ALERT` + Telegram `/cancel_gate_alert`) that mutes `input_boolean.gate_alert_snoozed` for the rest of the open cycle | ✅ added 2026-07-17, see BUG-A13 |
 
 **PASS.** BUG-A06 fixed 2026-04-16. `sensor.doors_open_alert_severity` deleted.
 `sensor.door_alert_context` is now the unified single source with tiered logic across
@@ -973,11 +989,59 @@ devices; user asked to visually confirm the button renders and works.
 
 ---
 
+### BUG-A13 — Gate alerts carried no camera evidence and no way to cancel a false-positive repeat cycle
+**Severity:** Low
+**Files:** `packages/alerts/alerts_doors.yaml`, `packages/notifications/notify_security_events.yaml`
+**Status:** ✅ FIXED 2026-07-17
+
+Gate-open notifications (`notify_gate_opened`, the sustained-open critical escalation, and the
+5/10/30/60 min repeat reminders) were text-only — no photo, and no way to stop the repeats short
+of physically closing the gate or flipping `input_boolean.door_alerts_notify` off globally (which
+also silences every other door/gate alert, not just the current false-positive cycle). User
+request: attach a live camera view at the moment of each send (not a cached/stale frame), plus a
+per-cycle "this is a false positive, stop nagging me" control.
+
+**Fix:**
+- Each of the three notification points now runs `camera.snapshot` immediately before sending —
+  `camera.ipcam03_driveway` for `binary_sensor.main_gate_sensor`, `camera.cam04_car_port_front`
+  for `binary_sensor.front_security_gate_sensor` (front security gate is physically a pedestrian
+  gate near the entrance, distinct hardware from the vehicle gate — see PRESENCE_CONTRACT.md's
+  2026-07-08 arrival-lighting entry for the device-registry confirmation). The escalation
+  automation picks the camera dynamically based on which gate sensor is actually `on` (main gate
+  takes priority if both are open). Written to a stable filename per gate
+  (`/config/www/gate_alert_{main_gate,front_security_gate}_latest.jpg`) so every send overwrites
+  it with a fresh frame — deliberately NOT reusing `security_capture_best_snapshot`'s zone-slot
+  images, which can be stale by the time a 30/60-min reminder fires.
+- New `input_boolean.gate_alert_snoozed` (`alerts_doors.yaml`) — per-cycle mute, not a global
+  toggle. Added `script.notify_security_event` `actions`/`telegram_action` fields (see
+  NOTIFICATIONS_CONTRACT.md) so both the sustained-open escalation and every repeat reminder now
+  carry a "Cancel Alert" button (phone action `CANCEL_GATE_ALERT`, Telegram `/cancel_gate_alert`).
+  New automation `gate_alert_cancel_from_notification` handles the tap (either channel) and turns
+  the boolean on. New automation `gate_alert_snooze_reset` clears it automatically the moment
+  `sensor.door_alert_context` returns to `normal` (everything closed) — a false-positive dismissal
+  can never suppress a later, genuinely new gate-left-open event.
+- Both `route_door_sustained_open_escalation` and `route_door_alert_repeat_reminder` gained a
+  `condition: input_boolean.gate_alert_snoozed == off` gate.
+
+**Known gap, not fixed this pass:** the 5/10/30/60 min repeat reminder only triggers off
+`group.tier1_perimeter`, which contains just `main_gate_sensor` — `front_security_gate_sensor` is
+not a member, so it never gets repeat nags, only the one-shot sustained-open critical escalation
+(which the camera/cancel-button fix above does cover). Extending the repeat trigger to also cover
+the front security gate is a deliberate scope decision the user hasn't asked for yet.
+
+**Tested:** `ha core check` / YAML load clean on all three touched files. Not yet live-verified
+against a real gate-open cycle — user to confirm the Telegram `inline_keyboard` renders correctly
+now that it's templated (native-list-via-single-expression pattern, same technique already proven
+for `notify_system_event`'s `actions` field, but not previously used for `telegram_bot.send_message`
+specifically).
+
+---
+
 ## Section 9: Summary of Pipeline Audit Results
 
 | Domain | Binary | Context | Alert entity | Aggregator | Result | Updated |
 |---|---|---|---|---|---|---|
-| Doors | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-07-06 sustained-open escalation delivery fixed (BUG-A10) |
+| Doors | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-07-06 sustained-open escalation delivery fixed (BUG-A10); 2026-07-17 camera evidence + Cancel Alert button added (BUG-A13) |
 | Network | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A05; 2026-07-06 delivery fixed (BUG-A10) |
 | Power | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A07; 2026-07-06 warning-tier delivery fixed (BUG-A10) |
 | Temperature | ✅ (x4) | ✅ (x4) | ✅ (x4) | ✅ (triggered) | PASS | 2026-06-19 BUG-A03 |
@@ -1009,8 +1073,10 @@ devices; user asked to visually confirm the button renders and works.
 | BUG-A10 | **High** | ✅ Fixed 2026-07-06 | `notify.STD_Alerts` broken again post-2026-06-28 migration — 13 domains had zero push delivery; per-domain routing automations added (self-caused reload-flap incident during rollout also fixed same session) | 10 files, see entry above |
 | BUG-A11 | **Medium** | ✅ Fixed 2026-07-06, restart completed 2026-07-07 | `alert.camera_health`'s `notifiers: [STD_Warning]` — that group doesn't exist at all (removed 2026-06-28), every repeat threw hard `ServiceNotFound`; notifier removed outright | alerts_camera_health.yaml |
 | BUG-A12 | **Low** | ✅ Fixed 2026-07-07 | Garden `TURN_OFF_POND_PUMP` mobile action button unreachable — `script.notify_system_event` had no `actions:` passthrough; added, garden alert now passes the button | notify_system_event.yaml, alerts_garden.yaml |
+| BUG-A13 | **Low** | ✅ Fixed 2026-07-17 | Gate alerts had no camera evidence and no way to cancel a false-positive repeat cycle — fresh snapshot per send + `input_boolean.gate_alert_snoozed` + Cancel Alert button (phone + Telegram) | alerts_doors.yaml, notify_security_events.yaml |
 
 **Open: 0 issues**  
+**Fixed 2026-07-17: BUG-A13**
 **Fixed 2026-07-07: BUG-A11 (restart), BUG-A12**
 **Fixed 2026-07-06: BUG-A10, BUG-A11**
 **Fixed 2026-06-19: BUG-A03**  
@@ -1020,6 +1086,7 @@ devices; user asked to visually confirm the button renders and works.
 ---
 
 *Contract generated: 2026-04-13*
+*Last updated: 2026-07-17 — BUG-A13 (gate alerts gained fresh camera evidence per send + a Cancel Alert button that mutes repeats for the current open cycle; also corrected the Doors Domain table's stale STD_Alerts escalation-delivery description)*
 *Last updated: 2026-07-10 (4th pass) — Found and fixed the real root cause of the "Configuration error" that survived 2 full restarts: this repo's vendored auto-entities.js does NOT YAML-parse `filter.template` output, it whitespace/comma-splits the rendered string — mapping-style rows (`- entity: X` / `secondary_info: Y`) get shredded into garbage tokens. All 5 filter.template blocks (Active Alert Binary Sensors, Acknowledged (N) both dashboards, Active Alerts, Known Problem Escalation (Per-Device)) reverted to bare-entity-id-per-line, the format already proven safe by the pre-existing Critical/Warning/Info cards. New standing rule added to CODING_STANDARDS.md so this isn't repeated. Required a 3rd restart this session. Also flagged (not fixed): input_boolean.problem_device_* helpers aren't persisting their `on` state across restarts — needs its own follow-up session. See Section 4C.*
 *Last updated: 2026-07-10 (3rd pass) — Known-Problem Escalation redesigned per-device (Section 4C, supersedes 4B): critical_sensor_health/network_alert/device_power_fault/presence_alert now use 22 static input_boolean.problem_device_* helpers (one per group member) instead of whole-domain toggles, so an unrelated new fault under the same alert still surfaces; camera_health/security_alert stay domain-level (single-entry alerts). Fixed pre-existing alert.device_power_fault name-resolver bug (silently broken since that domain was written). Added sensor.suppressed_alert_entities for correct per-entity dashboard hiding (full-coverage check, not just domain membership). ⚠️ Requires full HA restart (lovelace.dashboard_system + lovelace.dashboard_overview edited directly, 2nd round this session).*
 *Last updated: 2026-07-10 (2nd pass) — Known-Problem Escalation feature added (Section 4B): input_boolean.<x>_marked_problem registry excludes a flagged alert from Global Alert Summary/totals/Active Alert Binary Sensors on both Home and Alerts dashboards, surfaces it in a new "Known Problems" section instead; camera_health_alert_active/camera_health_context display names fixed to Title Case; confirmed camera_health_context's naming mismatch means it was never wired into the flattened device aggregator.*
