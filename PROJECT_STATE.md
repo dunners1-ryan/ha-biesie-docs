@@ -901,6 +901,7 @@ input_text.security_event_session
 input_text.security_last_path
 input_text.security_last_motion_camera
 input_text.security_last_motion_image
+counter.security_grounds_low_confidence_count   ← added 2026-07-17 (IMPROVEMENT-S67), daytime downgrade repeat counter
 input_datetime.security_event_start
 input_datetime.last_security_event
 input_datetime.last_intruder_event

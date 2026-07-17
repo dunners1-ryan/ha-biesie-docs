@@ -423,6 +423,7 @@ No security-domain helpers were found to be UI-created. All are YAML-defined in
 | `input_boolean.unknown_entry_event` | boolean | — | Unknown entry flag |
 | `input_boolean.security_event_active` | boolean | — | Active event flag (write-back from automations) |
 | `input_boolean.security_alert_active` | boolean | — | Alert active flag (consumed by alerts domain) |
+| `counter.security_grounds_low_confidence_count` | counter | — | **Added 2026-07-17 (IMPROVEMENT-S67).** Consecutive `grounds_low_confidence` firings; reset by `security_reset_grounds_low_confidence_counter` after 15min grounds-quiet. Drives the daytime warning→information downgrade. |
 | `input_number.perimeter_open_escalation_minutes` | number | 1–60 | Escalation timeout |
 | `input_number.house_entry_escalation_minutes` | number | 1–60 | Escalation timeout |
 | `input_number.door_warning_escalation_minutes` | number | 1–240 | Door alert escalation |
