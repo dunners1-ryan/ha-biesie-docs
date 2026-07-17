@@ -91,44 +91,45 @@ input_boolean.device_restart_notify        — toggle router/AP restart alerts
 ### Groups
 
 ```
-group.network_devices            all:true  — UDM + ASUS + 5 APs (offline if ANY down)
+group.network_devices            all:true  — UDM + ASUS ROG + ZenWiFi + 5 APs (offline if ANY down)
 group.wan_services               all:false — OpenDNS + Google DNS (offline if ANY unreachable)
-group.network_device_uptimes     all:false — UDM + ASUS uptime sensors
+group.network_device_uptimes     all:false — UDM + ASUS ROG + ZenWiFi uptime sensors
 group.network_device_restart_times          — AP + router uptime (dashboard only)
 ```
 
-#### AP members in group.network_devices
+#### Members in group.network_devices
 
 | Entity | Source | Notes |
 |--------|--------|-------|
 | `binary_sensor.unifi_gateway_ping` | ping (UI) | UDM gateway |
-| `binary_sensor.asus_rog_router_ping` | ping (UI) | ASUS WAN router |
+| `binary_sensor.asus_rog_router_ping` | ping (UI) | ASUS ROG router — NAS dual-LAG only, not WAN |
+| `binary_sensor.zenwifi_xd6_connected` | template → `sensor.zenwifi_xd6_cpu_usage` availability | **ASUS ZenWiFi XD6 — the actual WAN router** (192.168.1.3). Added 2026-07-13 (was IMP-NET04); no discrete connected/disconnected state exists for this device, so availability of a numeric asuswrt sensor is used as the online/offline proxy, matching the dashboard's established pattern. |
 | `binary_sensor.ap_bar_connected` | template → `sensor.ap_bar_state` | UniFi controller state |
 | `binary_sensor.ap_passage_connected` | template → `sensor.ap_passage_state` | UniFi controller state |
 | `binary_sensor.ap_office_connected` | template → `sensor.ap_office_state` | UniFi controller state |
 | `binary_sensor.ap_lounge_connected` | template → `sensor.ap_lounge_state` | UniFi controller state |
 | `binary_sensor.ap_garage_connected` | template → `sensor.ap_garage_state` | UniFi controller state |
 
+`sensor.zenwifi_xd6_uptime` was also added to `group.network_device_uptimes` (restart
+detection) and `group.network_device_restart_times` (dashboard display).
+
 APs migrated from `binary_sensor.ap_*_ping` (ping platform, UI-configured) to UniFi state wrappers on 2026-04-21.
 Old ping entries can be removed from Settings → Devices & Services → Ping.
 
-#### Router devices (asuswrt integration) — NOT in `group.network_devices`
+#### Router devices (asuswrt integration)
 
 ```
 sensor.zenwifi_xd6_*        ASUS ZenWiFi XD6, 192.168.1.3 — the actual WAN router
                              cpu_usage, memory_usage, devices_connected, uptime, last_boot,
                              download/upload (speed). No ping/state/button entity exposed —
-                             dashboards treat cpu_usage unavailable as the offline proxy.
+                             binary_sensor.zenwifi_xd6_connected (network_helpers.yaml)
+                             treats cpu_usage unavailable as the offline proxy, and IS in
+                             group.network_devices as of 2026-07-13 (was IMP-NET04).
 sensor.asus_rog_router_*     ASUS ROG GT-AX11000, 192.168.1.1 — NAS dual-LAG bond only,
                              not a WAN router. Same asuswrt sensor set, plus
-                             binary_sensor.asus_rog_router_ping (this ping IS in
-                             group.network_devices, monitoring the LAG link itself, not WAN).
+                             binary_sensor.asus_rog_router_ping (in group.network_devices,
+                             monitoring the LAG link itself, not WAN).
 ```
-
-⚠️ **Known gap:** `sensor.zenwifi_xd6_*` (the real WAN router) has no entity in
-`group.network_devices`, so a ZenWiFi outage is not directly alerted — it would only
-surface indirectly via `wan_down_alert_active` if it also takes the whole household
-offline. See IMP-NET04 in Section 8.
 
 ### Alert Pipeline (alerts_network.yaml)
 
@@ -233,6 +234,25 @@ reflecting reality) instead of the stale severity/context sensors.
 **Real fix (not yet applied):** add a `time_pattern` trigger (e.g. every 5 min) to
 `sensor.network_device_down_alert_severity` so it re-evaluates even when its watched entities don't
 change state — same class of fix as BUG-NET04/05.
+
+### ~~BUG-NET07~~ [MEDIUM] — ✅ Fixed 2026-07-13 — WAN Health Score / Packet Loss graphs showed "No statistics found"
+**File:** `packages/network/network_helpers.yaml`
+**Problem:** `sensor.wan_health_score`, `sensor.wan_cloudflare_packet_loss`,
+`sensor.wan_google_packet_loss`, and `sensor.wan_microsoft_packet_loss` are template
+sensors with no `state_class` set. HA's recorder only creates long-term statistics (the
+data `statistics-graph` cards query) for sensors with a `state_class`; without one, only
+raw short-term state history is kept. Confirmed live: the "WAN Health Score (7d)" and "WAN
+Packet Loss (7d)" `statistics-graph` cards on `network-debug` showed "No statistics found"
+while the adjacent "Gateway CPU Temperature (7d)" card (a native UniFi integration sensor,
+which sets its own `state_class`) worked fine — same card type, same section, different
+sensor origin.
+**Fix applied:** added `state_class: measurement` to all four sensors. Statistics begin
+accumulating from the next recorder cycle after reload; HA also runs a one-time missing-
+statistics backfill from existing state history on the next recorder start, so some of the
+existing 7-day history may repopulate automatically without needing to wait a further 7
+days. Same class of fix affects `sensor.wan_health_score`'s use in `network-control`'s
+"WAN Health Score (48h)" graph — same underlying sensor, same fix.
+**Reload:** Template sensor change — **Reload Template Entities**, no restart required.
 
 ### ~~BUG-NET03~~ [HIGH] — ✅ Fixed 2026-06-19
 WAN packet loss formula rewritten using ping pass/fail binary count approach.
@@ -396,7 +416,7 @@ DSM → Control Panel → Hardware & Power → General:
 | IMP-NET01 | Low | Add `sensor.network_alert_context` to `sensor.alert_device_entities` aggregator (verify wired — B3 done 2026-04-14) |
 | IMP-NET02 | Low | Add ISP name/plan to a descriptive input_text for context on dashboard |
 | IMP-NET03 | Low | Several UniFi diagnostic entities are disabled by the integration by default (`sensor.ap_bar_clients`, `sensor.ap_lounge_clients`, `sensor.ap_passage_clients`, `sensor.usw_ultra_poe_clients`, all per-port PoE switch/link-speed sensors) — inconsistent with `ap_garage`/`ap_office` which have clients enabled. Enable in the UniFi integration entity list if per-AP client counts / per-port PoE control become needed; the network-control LAN table degrades gracefully to "—" for these today. |
-| IMP-NET04 | Medium | `sensor.zenwifi_xd6_*` (the actual WAN router, 192.168.1.3) is not a member of `group.network_devices` or any alert group — a ZenWiFi outage isn't directly alerted, only indirectly via `wan_down_alert_active` if it takes WAN connectivity down too. It exposes no ping/state entity (asuswrt sensors only), so adding it would need a template binary_sensor keyed off `sensor.zenwifi_xd6_cpu_usage` availability, same pattern as the AP `_connected` wrappers. Not yet implemented — dashboard-only visibility added 2026-07-13 (Section 11). |
+| ~~IMP-NET04~~ | ~~Medium~~ | ~~ZenWiFi (actual WAN router) not in any alert group~~ — **FIXED 2026-07-13.** Added `binary_sensor.zenwifi_xd6_connected` (template, keyed off `sensor.zenwifi_xd6_cpu_usage` availability) to `group.network_devices`; `sensor.zenwifi_xd6_uptime` added to `group.network_device_uptimes` and `group.network_device_restart_times`. Applied via Reload Template Entities + Reload Groups (no restart needed), verified live via API. |
 
 ---
 
@@ -504,6 +524,12 @@ Synology NAS and does not route WAN traffic. Previously the ZenWiFi appeared onl
 
 ---
 
+*Last updated: 2026-07-13 (same day, follow-up) — IMP-NET04 closed: ZenWiFi XD6 now
+monitored by the alert pipeline via a new `binary_sensor.zenwifi_xd6_connected` template
+sensor in `group.network_devices`, plus `sensor.zenwifi_xd6_uptime` added to both uptime/
+restart-tracking groups. Applied live via Reload Template Entities + Reload Groups, no
+restart required; verified via API (`group.network_devices` state and `entity_id`
+attribute both confirmed to include the new member).*
 *Last updated: 2026-07-13 — Topology correction: ZenWiFi XD6 (192.168.1.3) identified as the
 actual WAN router; ASUS ROG router (192.168.1.1) corrected to its real role (NAS dual-LAG
 only). Both dashboards and PROJECT_STATE.md updated; IMP-NET04 added (ZenWiFi not in any

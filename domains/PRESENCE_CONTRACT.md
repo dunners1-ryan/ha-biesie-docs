@@ -233,7 +233,9 @@ After detecting arrival:
 - `input_datetime.last_arrival_time` set (persists)
 - `input_boolean.arrival_detected` — set by the boundary resolver (BUG-P06, fixed
   2026-05-17) and, as of BUG-P17 (2026-07-08), also by `house_entry_event` below.
-  Auto-clears 5 min later via `presence_clear_arrival_flag`.
+  Auto-clears 5 min later via `presence_clear_arrival_flag` — that auto-clear had a
+  deadlock bug (BUG-P20, fixed 2026-07-17) that left it permanently stuck on for ~4
+  months; a `time_pattern` backstop now guarantees it can't get stuck again.
 
 ### Door Correlation
 
@@ -944,6 +946,57 @@ and `alert.presence_alert` self-clear via their existing 2-minute `delay_off` (a
 
 ---
 
+### BUG-P20 — `input_boolean.arrival_detected` permanently stuck ON since creation (2026-05-17) — killed all night-arrival lighting for ~4 months
+**Severity:** Critical
+**File:** `presence/presence_boundary.yaml` (`presence_clear_arrival_flag`)
+**Status:** ✅ FIXED 2026-07-17
+
+**Symptom:** User reported entrance downlights and dining room light not turning on for a
+9pm+ arrival (2026-07-14). Both LIGHTING_CONTRACT.md's own arrival-scenario bugs (BUG-L12,
+L13, L15) and PRESENCE_CONTRACT's pedestrian-entrance bug (BUG-P17) were already marked
+fixed, so the fix didn't explain the symptom — investigated live via the recorder database
+instead of trusting doc status.
+
+**Root cause:** `presence_clear_arrival_flag` (the sole automation that ever turns
+`input_boolean.arrival_detected` back off) has a `from: "off", to: "on", for: "00:05:00"`
+state trigger — it can only re-arm on a **genuine off→on edge**. If the boolean was already
+`on` at the moment this automation was first created/loaded (2026-05-17, same session as
+BUG-P06), it can never see that edge and can never clear itself. Every subsequent
+`input_boolean.turn_on` call from `house_entry_event`, `presence_boundary_resolver`, or
+`security_automations.yaml` is then a no-op (state doesn't change → no `state_changed` event
+→ `automation.arrival_night_lighting`'s own `from: "off", to: "on"` trigger never re-fires
+either). A self-sustaining deadlock.
+
+**Confirmed live (2026-07-17):**
+- `input_boolean.arrival_detected`: `last_changed` was `2026-07-16T11:01:35Z` (a day+ stale,
+  no automation activity would explain that) — and recorder history shows **zero `off` state
+  rows for this entity going back to 2026-06-14** (earliest queried), every row a redundant
+  "on" write from a no-op `turn_on` call.
+- `automation.presence_clear_arrival_flag`: `last_triggered: null` — has **never fired once**
+  since being created.
+- `automation.arrival_night_lighting`: `last_triggered: 2026-03-03T19:55:22Z` — over 4 months
+  stale. Every night arrival since then (quiet mode, someone-home, and nobody-home scenarios
+  alike) silently never turned on entrance downlights / dining room / garage / front security
+  / patio, regardless of which physical entry path (driveway gate or pedestrian gate+door)
+  was used. This is a strictly bigger bug than BUG-P17 (which only affected the pedestrian
+  path) — BUG-P17's fix was real and correct, it just could never be observed working because
+  this deadlock sat upstream of it the whole time.
+
+**Fix:** Added a `time_pattern` (`minutes: "/5"`) trigger to `presence_clear_arrival_flag` as
+a backstop, gated by a `condition: state ... for: "00:05:00"` check — this force-clears the
+boolean independent of edge timing, so it can never get permanently stuck again. Same pattern
+already proven for the `staff_on_site_override` stuck-boolean bug (BUG-P14). Manually cleared
+the live stuck value via the Supervisor API immediately (`input_boolean.arrival_detected` →
+`off`) rather than waiting up to 5 min for the new backstop to catch it — confirmed the
+automation reload picked up the new trigger. Reload: automations only, no restart needed.
+
+**Related, same session:** LIGHTING_CONTRACT.md — Quiet Mode arrival scenario now also turns
+on `switch.front_house_security_light` (previously excluded by design, see BUG-P17 note),
+auto-off after 15 min if `input_boolean.bedtime_mode` is on — user request, unrelated to the
+root-cause fix above but shipped in the same session.
+
+---
+
 ## Section 11: Trust Model Design
 
 ### Intended Architecture (Three-Entity Chain)
@@ -1103,9 +1156,11 @@ brief hallway trips at night. This is well-calibrated for the use case.
 | BUG-P15 | **High** | ✅ Fixed 2026-07-06 | Duplicate top-level `template:` key silently dropped 10 presence-confidence/occupied sensors since 2026-05-17 | presence_confidence.yaml |
 | BUG-P16 | **High** | ✅ Fixed 2026-07-06 | `notify_presence_events.yaml` critical branch silently failing + presence anomaly alert had zero delivery | notify_presence_events.yaml, alerts_presence.yaml |
 | BUG-P17 | **High** | ✅ Fixed 2026-07-08 | `house_entry_event` never set `arrival_detected` — pedestrian front-gate/door arrivals got no arrival lighting | presence_boundary.yaml |
+| BUG-P19 | **Medium** | ✅ Fixed 2026-07-10 | Unknown AP sensors case-mismatch false positive | presence_validation.yaml |
+| BUG-P20 | **Critical** | ✅ Fixed 2026-07-17 | `arrival_detected` permanently stuck ON since creation (2026-05-17) — auto-clear trigger deadlock killed all night-arrival lighting for ~4 months | presence_boundary.yaml |
 
 **Open: 0 issues**  
-**Fixed/closed: 13 issues (S1 closed P01/P02/P03/P06/P10/P11/P12; S2 closed P13; S2/S3 router closed P04/P05 — confirmed 2026-07-10; P08/P09 fixed 2026-07-10)**
+**Fixed/closed: 15 issues (S1 closed P01/P02/P03/P06/P10/P11/P12; S2 closed P13; S2/S3 router closed P04/P05 — confirmed 2026-07-10; P08/P09/P19 fixed 2026-07-10; P20 fixed 2026-07-17)**
 
 The trust model chain is now structurally sound. BUG-P04 (commented-out
 trust conditions) was addressed by the S2/S3 classifier rebuild — confirmed live 2026-07-10,

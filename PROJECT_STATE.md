@@ -5,9 +5,10 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **Grounds-rear stale image/camera-name bug + Event Timeline gap + daytime noise downgrade — shipped 2026-07-17.** User reported a pool/pond "Activity in grounds" push showing a 4-day-stale IPCam04-Pool-Bar image and a mismatched "Camera: Cam04-Car-Port-Front" field for a `cam12_back_pond, conf: low` event, plus the Overview dashboard's Security Status card not lining up (correct real-time camera name next to the same stale image). Root cause: `security_capture_best_snapshot`'s medium/high-confidence gate (same class as BUG-S47) never wrote `input_text.security_image_grounds_rear` or the two GLOBAL trackers (`security_last_motion_camera`/`security_last_motion_image`) for cam12/cam09 — both structurally can never reach medium/high confidence alone. Fixed by moving these writes into `security_capture_each_camera_motion` (fires unconditionally on every motion event). Also found and fixed the same gate blocking the security-control dashboard's Event Timeline (`input_text.security_event_session`) from ever showing low-confidence-only events. Separately, per user request, `grounds_low_confidence` (RUNG 7b — cam04/cam07/cam09/cam12 NVR/no-AI daytime false positives with nobody home) now downgrades a single uncorroborated daytime occurrence to `information` severity, escalating back to `warning` on a repeat within 15min, multi-camera corroboration, or nighttime (new `counter.security_grounds_low_confidence_count`). Overview dashboard's "Camera:" markdown line also reformatted to match the operations dashboard's friendly-name style (was showing raw `camera.cam12_back_pond` entity IDs). See SECURITY_CONTRACT.md BUG-S65/BUG-S66/IMPROVEMENT-S67. **No restart required — `Reload Automations` covers the automation changes; the new `counter:` helper needs a YAML reload-all (or restart if it doesn't appear) to register.**
 - [x] **Security repeat reminders — base implementation shipped 2026-07-10.** `alert.security_alert`'s `notifiers: [STD_Alerts]` removed (was dead — same class as BUG-A11); a new `automation.security_alert_repeat_reminder` (`alerts_security.yaml`) now delivers the 5/15/30/60min reminders via `script.notify_security_event` directly, gated to fire only at those exact elapsed-minute marks so it structurally cannot duplicate the immediate first notification. Muted via the existing `input_boolean.security_alert_notify` toggle — does NOT yet hook the alert entity's native "Acknowledge" button (no template-readable ack state exposed by the `alert:` integration); that's a follow-up. **⚠️ Requires a full HA restart** (`alert:` entity `notifiers:` changed). See ALERTS_CONTRACT.md BUG-A10.
-- [ ] **Follow-up from BUG-A10 (still open):** `automation.security_alert_repeat_reminder`'s "Acknowledge" button on the `alert.security_alert` dashboard card has no effect on repeat delivery (see item above). Also still unaudited: `alerts_temperature.yaml`'s routing automations have the same missing-guard structure as the BUG-A10 reload false-positive class already fixed elsewhere this week (prepaid/network/security) — flagged, not checked this session.
-- [x] **CORRECTED 2026-07-10 (was miscategorized as "not attributable to YAML"):** the hourly `ServiceNotFound: notify.ryan_iphone16_mobile_app` / `ap_0223_1001` / `honor_10_dash_mobile_app` / `honor_x7_dash_mobile_app` / `telegram_bot_5527` errors (5 at a time, ~once/hour) ARE attributable to YAML — they're `notify.STD_Alerts` (`configuration.yaml`, `platform: group`) calling each of those 5 tokens as bare `notify.<x>` services, which no longer exist post-migration (see NOTIFICATIONS_CONTRACT.md §7). The earlier repo-wide grep that found "zero references" was searching for `service:`/`action:` call sites and missed the `services:` list inside the `STD_Alerts` group definition itself. This is the same already-known, deliberately-left-broken `STD_Alerts` group documented in NOTIFICATIONS_CONTRACT.md §7 (option (b) chosen 2026-07-06: 13 domains got parallel working delivery automations instead of fixing the group) — not a separate mystery. No further action needed; the log noise is the accepted cost of that decision. Correcting the mischaracterization here so a future session doesn't re-investigate this as unattributable.
+- [x] **Follow-up from BUG-A10 — resolved 2026-07-13 (BUG-NET08).** `alerts_temperature.yaml`'s routing automations had NO reload guard at all (worse than network's pre-2026-07-06 state) — fixed same session as the repeat-reminder work below, see that entry. "Acknowledge" button on `alert.security_alert` still has no effect on repeat delivery — genuinely still open, out of scope for the 2026-07-13 repeat-reminder pass (that pass targeted the 16 domains still on dead `STD_Alerts`; `security_alert`/`camera_health` already have their own working repeat mechanism from BUG-A10/A11).
+- [x] **CORRECTED 2026-07-10, then actually fixed 2026-07-13:** the recurring `ServiceNotFound: notify.ryan_iphone16_mobile_app` / `ap_0223_1001` / `honor_10_dash_mobile_app` / `honor_x7_dash_mobile_app` / `telegram_bot_5527` errors are `notify.STD_Alerts` (`configuration.yaml`, `platform: group`) calling 5 dead bare `notify.<x>` services on every trigger AND every repeat, for all 16 domains still using `notifiers: [STD_Alerts]` (see NOTIFICATIONS_CONTRACT.md §7). The 2026-07-06 fix only ever covered the *initial* notification (via parallel one-shot routing automations); repeats kept silently failing — meaning an alert that stayed active for hours (e.g. a missing critical sensor) only ever notified once. **Fixed 2026-07-13**: added matching `for:`-duration repeat triggers (mirroring each domain's own dead `repeat:` schedule) to all 16 routing automations, reusing the existing message-building action code — no new automations needed except `alerts_doors.yaml` (door_alert has `skip_first: true`, so it had no one-shot routing automation to extend; added `route_door_alert_repeat_reminder`). `STD_Alerts` itself is still left broken-but-defined (unchanged, same as before) — only the working parallel path changed. See ALERTS_CONTRACT.md 2026-07-13 entry for full per-domain detail. `notifiers:` fields were NOT touched, so this is a pure `automation:` change — **no restart required, `Reload Automations` is sufficient.**
 - [ ] **Telegram photo attachment unreachable (infra, not YAML)** — `telegram_bot.send_photo`
       fails with "Failed to load URL: All connection attempts failed" for
       `https://ha.dunners.tech/...`. Root cause: `ha.dunners.tech` resolves internally to
@@ -103,6 +104,55 @@
       `switch.turn_on` call sites now route through it. See POWER_CONTRACT.md Issue 21
       "UPDATE 2026-07-13" for full detail.
 
+*2026-07-13 (alerts session — reload-glitch debounce + STD_Alerts repeat-reminder fix,
+BUG-NET08) — Investigated a live incident (`switch.water_pressure_pump` unavailable since
+17:41 UTC after a restart, tripping `alert.critical_sensor_health`) and a user-reported false
+"Network Alert — Device Down" push (4 APs) plus a false "Bar occupied" push, both fired
+during an unrelated `template:` reload (adding the ZenWiFi sensor, see session above).
+**Root cause (BUG-NET08):** the existing `from: "off"` reload guard (added 2026-07-06,
+ALERTS_CONTRACT.md) only protects against the unknown/unavailable transient a `template:`
+reload causes. It does NOT protect against a *second*, previously-flagged-but-unaudited
+failure mode: a reload can make a chain of dependent template sensors recompute out of
+order, so a downstream sensor briefly reads a not-yet-recomputed upstream one and computes a
+valid-looking-but-wrong value — never passing through unknown/unavailable at all. Confirmed
+live for `binary_sensor.network_device_down_alert_active` (→ `group.network_devices` → AP
+ping sensors) and `binary_sensor.bar_occupied` (→ `sensor.bar_presence_confidence` →
+`binary_sensor.bar_occupied_raw`/`bar_motion_raw`) — same dependency-chain shape in both.
+**Fix:** added `for: "00:00:20"` to every reload-vulnerable `from: "off", to: "on"` trigger
+across `alerts_network.yaml` (4 automations) and `lighting_bar_presence.yaml` (1 trigger) — a
+sub-minute recompute glitch can't sustain 20s, a real event still notifies almost instantly.
+Audited `alerts_temperature.yaml` per the still-open BUG-A10 follow-up item (above) and found
+it had NO guard at all (worse than network's pre-fix state) — added `from: "off"` + `for:
+20s` + `not_from: [unknown, unavailable]` to all 4 routing automations (WAN/LAN/Device/
+Storage Temp).
+**Bundled in the same pass — STD_Alerts repeat-reminder gap (see OPEN TODO entry above for
+the diagnosis):** added repeat-reminder `for:`-duration triggers, matching each domain's own
+dead `repeat:` schedule, to all 16 alert entities still routed through the broken
+`notify.STD_Alerts` group: `critical_sensor_health`, `network_alert` (4 causes: device_down/
+wan_down/wan_degraded/device_restart), `device_power_fault`, `presence_alert`,
+`dash_battery_alert`, `garden_alert`, `media_alert`, `power_alert`, `door_alert`, `water_alert`,
+`water_borehole_fault`, `water_borehole_critical_fault`, plus the 4 temperature domains above.
+All reuse the existing message-building action code (severity read fresh at execution time),
+so no logic was duplicated. **Known-problem suppression (explicit user request):** for the 4
+domains with a per-device `sensor.device_problem_registry` entry (`critical_sensor_health`,
+`network_device_down`, `wan_down`, `device_power_fault`, `presence_alert`'s unknown-device
+case) added a `condition:` that skips the notify action — both initial and every repeat — if
+every currently-bad member is marked "known problem" via `input_boolean.problem_device_*`.
+Domains without a registry entry (batteries/garden/media/power/doors/water/temperature) got
+repeat delivery only, no suppression (there's no "mark as known problem" toggle for them to
+check). `alerts_doors.yaml`'s `door_alert` has `skip_first: true` and no pre-existing one-shot
+routing automation to extend, so added a new `route_door_alert_repeat_reminder` automation
+instead, reusing `door_alert`'s own severity-branched message template.
+**No `alert:`/`notifiers:` blocks were touched anywhere** — every change is additive inside
+existing `automation:` sections, so this is a pure automation reload, **no HA restart
+required**. `ha core check --raw-json` → `{"result":"ok"}`. Not yet reloaded/verified live as
+of this entry — see ALERTS_CONTRACT.md and NETWORK_CONTRACT.md for full per-file change list.
+Also still live and unresolved as of this entry: `switch.water_pressure_pump` +
+`switch.sonoff_pond_fountain_pump` + `switch.sonoff_10021bb87e` (BASICR2_extractor_network)
+have been `unavailable` since the 17:41 UTC restart — 3 Sonoff devices that didn't reconnect
+while every other Sonoff device on the same integration did; needs a physical/on-site check,
+not a config fix.*
+
 *2026-07-13 (network topology correction session) — User flagged that the dashboards (and
 this file) had the WAN router wrong: the **ASUS ZenWiFi XD6 (192.168.1.3)** is the actual
 internet-facing WAN router, not the ASUS ROG router (192.168.1.1), which exists solely to
@@ -116,8 +166,30 @@ NETWORK_CONTRACT.md Section 1/3/8/11 with the corrected topology, the new router
 reference, and IMP-NET04 (the ZenWiFi still isn't in `group.network_devices` or any alert
 group — dashboard visibility only, alerting not yet wired up). Both `.storage/lovelace.*`
 files backed up before editing and validated as parseable JSON with unchanged section
-counts. **⚠️ Requires a full HA restart** (`.storage/lovelace` changed) — not yet
-restarted/verified live as of this entry.*
+counts. **Restarted 2026-07-13 19:40:57** — confirmed via `ha core logs`, no lovelace or
+template errors; both `.storage` files still contain the new content post-restart (nothing
+reverted by a stale-editor autosave). **Also fixed, found while reviewing the live
+dashboard post-edit (BUG-NET07):** `sensor.wan_health_score` and the three
+`sensor.wan_*_packet_loss` template sensors had no `state_class`, so their `network-debug`
+"WAN Health Score (7d)"/"WAN Packet Loss (7d)" `statistics-graph` cards showed "No
+statistics found" (recorder only keeps long-term statistics for sensors with a
+`state_class`). Added `state_class: measurement` to all four in
+`packages/network/network_helpers.yaml`; `ha core check` passed. Template-sensor change
+only — applied via `template.reload` (called directly through the Supervisor API, after the
+restart above), confirmed live: all four sensors now show `state_class: measurement` in
+their attributes.
+
+**Same day, follow-up — IMP-NET04 closed.** User asked to add ZenWiFi to the correct alert
+groups. Added `binary_sensor.zenwifi_xd6_connected` (new template binary_sensor,
+`network_helpers.yaml` — no discrete connected/disconnected state exists for this device,
+so `sensor.zenwifi_xd6_cpu_usage` availability is used as the online/offline proxy) to
+`group.network_devices` (`alerts_network.yaml`), and `sensor.zenwifi_xd6_uptime` to
+`group.network_device_uptimes` + `group.network_device_restart_times`. `ha core check`
+passed; applied live via `template.reload` then `group.reload` (order matters — the group
+references the new template entity), no restart needed. Verified via API:
+`binary_sensor.zenwifi_xd6_connected` reads `on`, `group.network_devices.entity_id` lists
+it, both uptime groups list `sensor.zenwifi_xd6_uptime`. NETWORK_CONTRACT.md Section 3/8
+updated (IMP-NET04 marked fixed, group member table updated).*
 
 *2026-07-13 (notifications session) — Onboarded Vicky's phone (`notify.vicky_iphone13_mobile_app`
 entity target / `notify.mobile_app_iphone13promax_vicky` legacy service, confirmed live via

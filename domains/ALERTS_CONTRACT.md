@@ -7,6 +7,31 @@
 #
 # Scope: All 13 packages/alerts/*.yaml files
 #        Plus cross-domain aggregation in alerts_summary.yaml
+# Last updated: 2026-07-13 (BUG-NET08) — Two bundled fixes. (1) Reload-glitch
+# debounce: `from: "off"` guards (2026-07-06) only catch the unknown/
+# unavailable transient during a `template:` reload, not a second failure
+# mode — a chain of dependent template sensors recomputing out of order,
+# producing a valid-but-wrong value that never passes through unknown/
+# unavailable. Live-caught false "Network Alert — Device Down" (4 APs) and
+# false "Bar occupied" pushes from an unrelated reload. Added `for: 20s` to
+# every reload-vulnerable trigger in alerts_network.yaml (4 automations) and
+# lighting_bar_presence.yaml; alerts_temperature.yaml's 4 routing automations
+# had NO guard at all (the BUG-A10 follow-up item flagged this as unaudited
+# since 2026-07-10) — added full from/for/not_from guards there too.
+# (2) STD_Alerts repeat-reminder gap: the 2026-07-06 fix (option (b) below)
+# only ever covered the INITIAL notification via one-shot routing
+# automations — repeat reminders kept silently throwing ServiceNotFound via
+# the dead STD_Alerts group for all 16 affected domains, so an alert that
+# stayed active for hours only ever notified once. Added `for:`-duration
+# repeat triggers matching each domain's own `repeat:` schedule, reusing the
+# existing message-building action code. Added known-problem suppression
+# (skips notify, initial AND repeat, if every currently-bad member is marked
+# `input_boolean.problem_device_*`) for the 4 domains with a per-device
+# sensor.device_problem_registry entry: critical_sensor_health, network
+# device_down/wan_down, device_power_fault, presence_alert. door_alert
+# (skip_first: true, no pre-existing one-shot automation) got a new
+# `route_door_alert_repeat_reminder`. No `notifiers:`/`alert:` blocks
+# touched — pure `automation:` additions, no restart required.
 # Last updated: 2026-07-10 (same day, 4th pass) — found and fixed the REAL
 # root cause of the recurring "Configuration error" on custom:auto-entities
 # cards: this repo's vendored auto-entities.js does not YAML-parse

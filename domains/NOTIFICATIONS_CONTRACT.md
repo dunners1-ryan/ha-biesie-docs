@@ -2,6 +2,14 @@
 # NOTIFICATIONS CONTRACT
 # HABiesie — Notifications Domain
 # Generated: 2026-04-13
+# Last updated: 2026-07-13 (BUG-NET08) — STD_Alerts repeat-reminder gap
+# closed for all 16 domains still on the dead group (the 2026-07-06 fix
+# below only ever covered the initial hit). See ALERTS_CONTRACT.md 2026-07-13
+# entry and §7 "FIXED 2026-07-06" note below for detail — that note's "Every
+# one of these automations MUST include from:off/not_from guards" caveat is
+# now paired with a `for: 20s` debounce too (a reload can produce a
+# valid-but-wrong value without ever touching unknown/unavailable, which
+# from:off/not_from alone doesn't catch).
 # Last updated: 2026-07-13 — Vicky onboarded as a 5th per-device notify
 # target in notify_security_events.yaml + notify_power_event.yaml +
 # notify_water_events.yaml (warning/critical branches only, info branch

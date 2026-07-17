@@ -139,8 +139,8 @@ Always-on (all scenarios): boundary_street_light, back_house_security_light
 
 | Scenario | Condition | Lights ON |
 |---|---|---|
-| Quiet mode | quiet_arrival_mode=on | garage_light, main_entrance, entrance_down_lights, laundry |
-| Someone home | anyone_connected_home=on, not quiet | garage_light, main_entrance, entrance_down_lights, pool_patio, front_security, laundry → pool_patio + front_security OFF after 5min if bar not occupied |
+| Quiet mode | quiet_arrival_mode=on | garage_light, main_entrance, entrance_down_lights, laundry, front_house_security (2026-07-17) → front_house_security OFF after 15min if bedtime_mode=on |
+| Someone home | anyone_connected_home=on, not quiet | garage_light, main_entrance, entrance_down_lights, pool_patio, front_security, laundry → pool_patio + front_security OFF after 5min if bar not occupied AND bedtime_mode=on |
 | Nobody home | anyone_connected_home=off | garage_light, main_entrance, entrance_down_lights, front_house_security, pool_patio, dining_room, laundry |
 
 ### Departure (`lighting_departure.yaml`)
@@ -466,6 +466,27 @@ gate, bar_bedtime_cutoff), `bedrooms_occupied` (bar quiet-mode check), and
 **Fix:** Merged the two `template:` keys into one (no logic change) — see PRESENCE_CONTRACT.md
 BUG-P15. Confirmed live: `office_occupied`/`garage_occupied`/`bedrooms_occupied` now report
 real on/off values instead of `unavailable`.
+
+---
+
+### BUG-L17 [CRITICAL] `automation.arrival_night_lighting` silently dead for ~4 months (root cause in presence domain)
+**File:** `presence/presence_boundary.yaml` (root cause), `lighting/lighting_arrival_night.yaml` (symptom)
+**Status:** ✅ FIXED 2026-07-17 — see PRESENCE_CONTRACT.md BUG-P20 for full root-cause detail.
+
+**Symptom:** User reported entrance downlights/dining room not turning on for a 9pm+ arrival.
+Live API check found `automation.arrival_night_lighting.last_triggered` = `2026-03-03` — every
+arrival scenario (quiet mode, someone home, nobody home) had been unreachable since then,
+regardless of entry path.
+
+**Root cause:** `input_boolean.arrival_detected` (the automation's sole trigger, `from: "off"
+to: "on"`) got permanently stuck `on` due to a deadlock in its auto-clear automation
+(`presence_clear_arrival_flag` in `presence_boundary.yaml`) — full detail in
+PRESENCE_CONTRACT.md BUG-P20. Not a lighting-side bug; this file's automation logic was correct
+the whole time, it just never received a real trigger edge.
+
+**Fix:** Presence-side deadlock fixed (BUG-P20). Same session: Quiet Mode scenario here also
+extended to turn on `switch.front_house_security_light` with a 15-min bedtime-gated auto-off
+(user request, unrelated to the root-cause fix) — see Section 3/4 scenario tables.
 
 ---
 

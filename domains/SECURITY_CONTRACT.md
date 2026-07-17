@@ -1805,6 +1805,88 @@ matching the documented spec and its `max: 255` siblings (`security_motion_seque
 
 ---
 
+### BUG-S65 — Grounds-rear zone image + global "last camera"/"last image" trackers stuck on stale medium/high-confidence events (pool/pond notifications + dashboard mismatch)
+**Priority: HIGH | Status: ✅ FIXED 2026-07-17**
+
+**Symptom:** User received a "⚠️ Activity in grounds" push at 15:36 (2026-07-15)
+correctly reporting `cam: cam12_back_pond, conf: low`, but the attached image was
+timestamped 07-11 22:12 (4 days stale) and showed IPCam04-Pool-Bar, while the
+notification's own "Camera:" field said "Cam04-Car-Port-Front" — three different
+camera identifiers in one notification, none matching the actual trigger. Separately,
+the Overview dashboard's Security Status card showed the correct real-time trigger
+camera next to the same stale image, "not lining up" with the push.
+
+**Root cause:** Same structural gate as BUG-S47, never extended to this zone/layer.
+`security_capture_best_snapshot` (`security_automations.yaml`) only writes zone/global
+image-tracking entities when `sensor.security_movement_confidence` is `medium`/`high`.
+Per the movement-confidence engine (`security_logic.yaml`), cam12 (pond) and cam09
+(back bedroom) are NVR/no-AI and structurally can never reach medium/high alone —
+cam09 isn't even in the confidence engine's `rear` set, so it caps at `low`/`none`.
+RUNG 7b (`grounds_low_confidence`, added BUG-S52) exists specifically to still notify
+on these low-confidence-only events — but three downstream trackers were never told
+about that design decision and kept the gate:
+1. `input_text.security_image_grounds_rear` (cam12/cam09/ipcam04 zone slot) — read by
+   the router for any `grounds rear` notification image.
+2. `input_text.security_last_motion_camera` (GLOBAL, all zones) — read by
+   `notify_security_events.yaml`'s `cam_name` for the "Camera:" field.
+3. `input_text.security_last_motion_image` (GLOBAL, all zones) — read by
+   `sensor.security_last_image_url`, which feeds the Overview dashboard's "Latest
+   Image". The dashboard's "Camera:" line uses `sensor.security_trigger_camera`
+   instead (real-time, ungated) — pairing a live-accurate camera name with a
+   potentially days-stale global image is exactly why they stopped lining up.
+
+**Fix:** `security_capture_each_camera_motion` (fires on every `*_motion_valid`
+off→on transition, unconditional of confidence — already proven safe by the BUG-S47
+inside-camera fix) now also writes: `security_image_grounds_rear` for cam12/cam09/
+ipcam04, and both global trackers (`security_last_motion_camera`,
+`security_last_motion_image`) for every camera. These entities now genuinely mean
+"last motion", not "last medium/high-confidence motion". `security_automations.yaml`
+modified.
+
+---
+
+### BUG-S66 — Dashboard "Event Timeline" card silently skipped low-confidence-only events
+**Priority: MEDIUM | Status: ✅ FIXED 2026-07-17**
+
+**Symptom:** Found investigating BUG-S65 — the security-control dashboard's "🎞️ Event
+Timeline" card (`lovelace.dashboard_operations`) reads `input_text.security_event_session`.
+That entity was only appended to inside `security_capture_best_snapshot`, gated on
+medium/high confidence — so an event like the cam12 pond trigger from BUG-S65, despite
+generating a real push notification, would never appear in the timeline at all.
+
+**Fix:** Moved the "EVENT SESSION APPEND" step from `security_capture_best_snapshot` to
+`security_capture_each_camera_motion` (unconditional of confidence), same pattern as
+BUG-S65. Left in the original automation it would have double-appended for every
+medium/high event (both automations fire together in that case), filling the 2-entry
+rolling buffer with near-duplicate consecutive entries instead of distinct events.
+`security_automations.yaml` modified. (`security_motion_sequence` and
+`security_event_images` have the same gate but are not read by any dashboard —
+left as-is, out of scope.)
+
+---
+
+### IMPROVEMENT-S67 — Daytime `grounds_low_confidence` severity downgrade with corroboration escalation
+**Priority: MEDIUM | Status: ✅ SHIPPED 2026-07-17 (user request, not a bug)**
+
+**Context:** RUNG 7b (`grounds_low_confidence`) has no time-of-day gate by design — see
+its comment in `security_logic.yaml` — because it exists specifically so genuine
+low-confidence grounds motion (cam04/cam07/cam09/cam12, all NVR/no-AI pixel-diff) isn't
+silently dropped. But with nobody home, daytime shadows/glare/insects on these cameras
+generate frequent full-"warning" pushes with no way for the classifier to tell noise
+from a real event.
+
+**Change:** `security_event_router`'s `grounds_low_confidence` branch now downgrades a
+single, uncorroborated daytime occurrence to `information` severity (quieter push, no
+Telegram/Vicky mirror per the severity table in `notify_security_events.yaml`) instead
+of `warning`. It escalates back to `warning` if any of: it's a repeat within the same
+15-minute window (new `counter.security_grounds_low_confidence_count`, reset by new
+automation `security_reset_grounds_low_confidence_counter` after 15 min of grounds
+quiet), more than one grounds camera is active at once, or it's nighttime
+(`binary_sensor.night_confirmed` — unchanged full-warning behavior). New counter helper
+in `security_helpers.yaml`; branch logic in `security_automations.yaml`.
+
+---
+
 ### S18 — Notification severity/sound classification overhaul (2026-07-06)
 
 **Priority: MEDIUM | Status: ✅ APPLIED 2026-07-06**
