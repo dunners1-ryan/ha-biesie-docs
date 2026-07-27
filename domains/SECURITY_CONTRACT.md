@@ -1969,6 +1969,92 @@ compatible). `notify_security_events.yaml` modified.
 
 ---
 
+### BUG-S71 — Plain "Main Gate" opened/closed ping showed an unrelated camera + duplicated the vehicle-classifier notification
+**Priority: MEDIUM | Status: ✅ FIXED 2026-07-27**
+
+**Symptom:** Live pushes: "Main Gate — Main gate closed — Camera: Cam09-Back-Bedroom" and
+"Main Gate — Main gate opened — Camera: Cam12-Back-Pond" — both showing cameras with no
+relation to the gate (back bedroom, pond). Same underlying gate-open events also produced
+a second, differently-formatted push — "🚗 Gate opened — vehicle entering" — with the
+correct `IPCam03-Driveway` camera, from a completely separate automation.
+
+**Root cause 1 (wrong camera):** `notify_gate_opened`/`notify_gate_closed`
+(`alerts_doors.yaml`) never embedded a `cam:` hint in their message text and their fixed
+snapshot filename (`gate_alert_main_gate_latest.jpg`) doesn't match the camera-slug pattern
+`notify_security_events.yaml`'s `cam_name` resolver looks for (see BUG-S56/58/70) — every
+tier before the volatile global `input_text.security_last_motion_camera` tracker missed, so
+`cam_name` fell through to whichever camera fired most recently ANYWHERE on the property,
+unrelated to this gate event. Only these two automations were ever exposed to this gap —
+every branch fixed by BUG-S70 embeds `reason`/`cam:` in its message and was unaffected.
+
+**Root cause 2 (duplicate notification):** `notify_gate_opened` fires on
+`binary_sensor.main_gate_sensor` off→on with no further gating — the same trigger
+`security_gate_vehicle_stage1` (`security_automations.yaml`) uses for its own arrival
+branch (`ipcam01` seen recently = vehicle from street). The two automations were never
+coordinated, so every vehicle arrival produced both the plain ping and the richer
+classifier push for the same physical event. Departure has the same shape: `notify_gate_
+closed` fires on gate close with no awareness that `security_gate_vehicle_stage1`'s
+departure branch (triggered independently by `ipcam03_driveway_exit_valid`) already sent
+"🚗 Departure — vehicle leaving" for the same car.
+
+**Fix:**
+1. `notify_security_events.yaml` — added an optional `camera_override` script field.
+   When set, its `friendly_name` wins the `cam_name` resolution outright, above even the
+   `reason_cam` tier from BUG-S70. Existing calls that don't pass it are unaffected.
+2. `alerts_doors.yaml` — both `notify_gate_opened` and `notify_gate_closed` now pass
+   `camera_override: camera.ipcam03_driveway` (the correct, physically-relevant gate
+   camera for both events).
+3. `alerts_doors.yaml` — both automations gained a `condition:` mirroring
+   `security_gate_vehicle_stage1`'s own gating booleans exactly (`ipcam01` recent < 180s
+   for open; `ipcam03_driveway_exit_valid` recent < 120s for close). Each plain ping now
+   only fires when the smart classifier will NOT — i.e. pedestrian/domestic-staff gate
+   events, or genuinely ambiguous cases the classifier's own `default` branch silently
+   logs. Vehicle events now produce exactly one notification.
+4. `notify_gate_closed` also gained its own fresh `camera.snapshot` (mirroring
+   `notify_gate_opened`'s existing one) plus `image:`, since it now only fires for the
+   non-vehicle case and a real photo is worth attaching.
+
+**Not addressed / lower-risk residual:** the 180s/120s recency windows reused here are the
+same values `security_gate_vehicle_stage1` already relies on (180s tuned live via BUG-S38
+2026-05-23, widened after a real missed arrival — human/intercom response time, not camera
+detection lag). No new thresholds were invented. Live-verify with a real vehicle
+arrival/departure and a real pedestrian gate-open to confirm the suppression lines up in
+practice — not yet observed live post-fix.
+
+---
+
+### BUG-S72 — Arrival image lock could inherit a stale frame with no age check
+**Priority: HIGH | Status: ✅ FIXED 2026-07-27**
+
+**Symptom:** Live push: "🏠 Arrival confirmed — Vicky, Tayla home at 14:43" carried a photo
+of a domestic worker with a bucket, timestamped 09:49 — over 4 hours stale, unrelated to
+the actual arrival.
+
+**Root cause:** The Stage 1 arrival-image lock (`security_automations.yaml`, BUG-S41/S48)
+reads whatever is currently in `input_text.ipcam03_driveway_history` at T+5s after gate-
+open and treats it as "the arrival photo" — but never checked how OLD that entry was. If
+ipcam03 hadn't fired a fresh AI event in that exact 5s window (gate opened by remote, car
+slow/quiet to cross the driveway zone), the lock silently inherited whatever frame was
+already sitting in history from an earlier, unrelated motion event. Stage 2 then reused
+that same locked (and stale) image unchanged 3.5 minutes later for the "Arrival confirmed"
+push.
+
+**Fix (`security_automations.yaml`, arrival branch of `security_gate_vehicle_stage1`):**
+Before locking, now extracts the `?v=<timestamp>` already embedded in the history entry's
+own filename and checks it's under 20s old. If fresh, locks it as before (per-camera slot,
+still preferred over the shared `security_image_grounds_front` per BUG-S48 — no change to
+that priority). If stale or empty, takes a real `camera.snapshot` of `camera.ipcam03_
+driveway` right then instead of trusting the old frame, and locks that fresh capture.
+
+**Not addressed:** the identical stale-lookup pattern (read `ipcam03_driveway_history`'s
+last entry with no age check) is still present verbatim in the departure branch's inline
+image (`security_automations.yaml` ~line 1643) and in the RUNG 5c `gate_activity` router
+branch (~line 838, BUG-S62 Bug 2). Both are the same bug class as this one, just not yet
+observed live and not in scope for this fix — flagging for a follow-up pass if a stale
+departure/gate_activity image turns up.
+
+---
+
 ### S18 — Notification severity/sound classification overhaul (2026-07-06)
 
 **Priority: MEDIUM | Status: ✅ APPLIED 2026-07-06**
@@ -2817,6 +2903,13 @@ and can be cleaned up.
 All security notifications go through `script.notify_security_event` with fields:
 `severity`, `title`, `message`, `image`, `source`, `gate_control`. Do not bypass this
 with direct `notify.*` calls.
+
+`camera_override` field added 2026-07-27 (BUG-S71): optional explicit `camera.xxx`
+entity_id whose `friendly_name` wins the "Camera:" field outright, above every other
+`cam_name` resolution tier including BUG-S70's `reason_cam`. Use for callers that fire on
+a fixed, known camera but whose message text never embeds a `cam:` hint (e.g. the plain
+gate open/close pings) — without it, `cam_name` falls through to the volatile global
+`input_text.security_last_motion_camera` tracker.
 
 ### 10.5 — Zone naming (LOCKED)
 
