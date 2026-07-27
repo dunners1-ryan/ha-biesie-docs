@@ -2263,6 +2263,64 @@ titled about presence/lighting fixes) via what appears to be a shared `git add .
 sweep rather than its own commit — content is correct and unaffected, just not reflected in that
 commit's message. Flagging here so the git history isn't confusing later.
 
+### Issue 25 — ✅ FIXED 2026-07-27: BUG-PWR-GEYSER03 — morning turn-on silently skipped (colliding duplicate triggers)
+**File:** `packages/power/geyser_automations.yaml` (`geyser_turn_on` + new `geyser_morning_backstop`),
+`packages/power/power_state.yaml` (`sensor.geyser_daily_status` attributes),
+`.storage/lovelace.dashboard_operations` (Temperature tile).
+**Reported by:** user — "geyser wasn't turned on this morning, no alert, cold by ~6am."
+
+**Investigation (recorder DB, `home-assistant_v2.db`):** Monday 2026-07-27, winter. Geyser was off
+from 21:00 the previous night. Logbook shows the morning automation ran at 04:00 but hit its
+**default** branch (`No turn-on at 04:00. Orchestrator: normal`), not Branch 1 — despite every
+Branch 1 condition being satisfied at 04:00 (season `winter`, Monday, switch `off`, orchestrator
+`normal`, `load_control_geyser_enabled` `on`). Switch first went ON at **06:16 (manual)**, giving
+only 1.67 kWh by the 08:00 hard-off. Midday then ran normally (5.63 kWh, reached temp 14:21).
+
+**Root cause — two time triggers at the identical second.** `geyser_turn_on` had `morning_winter_weekday`
+**and** `morning_winter_saturday` both `at: "04:00:00"` (and the same for 04:30). On any given day
+only one branch clause can match; the design relied on BOTH coincident triggers being delivered so
+the non-matching one falls harmlessly to `default`. HA does not guarantee both simultaneous
+point-triggers fire — comparing the recorder across 07-20…07-24 shows two runs at 04:00 every
+weekday (one "Turned ON", one "No turn-on"); on 07-27 **only one** fired, and it was the Saturday
+trigger (→ default, no-op). The weekday run that would have turned it on never happened. The
+verified-turn-on retry (BUG-PWR-GEYSER01) cannot help — it only retries the switch *command*, and
+only if a branch calls it; here no branch ran. No alert because the morning window's only failure
+check is the 08:00 "< 0.5 kWh & not at temp" snapshot, suppressed by the 1.67 kWh manual rescue.
+
+**Fix 1 (dedupe triggers):** collapsed the four Mon–Sat morning triggers to two — `morning_winter_monsat`
+(04:00) and `morning_standard_monsat` (04:30) — and changed Branch 1's condition to `dow <= 5`
+(is_mon_sat), mirroring the turn-off side. One trigger per time slot ⇒ the matching branch is the
+only run ⇒ deterministic. Sunday triggers unchanged.
+
+**Fix 1b (self-heal backstop):** new `automation.geyser_morning_backstop` (entity_id
+`automation.geyser_morning_backstop_self_heal_missed_turn_on`). Fires ~15 min after each possible
+start (04:15/04:45/05:15/05:45); if inside the season/day-aware morning window with the switch
+still off, not at temp, gating OK and not loadshedding_critical, it turns the geyser on via the
+verified wrapper and raises a **warning**. No-op on normal days (switch already on by then). This
+would have caught 07-27 at 04:15.
+
+**Fix 2 (dashboard — "Today's Cycles" stale prior-day data):** `geyser_energy_at_morning_end` /
+`_at_midday_end` are only written at the 08:00/15:00 window closes and were never reset at midnight,
+so from 00:00→08:00 the card showed *yesterday's* midday/evening kWh against a freshly-reset
+`energy_day` meter. (a) Added a midnight reset of both input_numbers to the existing 00:01 block in
+`geyser_reached_temp_tracker`; (b) made `sensor.geyser_daily_status`'s `morning_kwh`/`midday_kwh`/
+`evening_kwh` attributes time-aware (live from the meter while a window is open, snapshot after it
+closes) so no bucket ever displays a stale prior-day figure. Verified live post-reload: morning
+1.67 / midday 5.63 / evening 0.0.
+
+**Fix 3 (Temperature tile wording — `.storage`, needs restart):** the Issue-24 tile said "Not at
+temperature · idle (switch off)" whenever the switch was off — misleading, since `geyser_at_temperature`
+is only *defined* while the switch is on (power < 50W AND switch on; there is no real thermometer).
+Added a branch: switch off but `geyser_reached_temp_today` on ⇒ "🔥 Hot · reached temp earlier today
+(switch off)"; otherwise "💤 Not heated yet · idle (switch off)". Backed up before editing
+(`.bak.20260727_154658`); requires full HA restart per CODING_STANDARDS (not yet applied at time of
+writing).
+
+**Deployed:** `ha core check` passed; automations + template entities reloaded via Supervisor API
+(HTTP 200), backstop confirmed `on`. `.storage` tile change staged pending restart. Related prior
+context: Issue 20 (2026-07-10) also touched "geyser dropped triggers" — this is the structural fix
+for the duplicate-trigger class of that problem.
+
 ---
 
 ## 12. Error Signatures (Watchman-Confirmed)

@@ -5,6 +5,51 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **Main Gate notification camera field wrong + duplicated the vehicle-classifier push
+      (BUG-S71) + stale arrival image with no freshness check (BUG-S72) — 2026-07-27.**
+      User flagged, from live phone screenshots: "Main gate closed"/"Main gate opened"
+      pings showing unrelated cameras (Cam09-Back-Bedroom, Cam12-Back-Pond), a duplicate,
+      differently-formatted "🚗 Gate opened — vehicle entering" push for the same event,
+      and an "Arrival confirmed... home at 14:43" push carrying a 09:49 domestic-staff
+      photo. Root causes: (1) `notify_gate_opened`/`notify_gate_closed` (`alerts_doors.
+      yaml`) never embedded a `cam:` hint or a slug-matching image filename, so
+      `notify_security_events.yaml`'s `cam_name` fell through every tier to the volatile
+      global `security_last_motion_camera` tracker (BUG-S56/58/70's fixes only ever
+      covered branches that embed `reason`/`cam:` — these two never did). (2) Same two
+      automations fire on the same `main_gate_sensor` transitions `security_gate_vehicle_
+      stage1` uses for its own arrival/departure branches, with zero coordination between
+      them — every vehicle event produced two separate pushes. (3) The Stage 1 arrival-
+      image lock (BUG-S41/S48) read whatever was last in `ipcam03_driveway_history` with
+      no age check, so a quiet/slow arrival with no fresh ipcam03 event in the 5s lock
+      window silently inherited an old frame. **Fixes:** added an optional
+      `camera_override` field to `script.notify_security_event` (top-priority tier, above
+      `reason_cam`) and wired it into both gate pings; added a `condition:` to each
+      mirroring `security_gate_vehicle_stage1`'s own arrival/departure gating booleans
+      exactly (ipcam01 recent <180s / ipcam03 exit recent <120s — same tuned values from
+      BUG-S38, no new thresholds invented) so the plain ping only fires when the
+      classifier won't; added a real `camera.snapshot` + freshness check (<20s) to the
+      arrival-image lock, falling back to a fresh capture instead of a stale one. See
+      SECURITY_CONTRACT.md BUG-S71/BUG-S72 for full detail. **No restart required —
+      `automation:`/`script:` YAML only, `Reload Automations` + `Reload Scripts` covers
+      it.** Not yet live-verified: a real vehicle arrival/departure and a real pedestrian
+      gate-open, to confirm the merge suppression lines up in practice. Known residual,
+      not in scope for this fix: the same stale-history-lookup pattern (no age check) is
+      still present verbatim in the departure branch's inline image and the RUNG 5c
+      `gate_activity` router branch — flagged in BUG-S72 for a follow-up if it surfaces
+      live.
+- [x] **Geyser morning turn-on silently skipped + "Today's Cycles" stale + Temperature tile wording
+      (BUG-PWR-GEYSER03) — 2026-07-27.** User: geyser not heated this morning, no alert, cold by ~6am.
+      Recorder root-cause: `geyser_turn_on` had two time triggers at the identical 04:00:00 (and 04:30:00)
+      — `_weekday` + `_saturday`; HA delivered only one on 07-27 (the Saturday one → default no-op), so the
+      morning heat never started (manual rescue at 06:16, 1.67 kWh). **Fix 1:** collapsed Mon–Sat to one
+      trigger per slot (`morning_winter_monsat`/`morning_standard_monsat`) + Branch 1 `dow <= 5`. **Fix 1b:**
+      new `automation.geyser_morning_backstop` self-heals a missed start (turns on + warns ~15 min into the
+      window). **Fix 2:** midnight-reset the `geyser_energy_at_morning_end`/`_at_midday_end` snapshots +
+      made `sensor.geyser_daily_status` morning/midday/evening kWh attributes time-aware (they showed
+      yesterday's figures 00:00→08:00). **Fix 3 (⚠️ needs full HA restart, `.storage` — NOT yet applied):**
+      Temperature tile now distinguishes "🔥 Hot · reached temp earlier today" (switch off but heated today)
+      from "💤 Not heated yet". Reload-only fixes (1/1b/2) deployed live via Supervisor API; `.storage` tile
+      staged (backup `.bak.20260727_154658`). Full writeup: POWER_CONTRACT.md Issue 25.
 - [x] **Water % full dashboard card recalibrated off `sensor.water_state` + predictive-fill threshold recalibration — 2026-07-17.** User asked to review the `card_mod` styling on the borehole/water status cards, which led to two fixes. (1) The `sensor.water_tank_level` status card on both Home Overview and the `water-control` page (`.storage/lovelace.dashboard_overview` + `.storage/lovelace.dashboard_operations` — same card duplicated verbatim on both) re-derived its own bucket cutoffs (`pct<15`/`pct<30`/`pct≥60`) independently of `sensor.water_state`'s real classification; converted to %, the actual live thresholds (`water_depth_critical`=12.8%, `water_depth_minimum_safety`=17.9%, `water_depth_low`=41.0%) don't match 15/30/60 at all — a second, drift-prone threshold system same class as the orphaned `water_policy_helpers.yaml` problem already flagged in WATER_CONTRACT.md Recommendation 2. Fixed by making the card read `sensor.water_state` directly instead of recomputing its own buckets, and added a `fault`/`unavailable`/`unknown` branch that didn't exist before (a Tuya dropout previously rendered as green "System Normal"). Both files are `.storage`-only (gitignored, NOT covered by `gitupdate.sh`) — **requires a full HA restart** per CODING_STANDARDS.md; do not open the dashboard UI editor first. (2) Separately recalibrated `input_number.water_predictive_fill_threshold_percent` YAML `initial:` 50 → 75 (`water_helpers.yaml`) per WATER_CONTRACT.md's own existing "Threshold calibration" recommendation (50% sat below all demand targets, so Branch 4.7 predictive fill rarely fired independently of the ordinary demand-target fill). **Live entity value is still 50%** — `initial:` only seeds a helper on first creation, does not retroactively update an existing one; needs a manual dashboard slider bump to 75% to actually apply. See WATER_CONTRACT.md "Predictive Fill Helpers" and "Dashboard % full card recalibration" (Section 5).
 - [x] **Load-control disabled-too-long reminder alert (Issue 24) + Appliance Control dashboard
       cleanup + Geyser Temperature tile display fix — shipped 2026-07-17.** Started from the user
