@@ -269,6 +269,38 @@ WAN packet loss formula rewritten using ping pass/fail binary count approach.
 `(total - successful) / total` loss percentage. `wan_health_score` packet loss
 component now contributes real signal.
 
+### BUG-NET08 [HIGH] — ✅ Fixed 2026-07-27 — Jitter permanently 0 (missing avg sensors);
+packet loss never actually fed the health score despite BUG-NET03
+**File:** `packages/network/network_helpers.yaml`
+**Problem 1:** `sensor.wan_latency_jitter`'s template (`max - min` across
+`sensor.wan_cloudflare_5min_avg` / `wan_google_5min_avg` / `wan_microsoft_5min_avg`)
+referenced three entities that were never defined anywhere in config — no
+`state_characteristic: mean` (or any avg-producing) statistics sensor existed for
+per-provider latency, only the `*_5min_max` ones. `states()` on a non-existent entity
+returns `'unknown'`, which `| float(0)` silently coerces to `0`, so all three inputs were
+always `0` and jitter was permanently stuck at `0` — never contributing to
+`wan_health_score`, with no error surfaced anywhere.
+**Problem 2:** Despite BUG-NET03 and Section 4 of this document both describing a
+packet-loss term (`score -= avg_packet_loss_3_targets * 2`) in `wan_health_score`, the
+live template in `network_helpers.yaml` only ever penalized latency and jitter — the
+packet-loss term did not exist in code. Doc and code had silently diverged since
+whichever edit introduced/removed it.
+**Discovered:** while adding a "likely cause" breakdown to the Home dashboard's Network
+Health card (see Section 11) — live API check showed `wan_ms_5min_max` at 139ms vs. 2ms
+for CF/Google (explaining a live 70% health score), which led to verifying the jitter and
+packet-loss paths and finding both broken.
+**Fix applied:** added three new `platform: statistics` sensors (`state_characteristic:
+mean`, `sampling_size: 20`, `max_age: 5 min`) on the CF/Google/MS UniFi WAN latency
+sensors, producing `sensor.wan_cloudflare_5min_avg` / `wan_google_5min_avg` /
+`wan_microsoft_5min_avg` — the exact entity IDs the jitter template already expected.
+Added the missing `avg_loss * 2` penalty term to `wan_health_score`, sourced from the
+three `wan_*_packet_loss` sensors (already correct since BUG-NET03). `ha core check`
+passed after both edits.
+**Reload:** new `statistics:` platform sensor entries — **requires a full HA restart**
+(not covered by Reload Template Entities; bundled with the Section 11 dashboard restart
+in the same session). The `wan_health_score` template edit itself would only need Reload
+Template Entities, but restart is required anyway for the new statistics sensors.
+
 ---
 
 ## Section 7: Architecture Notes
@@ -421,6 +453,7 @@ DSM → Control Panel → Hardware & Power → General:
 | ~~BUG-NET02~~ | ~~Medium~~ | ~~Fix `sensor.unifi_memory_5m_max` self-referencing availability~~ — **FIXED 2026-06-19** |
 | ~~BUG-NET03~~ | ~~High~~ | ~~Fix WAN packet loss formula (currently meaningless)~~ — **FIXED 2026-06-19** |
 | ~~BUG-NET06~~ | ~~Medium~~ | ~~`network_device_down_alert_severity` has no periodic re-evaluation trigger — can stick at a stale `critical` indefinitely.~~ — **FIXED 2026-07-17**, see Section 6. |
+| ~~BUG-NET08~~ | ~~High~~ | ~~Jitter permanently 0 (missing avg statistics sensors); packet loss never actually fed `wan_health_score` despite BUG-NET03~~ — **FIXED 2026-07-27**, see Section 6. |
 | IMP-NET01 | Low | Add `sensor.network_alert_context` to `sensor.alert_device_entities` aggregator (verify wired — B3 done 2026-04-14) |
 | IMP-NET02 | Low | Add ISP name/plan to a descriptive input_text for context on dashboard |
 | IMP-NET03 | Low | Several UniFi diagnostic entities are disabled by the integration by default (`sensor.ap_bar_clients`, `sensor.ap_lounge_clients`, `sensor.ap_passage_clients`, `sensor.usw_ultra_poe_clients`, all per-port PoE switch/link-speed sensors) — inconsistent with `ap_garage`/`ap_office` which have clients enabled. Enable in the UniFi integration entity list if per-AP client counts / per-port PoE control become needed; the network-control LAN table degrades gracefully to "—" for these today. |
@@ -530,8 +563,33 @@ Synology NAS and does not route WAN traffic. Previously the ZenWiFi appeared onl
   backed up before editing (`*.bak.20260713_185021`). **⚠️ Requires a full HA restart**
   before either dashboard's changes take effect (see CODING_STANDARDS.md).
 
+### Home dashboard "Network Health" card — likely-cause line (2026-07-27)
+
+`.storage/lovelace.dashboard_overview` (backed up to `*.bak.20260727_155947`) — the
+"Degraded Performance Detected" `mushroom-template-card` on the Home page previously showed
+only the health score with no indication of which WAN target caused it, and no tap target.
+Added:
+- A `tap_action` navigating to `network-control` for the full per-provider breakdown.
+- A "Likely cause" line in the secondary text, shown only when `sensor.wan_noc_status` is
+  `degraded`/`critical`, computed from the same inputs `wan_health_score` actually uses
+  (`wan_cf_5min_max` / `wan_google_5min_max` / `wan_ms_5min_max` for latency,
+  `wan_latency_jitter` for jitter) — names the worst-offending provider, e.g. "Likely cause:
+  Microsoft latency peaked 139ms (5m)".
+
+Live-verified via the Supervisor core API proxy immediately before the fix: `wan_ms_5min_max`
+was 139ms vs. 2ms for CF/Google, confirming Microsoft as the actual cause of a 70% score at
+the time — this investigation is what surfaced BUG-NET08 (Section 6).
+**⚠️ Requires a full HA restart** (`.storage/lovelace` rule, same as above).
+
 ---
 
+*Last updated: 2026-07-27 — BUG-NET08 closed: added the missing `wan_*_5min_avg` statistics
+sensors (jitter's inputs were referencing nonexistent entities, so jitter was permanently 0)
+and added the missing packet-loss penalty term to `wan_health_score` (documented since
+BUG-NET03 but never actually in code). Also added a "Likely cause" line + tap-to-navigate to
+the Home dashboard's Network Health card (Section 11) — surfaces which WAN target's 5-min
+latency peak (or jitter spread) drove a degraded score, instead of requiring a manual check.
+Requires a full HA restart (new statistics sensors + `.storage/lovelace` change).*
 *Last updated: 2026-07-13 (same day, follow-up) — IMP-NET04 closed: ZenWiFi XD6 now
 monitored by the alert pipeline via a new `binary_sensor.zenwifi_xd6_connected` template
 sensor in `group.network_devices`, plus `sensor.zenwifi_xd6_uptime` added to both uptime/

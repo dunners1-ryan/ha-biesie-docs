@@ -67,9 +67,9 @@ person.*                             ← HA mobile geo — UNRELIABLE for local 
 | `lighting_arrival_night.yaml` | ~100 | Night arrival scenarios (3 modes) |
 | `lighting_departure.yaml` | ~86 | Departure light cleanup (day + night) |
 | `lighting_bedtime.yaml` | ~100 | Kids + full bedtime routines |
-| `lighting_boundary.yaml` | ~80 | Boundary/street security lighting |
+| `lighting_boundary.yaml` | ~190 | Boundary/street security lighting + gate-open assist (2026-08-03) |
 | `lighting_security.yaml` | ~100 | Security event lighting engine |
-| `lighting_garage.yaml` | ~90 | Garage presence-aware lighting |
+| `lighting_garage.yaml` | ~175 | Garage presence-aware lighting (door-gated since 2026-08-03) |
 | `lighting_office_presence.yaml` | ~90 | Office presence-aware lighting |
 | `lighting_bar_presence.yaml` | ~180 | Bar presence + Telegram confirmation |
 | `lighting_entertainment.yaml` | ~90 | Entertaining mode — wires button→input_boolean.entertaining_mode, applies/restores scene, 01:00 backstop clear (was 06:00, changed 2026-06-29) |
@@ -174,6 +174,23 @@ when turned on by evening_routine. See BUG-L01 and BUG-L02.
 |---|---|---|
 | `boundary_security_on` | security_lighting_required ON (10s stable) OR button | boundary_street + main_entrance always; + car_port/front/back/office_entrance if someone home |
 | `boundary_security_off` | security_lighting_required OFF (5min hysteresis) OR button | All boundary lights off (condition: threat_level=low) |
+| `lighting_gate_open_assist` | `binary_sensor.main_gate_sensor` off→on, **gated on `security_lighting_required` = on** (same window as the two above) | garage_light + front_house_security_light ON for 10 min, then OFF again — **only the ones that were off when the gate opened** (pre-state captured in `variables:`). Added 2026-08-03. |
+
+**Gate-open assist (added 2026-08-03) — handoff rules.** The 10-minute auto-off is
+deliberately conservative, because three other automations can legitimately own these two
+switches inside the window:
+
+| Light | Auto-off skipped when | Owner it defers to |
+|---|---|---|
+| `switch.garage_light` | it was already on at gate-open time | `boundary_security_on` / arrival / manual |
+| `switch.garage_light` | `garage_occupied` = on **and** `garage_door_sensor` = on at the 10 min mark | `lighting_garage.yaml` presence branch |
+| `switch.front_house_security_light` | it was already on at gate-open time | `boundary_security_on` (fires when someone is home) |
+| `switch.front_house_security_light` | `input_datetime.last_arrival_time` is within the last 10 min | `lighting_arrival_night.yaml` (5/15 min bedtime-gated auto-off) |
+
+Closing the garage door ends the garage half of the window early — see the garage row below.
+The main gap this fills: `boundary_security_on` only lights street + main entrance when
+**nobody is home**, so driving in to an empty house after dark previously had no garage or
+front security light until the arrival pipeline caught up.
 
 ### Security Lighting Engine (`lighting_security.yaml`)
 
@@ -189,9 +206,29 @@ when turned on by evening_routine. See BUG-L01 and BUG-L02.
 
 | Room | File | Trigger | Day action | Night action | Departure |
 |---|---|---|---|---|---|
-| Garage | lighting_garage.yaml | garage_occupied + door_open | garage_light ON | garage_light + entrance + front_security ON | garage_light OFF after 2min |
+| Garage | lighting_garage.yaml | `garage_occupied` **AND** `garage_door_sensor` = on (door gate enforced in code 2026-08-03) | garage_light ON | garage_light ON | garage_light OFF on door close, **or** after 2min unoccupied |
 | Office | lighting_office_presence.yaml | office_occupied | office_light ON | office + office_entrance + bathroom + laundry ON | office + bathroom OFF; entrance OFF day only |
 | Bar | lighting_bar_presence.yaml | bar_occupied (sunset only) | — | back_security ON; Telegram confirm for patio/AppleTV | patio OFF at bedtime if unoccupied |
+
+**Garage — door gating (changed 2026-08-03).** The garage UniFi AP (`68:D7:9A:13:32:07`,
+see PRESENCE_CONTRACT.md §4 room map) covers that whole side of the house, so a phone
+sitting in an adjacent room at night reads as `Garage` and drove `binary_sensor.garage_occupied`
+on with nobody in the garage — lighting the garage overnight. Three changes:
+
+1. **Presence branch now requires the door to be open** (`{{ occupied and door }}`). AP
+   presence alone is no longer sufficient evidence; an open door is.
+2. **New `door_closed` trigger** (`garage_door_sensor` on→off) turns `switch.garage_light`
+   OFF unconditionally. Replaces the previous documented behaviour ("door closes → nothing
+   happens"), and also ends the gate-open assist window early.
+3. **Door-open branch condition widened** `{{ night and not occupied }}` → `{{ night or occupied }}`.
+   Necessary because of (1): if the phone hits the garage AP *before* the door opens, the
+   presence branch is correctly suppressed, so the door opening is the only remaining chance
+   to light the garage. Daytime "door opens, nobody there" still does not light.
+
+**Known trade-off:** entering the garage through the internal house door with the roller door
+shut gives no automatic light, day or night. Accepted deliberately — the garage is normally
+entered by car. Revisit if it becomes a nuisance (a real garage motion sensor, wired into the
+`presence_core.yaml` motion stubs, would resolve it properly).
 
 ---
 
@@ -660,6 +697,13 @@ DONE 2026-06-29
 entertaining_mode entity name clarified; Sonoff outage (BUG-L10) documented; checklist updated.*
 *Updated: 2026-06-14 — BUG-L11 (morning wake noon ceiling); BUG-L12 (arrival cooldown always-blocked); BUG-L13 (nobody-home missing front security light); BUG-L14 (wrong garage entity in arrival scenarios).*
 *Audited by: claude.ai session — live file review*
+*Updated: 2026-08-03 — Gate-open assist added (`lighting_gate_open_assist`, lighting_boundary.yaml):
+garage + front security light for 10 min on main gate open, inside the boundary-lighting window,
+with pre-state-aware auto-off. Garage lighting door-gated (`lighting_garage.yaml`): presence branch
+now requires an open garage door, new door-closed → light OFF trigger, door-open branch widened to
+`night or occupied`. Also corrected two pieces of doc drift in the Presence-Aware Rooms table — the
+Garage row already claimed `garage_occupied + door_open` (the code did not enforce it until now) and
+claimed the night action turned on entrance + front_security (it only ever turned on garage_light).*
 *Updated: 2026-07-17 — BUG-L18 closed: `bar_bedtime_cutoff` now requires the bar to have actually
 been open (base bar lighting / patio lights / Apple TV) before firing, instead of notifying
 "Bar closed" on every bedtime regardless of use.*

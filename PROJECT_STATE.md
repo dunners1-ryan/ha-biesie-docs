@@ -5,6 +5,29 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **Gate-open assist lighting + garage light no longer driven by AP presence alone —
+      2026-08-03.** User request, two parts. **(1)** Inside the same window the boundary
+      security lights run in (`binary_sensor.security_lighting_required` = on), a main gate
+      open now turns on `switch.garage_light` + `switch.front_house_security_light` for 10
+      minutes — new `lighting_gate_open_assist` in `lighting_boundary.yaml`. This fills a
+      real gap: `boundary_security_on` only lights street + main entrance when **nobody is
+      home**, so driving in to an empty house after dark had no garage or front security
+      light until the arrival pipeline caught up ~3.5 min later. The auto-off captures
+      pre-state in `variables:` and only reverts lights that were *off* at gate-open time,
+      and additionally defers to `lighting_garage.yaml` (garage occupied + door open) and
+      `lighting_arrival_night.yaml` (`last_arrival_time` within 10 min, which owns the front
+      security light on its own 5/15 min bedtime-gated schedule). **(2)** `lighting_garage.
+      yaml`: the garage UniFi AP covers that whole side of the house, so a phone in an
+      adjacent room at night set `binary_sensor.garage_occupied` and lit the garage with
+      nobody in it. Presence branch now requires `garage_door_sensor` = on; new door-closed
+      trigger turns the light off; door-open branch condition widened `night and not
+      occupied` → `night or occupied` to cover the case where the AP connects before the
+      door opens. Trade-off accepted by design: entering via the internal house door with
+      the roller door shut gives no automatic light — a real garage motion sensor would be
+      the proper fix. **No restart required — `automation:` YAML only, `Reload Automations`
+      covers it (done).** Not yet live-verified: an actual after-dark gate open, and the
+      10-min auto-off handoff to arrival lighting. See LIGHTING_CONTRACT.md §4 (Boundary
+      Security + Presence-Aware Rooms).
 - [x] **Main Gate notification camera field wrong + duplicated the vehicle-classifier push
       (BUG-S71) + stale arrival image with no freshness check (BUG-S72) — 2026-07-27.**
       User flagged, from live phone screenshots: "Main gate closed"/"Main gate opened"
