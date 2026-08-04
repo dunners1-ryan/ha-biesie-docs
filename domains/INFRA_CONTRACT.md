@@ -186,6 +186,29 @@ harmful rather than protective.
 **~~BUG-WEA02~~ [LOW] ✅ FIXED 2026-07-10 — Inline comment mismatch in threshold**
 `above: 14400 # 1hr` — 14400 seconds is 4 hours, not 1 hour. Comment corrected to `# 4hr`.
 
+**~~BUG-WEA03~~ [HIGH] ✅ FIXED 2026-08-04 — `sensor.weather_api_health` never actually
+equaled `"healthy"` or `"delayed"` in production**
+The `state:` template's `healthy`/`delayed` branches had trailing `# < 2 hours` / `# < 4
+hours` annotations meant as comments. Because they sat inside a Jinja `>` folded block
+scalar being fed to the template engine, YAML never treated them as comments — they were
+literal text rendered into the state. The entity's real state was the string
+`"healthy        # < 2 hours"` (confirmed live via Supervisor API), never the clean
+`"healthy"`. **Correction to BUG-WEA01 above:** its claim that the 2026-07-10 fix (removing
+`weather_api_recovery`'s `not_from` guard) fully closed the recovery gap was incomplete —
+that automation triggers on `to: "healthy"`, which could never match this dirty string.
+The recovery automation has never actually fired in production, independent of the guard
+fix. **Fix:** stripped the trailing comment text from both branches. Grepped the rest of
+`weather_core.yaml` for the same anti-pattern (`#` text inside a `>`/`|` block scalar feeding
+Jinja) — no other live occurrences (the only other match is the fully dead, pre-commented-out
+legacy `state:` block, inert). Checked every consumer matching on an exact state:
+`security_core.yaml` only checks `== 'stale'` (unaffected). Validated via
+`check_config` (valid), reloaded `template` + `automation`, confirmed live state is now
+exactly `"healthy"`. `input_boolean.openweathermap_api_limited` was already `off` at fix
+time, so the recovery path itself remains functionally unverified live — first real
+healthy→limited→healthy cycle will be the actual test. Found as a side-effect of building
+`packages/core/tuya_health.yaml`, which had copied this exact pattern (fixed in the copy
+before this bug was traced back to the original).
+
 ---
 
 ## Part 5: sensors/ — Global Sensor Utilities

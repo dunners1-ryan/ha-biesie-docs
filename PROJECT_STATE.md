@@ -52,6 +52,28 @@
       addressed:** the same arming stop-guard still skips dashboard history/timeline writes
       (`security_last_motion_camera`/`_image`, `security_event_session`) for cam14/cam05/
       cam15 while unarmed — only the notification image path was fixed.
+- [x] **`sensor.weather_api_health` never actually equaled `"healthy"`/`"delayed"` in
+      production — inline `#` comments leaking into rendered template state (BUG-WEA03) —
+      2026-08-04.** Found as a side-effect of building `packages/core/tuya_health.yaml`,
+      which had copied this exact pattern from `weather_core.yaml` (already fixed in the
+      copy). The `healthy`/`delayed` branches of the Weather API Health template had
+      trailing `# < 2 hours` / `# < 4 hours` annotations meant as comments — but since
+      they sit inside a Jinja `>` folded block scalar fed to the template engine, YAML
+      never treats `#` there as a comment; it's literal text rendered into the state.
+      Confirmed live via Supervisor API: the entity's real state was the string
+      `"healthy        # < 2 hours"`, never a clean `"healthy"`. This means BUG-WEA01's
+      2026-07-10 "gap closed" claim (removing `weather_api_recovery`'s `not_from` guard)
+      was necessary but not sufficient — that automation triggers on `to: "healthy"`,
+      which could never match the dirty string, so recovery has never actually fired in
+      production. **Fix:** stripped the trailing comment text from both branches in
+      `weather_core.yaml`. Grepped the rest of the file for the same anti-pattern — no
+      other live occurrences. Checked every exact-state consumer: `security_core.yaml`
+      only checks `== 'stale'` (unaffected). Validated via Supervisor `check_config`
+      (valid), reloaded `template` + `automation`, confirmed live state now exactly
+      `"healthy"`. `input_boolean.openweathermap_api_limited` was already `off` at fix
+      time, so the recovery automation's actual firing remains unverified live — next
+      real limited→healthy cycle is the first real test. See INFRA_CONTRACT.md Part 4,
+      BUG-WEA03.
 - [x] **Gate-open assist lighting + garage light no longer driven by AP presence alone —
       2026-08-03.** User request, two parts. **(1)** Inside the same window the boundary
       security lights run in (`binary_sensor.security_lighting_required` = on), a main gate
