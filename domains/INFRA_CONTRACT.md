@@ -17,6 +17,9 @@ integration plumbing. It also documents all custom integrations (HACS).
 - `packages/core/core_helpers.yaml` — system_startup guard + HA health sensors
 - `packages/core/ha_monitoring.yaml` — recorder health, DB growth, EPS (broken), noisy entities
 - `packages/core/sensor_smoothing.yaml` — RSSI smoothing for Sonoff devices
+- `packages/core/tuya_health.yaml` — Tuya Cloud state-feedback staleness watchdog +
+  auto-reload (added 2026-08-04, BUG-INFRA-TUYA01 — see Part 7 Known Bugs for the full
+  incident writeup)
 
 ### Key Entities
 
@@ -30,6 +33,24 @@ sensor.db_growth_mb_10min             — MB added to DB in last 10 min
 sensor.ha_events_per_second           — ⚠️ BUG-CORE01: misleading (see bugs)
 sensor.top_noisy_entities             — attribute list of recently-changed sensors
 binary_sensor.device_down_ping_helper — always-off helper to prevent empty groups
+```
+
+Tuya Cloud Health (`tuya_health.yaml` — added 2026-08-04, BUG-INFRA-TUYA01):
+```
+sensor.tuya_last_activity_age    — seconds since ANY tracked Tuya entity last updated
+                                    (geyser/pool/pond switches + water tank depth/liquid
+                                    sensors) — no single entity is a safe staleness canary
+                                    on its own since an idle switch can legitimately go
+                                    hours with no update
+sensor.tuya_cloud_health          — healthy (<2h) / delayed (<4h) / stale (>=4h)
+script.tuya_reload_and_verify     — reloads the Tuya config entry, waits 45s, re-checks;
+                                    shared by the scheduled watchdog and the manual
+                                    notification retry button
+automation.tuya_cloud_state_feedback_stale        — id: tuya_cloud_stale_alert
+automation.tuya_cloud_state_feedback_recovered    — id: tuya_cloud_recovery
+automation.tuya_cloud_retry_reload_from_notification — id: tuya_reload_from_notification;
+                                    handles the "🔄 Retry Reload" mobile action button
+                                    (event TUYA_RETRY_RELOAD)
 ```
 
 RSSI Smoothed (sensor_smoothing.yaml — 30s trigger-based):
@@ -314,6 +335,15 @@ scheduled turn-off. A false reconnect event on the water tank sensor can also
 trigger a spurious tank-full abort — see
 `input_boolean.water_refill_aborted_due_to_safety` in WATER_CONTRACT.md.
 
+**Update 2026-08-04 (BUG-INFRA-TUYA01)** — root cause of the "cloud stall" pinned
+down precisely, and the failure now has a proactive watchdog + auto-fix instead of
+only being caught after the fact by a geyser command attempt. See Known Bugs below
+for the full writeup; short version: the integration's real-time state-feedback
+channel (`tuya_sharing`'s background MQTT client) can die from an uncaught
+exception on reconnect and never restart itself, freezing every Tuya entity's
+state for hours with commands still working fine — and a targeted reload of just
+the Tuya config entry (not a full HA restart) reliably fixes it.
+
 **`localtuya`** — Installed via HACS but has zero entities configured (confirmed
 2026-07-13 via entity registry). Not in active use; every Tuya device in this
 house is actually on the cloud `tuya` integration above. Candidate for removal
@@ -333,6 +363,75 @@ Feeds `sensor.watchman_missing_entities` which powers `alerts_system_health.yaml
 This is a useful safety net — keep it installed and do not suppress the alert.
 
 ### Known Bugs / Improvements
+
+**BUG-INFRA-TUYA01 [HIGH] ✅ MITIGATED 2026-08-04 — Tuya Cloud MQTT push thread can
+die permanently on a cloud-side rate-limit, freezing every Tuya entity's state for
+hours with no `unavailable` transition**
+**Files:** `packages/core/tuya_health.yaml` (new), `packages/power/geyser_automations.yaml` (E8)
+**Reported by:** user, geyser critical "turn-on failed, still off" alerts overnight
+2026-08-04 while the Tuya app showed the geyser genuinely on and heating
+
+**What happened.** At 02:25:03 SAST, the Tuya integration's background MQTT client
+(`tuya_sharing/mq.py`, the push channel Tuya's cloud uses to tell HA a device changed
+state) tried to reconnect and Tuya's cloud API rejected the handshake with
+`network error:(-9999999) API_QPS_LIMIT_OR_DEGRADE`. That exception propagated
+**uncaught** out of the `paho-mqtt` worker thread, killing it outright — nothing in
+`tuya_sharing` or HA's Tuya integration detects a dead thread and restarts it, and
+per the existing note above, entities are never marked `unavailable` when this
+happens. Every Tuya entity in the house (`switch.geyser_heat_pump_switch`,
+`switch.pool_pump_switch`, `switch.pond_filter_pump_switch_1`, the water tank
+depth/liquid-level sensors) froze at its last-known value simultaneously — confirmed
+via direct recorder DB query (`states` table), all five showing identical
+`last_updated` timestamps before and after the outage.
+
+Command delivery (`switch.turn_on`/`off`) is a **separate REST path** and kept
+working the whole time — so the geyser's scheduled morning turn-on (04:00 window +
+04:15/04:45/05:15/05:45 backstop retries) genuinely reached the device and it was
+heating correctly, exactly as the Tuya app showed. But `script.geyser_verified_turn_on`
+(BUG-PWR-GEYSER01's fix) only trusts HA's own entity state to confirm success — with
+the feedback channel dead, its `wait_for_trigger` on `state: on` could never fire, so
+it retried, timed out again, and raised 4 false "🔴 turn-on failed, still off"
+critical alerts. This is the mirror image of BUG-PWR-GEYSER01: there the command was
+genuinely dropped and the state correctly reflected that; here the command succeeded
+and the state feedback is what was broken.
+
+**Confirmed fix, verified from recorder history, not just theory.** A manual reload
+of the Tuya config entry at 09:28:16 SAST is visible in the `states` table as all 5
+tracked entities going `unavailable` for ~4s then returning with fresh, live-confirmed
+values (the `unavailable` blip is the tell for a config-entry reload — the recorder
+keeps running throughout and captures it; a full HA restart kills the recorder too,
+so that shows as a clean jump with no `unavailable` row — exactly what's seen for the
+*separate*, unrelated 14:04 SAST restart that same day, done for an update). Everything
+was confirmed healthy from 09:28 SAST onward — the geyser's 11:00 midday turn-on got a
+clean confirmed state change with no false alert, unlike the four before it. **A
+targeted config-entry reload alone is sufficient; a full HA restart is not required.**
+
+**Fix — `packages/core/tuya_health.yaml` (new package).** `sensor.tuya_last_activity_age`
+tracks the MOST RECENT `last_updated` across all 5 Tuya entities (not any single one —
+an idle switch can legitimately go hours without an update, e.g. the geyser off
+overnight, so no individual entity is a safe staleness canary; the water tank sensors
+are the near-continuous signal that keeps this honest). `sensor.tuya_cloud_health`
+buckets that age into healthy (<2h) / delayed (<4h) / stale (>=4h), reusing
+`weather_api_health`'s thresholds/shape (see BUG-WEA03 above — copying that pattern is
+also how BUG-WEA03 itself was found). `automation.tuya_cloud_state_feedback_stale`
+fires at 4h+ and calls `script.tuya_reload_and_verify`: reload the Tuya config entry
+(resolved dynamically via `config_entry_id('switch.geyser_heat_pump_switch')`, no
+hardcoded entry ID) → wait 45s → check if activity age dropped back under 2 min → info
+notify on success, or a **warning** notify with a "🔄 Retry Reload" mobile action
+button on failure (handled by `automation.tuya_cloud_retry_reload_from_notification`,
+event `TUYA_RETRY_RELOAD` — same convention as `CANCEL_GATE_ALERT` in
+`alerts_doors.yaml`) so a retry can be triggered from the phone without opening the HA
+or Tuya apps. Deliberately does NOT attempt a full HA restart automatically — the
+2026-08-04 evidence shows it isn't needed, and a full restart would briefly take down
+every other integration and automation in the house for a fix this narrow doesn't
+require.
+
+**Also fixed the same day, same root cause class:** `geyser_verified_turn_on`/`_off`
+(E8, `geyser_automations.yaml`) now check `sensor.tuya_cloud_health` before declaring a
+genuine command failure. If feedback is already known delayed/stale at the point of
+failure, the alert downgrades from critical to warning and says the command likely
+succeeded and HA just can't confirm it, instead of accusing a dropped command
+(BUG-PWR-GEYSER01's failure mode) — see POWER_CONTRACT.md Issue 26.
 
 **IMP-IDS01 [MEDIUM] — IDS Hyyp has no package file**
 The IDS alarm system has an integration installed but zero package-based config.

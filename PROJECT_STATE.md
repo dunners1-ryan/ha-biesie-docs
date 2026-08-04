@@ -5,6 +5,43 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **Tuya Cloud MQTT push thread died overnight, 4 false "geyser turn-on failed" critical
+      alerts while it was actually on and heating (BUG-INFRA-TUYA01) — 2026-08-04.** User
+      flagged from phone lock-screen notifications: 4 critical "🔴 Geyser — turn-on failed,
+      still off" alerts between 04:10–~06:50 SAST, but the Tuya app showed the geyser
+      connected, drawing power, and heating the whole time. Investigated live via Supervisor
+      REST API + a direct recorder DB (`home-assistant_v2.db`) query (this session runs
+      directly on the HAOS host, so both were reachable). Root cause: the Tuya integration's
+      background MQTT push client (`tuya_sharing/mq.py`) died at 02:25:03 SAST — a reconnect
+      attempt hit Tuya's cloud `API_QPS_LIMIT_OR_DEGRADE` and the exception propagated
+      uncaught out of the worker thread, killing it with no auto-restart and no
+      `unavailable` transition. Every Tuya entity (geyser switch, pool pump, pond pump,
+      water tank depth/liquid sensors) froze at its last value simultaneously. Command
+      delivery is a separate REST path and kept working — so the geyser's scheduled
+      04:00/04:15/04:45/05:15/05:45 turn-on attempts genuinely reached the device, but
+      `script.geyser_verified_turn_on` (BUG-PWR-GEYSER01's verification wrapper) could never
+      see the confirming state change and raised 4 false criticals. **Confirmed the actual
+      fix from recorder history, not guesswork:** a manual Tuya config-entry reload at
+      09:28:16 SAST shows as all 5 entities going `unavailable` for ~4s then returning with
+      live values (recorder stays up through a reload, unlike a full restart) — everything
+      was healthy from 09:28 onward, hours before an unrelated 14:04 SAST restart (done for
+      an update) that some earlier analysis had wrongly credited as the fix. **Built:** new
+      `packages/core/tuya_health.yaml` — `sensor.tuya_last_activity_age` (most-recent update
+      across all 5 Tuya entities, since no single one is a safe staleness canary alone) /
+      `sensor.tuya_cloud_health` (healthy/delayed/stale, mirrors weather_api_health) /
+      `automation.tuya_cloud_state_feedback_stale` (4h+ trigger → auto-reloads just the Tuya
+      config entry via `script.tuya_reload_and_verify`, no full restart) / a "🔄 Retry
+      Reload" mobile action button (`TUYA_RETRY_RELOAD`) for manual retry from the phone if
+      auto-reload doesn't clear it. Also updated `geyser_verified_turn_on`/`_off` (E8,
+      `geyser_automations.yaml`) to check `sensor.tuya_cloud_health` before declaring a
+      genuine command failure — downgrades critical→warning and rewords the alert when
+      feedback is already known stale. Side effect: copying `weather_api_health`'s
+      healthy/delayed/stale pattern surfaced a real pre-existing bug there (BUG-WEA03, fixed
+      separately same day — see INFRA_CONTRACT.md Part 4). Deployed live: YAML validated,
+      `check_config` passed, `template`/`automation`/`script` reloaded via Supervisor API,
+      all new entities confirmed live. Full writeup: INFRA_CONTRACT.md BUG-INFRA-TUYA01,
+      POWER_CONTRACT.md Issue 26.
+
 - [ ] **REVIEW 2026-08-11 — Program 4 SOC target test (90% → 100%), started 2026-08-04.**
       User asked to push Inverter Program 4 (14:00–17:00 window) target SOC from 90% to
       100% on both inverters, reasoning: coming out of winter, days getting longer/warmer,
@@ -1004,7 +1041,8 @@ packages/
   presence/       # 6 files  — presence_helpers, presence_core, presence_confidence,
                  #             presence_boundary, presence_validation, presence_trust (migrated from context/ 2026-04-30)
   context/        # 2 files  — context_global, context_night (context_presence + context_schedules deleted 2026-04-30/28)
-  core/           # 3 files  — core_helpers (startup guard), ha_monitoring, sensor_smoothing
+  core/           # 4 files  — core_helpers (startup guard), ha_monitoring, sensor_smoothing,
+                 #             tuya_health (Tuya Cloud staleness watchdog + auto-reload — added 2026-08-04)
   network/        # 3 files  — network_helpers (WAN health, UniFi speed, latency, jitter, NOC status);
                  #             network_ups (EcoFlow River Pro UPS monitoring — added 2026-05-27);
                  #             network_nas (Synology NAS graceful shutdown + WoL restore — added 2026-05-28)
@@ -1369,6 +1407,20 @@ sensor.geyser_control_status         ← 13-state priority display (power_state.
 binary_sensor.geyser_at_temperature  ← ON when power < 50W sustained 5 min while switch on
 sensor.geyser_daily_status           ← reached_temp/heating/low_energy/no_run (added 2026-06-17)
 sensor.geyser_target_run_hours_today ← season-aware daily target (2.0h summer / 3.5h winter)
+```
+
+### Tuya Cloud Health Entities (core/tuya_health.yaml — added 2026-08-04, BUG-INFRA-TUYA01)
+```
+sensor.tuya_last_activity_age        ← seconds since ANY tracked Tuya entity last updated
+                                        (geyser/pool/pond switches + water tank depth/liquid
+                                        sensors) — no single entity is a safe canary alone
+sensor.tuya_cloud_health             ← healthy (<2h) / delayed (<4h) / stale (>=4h)
+script.tuya_reload_and_verify        ← reload Tuya config entry + 45s settle + re-check;
+                                        shared by the watchdog and the notification retry button
+automation.tuya_cloud_state_feedback_stale            ← id: tuya_cloud_stale_alert
+automation.tuya_cloud_state_feedback_recovered        ← id: tuya_cloud_recovery
+automation.tuya_cloud_retry_reload_from_notification  ← id: tuya_reload_from_notification;
+                                        handles the TUYA_RETRY_RELOAD mobile action button
 ```
 
 ### Energy Orchestrator (power_helpers.yaml + energy_state.yaml — added E1 2026-06-14)

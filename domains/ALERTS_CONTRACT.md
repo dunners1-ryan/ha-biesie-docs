@@ -1101,6 +1101,27 @@ rendering nothing regardless. It went unnoticed for a week because "nothing to s
 expected 99%-of-the-time state; it only became observable once a real per-device candidate
 (`switch.water_pressure_pump`) was actually active and still didn't appear.
 
+### BUG-A16 — "Critical Sensor Health" push notification rendered with stray blank lines/indentation
+before the sensor list
+**Severity:** Low (cosmetic — message content was correct, formatting was not)
+**Files:** `packages/alerts/alerts_system_health.yaml`
+**Status:** ✅ FIXED 2026-08-04
+
+The `Critical Sensor Health` critical-severity notification action rebuilds its bad-sensor list
+inline in the `message:` template (same `watchman_missing_entities` cross-check as BUG-A14, just
+re-derived for the message body instead of reused from the context sensor). The `{% %}`/`{% for %}`
+block tags in that template had no `-` whitespace-trim modifiers, so each tag's own line — the
+indentation and newline around every `set`/`for`/`if`/`endfor` — was preserved in the rendered
+output. The notification text was still functionally correct (the final sensor list did appear)
+but arrived as `"...critical sensors:"` followed by several blank/whitespace lines before the
+actual list, instead of one clean line.
+
+**Fix:** added `-` trim modifiers to every block tag (`{%- ... -%}`), and changed the final
+expression from `{{ ns.bad | join(', ') }}` to `{{ " " ~ (ns.bad | join(', ')) }}` — trimming
+alone would have collapsed the line break between the "...critical sensors:" text and the list
+entirely, gluing them together with no separator (`"...sensors:sensor.x"`); the explicit
+`" " ~` prefix restores exactly one space instead.
+
 ---
 
 ## Section 9: Summary of Pipeline Audit Results
@@ -1152,6 +1173,10 @@ expected 99%-of-the-time state; it only became observable once a real per-device
 ---
 
 *Contract generated: 2026-04-13*
+*Last updated: 2026-08-04 — BUG-A16 (Critical Sensor Health push notification had stray
+blank lines/indentation before the sensor list due to un-trimmed Jinja block tags; added
+`-` trim modifiers throughout plus an explicit single-space separator, since full trimming
+alone would have glued the list onto the preceding text with no separator)*
 *Last updated: 2026-07-17 (2nd pass) — BUG-A14 (Critical Sensor Health cross-checks live entity
 state against Watchman's cached scan now, instead of trusting stale cache entries — false
 positives on `inverter_1_battery`/`inverter_1_grid` after a reload live-caught and fixed);

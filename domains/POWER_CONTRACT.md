@@ -2321,6 +2321,42 @@ writing).
 context: Issue 20 (2026-07-10) also touched "geyser dropped triggers" — this is the structural fix
 for the duplicate-trigger class of that problem.
 
+### Issue 26 — ✅ MITIGATED 2026-08-04: BUG-INFRA-TUYA01 — 4 false "turn-on failed" critical
+### alerts overnight while the geyser was actually on and heating; Tuya feedback channel, not command
+**Priority:** P1 — 4 false critical alerts, root cause is upstream of this file (see INFRA_CONTRACT.md)
+**Files:** `packages/power/geyser_automations.yaml` (E8), `packages/core/tuya_health.yaml` (new)
+**Reported by:** user, 4 critical push notifications 04:10–~06:50 SAST 2026-08-04 saying the
+geyser turn-on failed and it was NOT heating, while the Tuya app showed it on and drawing power
+
+**What happened.** Not a bug in this file — `geyser_turn_on`, the morning backstop, and
+`script.geyser_verified_turn_on` (BUG-PWR-GEYSER01) all behaved exactly as designed.
+The root cause is upstream: the Tuya integration's MQTT state-feedback channel died at
+02:25:03 SAST (uncaught exception on reconnect, Tuya cloud `API_QPS_LIMIT_OR_DEGRADE`)
+and froze `switch.geyser_heat_pump_switch`'s HA-visible state at `off`, while
+`switch.turn_on` commands kept reaching the physical device fine over the separate REST
+path. Every morning attempt (04:00 window + 04:15/04:45/05:15/05:45 backstop) genuinely
+turned the geyser on; `geyser_verified_turn_on` just could never see the confirming
+state change, so it retried, timed out, and raised a false critical alert each time.
+Full incident writeup, root cause, and recorder-DB evidence: **INFRA_CONTRACT.md
+BUG-INFRA-TUYA01.**
+
+**Fix (E8, same day).** `geyser_verified_turn_on`/`_off`'s final-failure branches now
+check the new `sensor.tuya_cloud_health` (`packages/core/tuya_health.yaml`) before
+declaring a genuine fault. If feedback is already known delayed/stale at that point,
+the alert downgrades from **critical to warning** and is reworded to say the command
+likely succeeded and HA just can't confirm it — instead of accusing a dropped command,
+which is what a stale-feedback failure otherwise looks identical to on the surface.
+`tuya_health.yaml` also adds a standalone watchdog (`sensor.tuya_last_activity_age` /
+`sensor.tuya_cloud_health`, 4h+ trigger) that auto-reloads the Tuya config entry and
+verifies recovery, with a manual "🔄 Retry Reload" notification button as a fallback —
+so this class of failure is now caught and usually self-healed within minutes of going
+stale, rather than only surfacing hours later as a misleading geyser alert.
+
+**Deployed:** YAML validated, `check_config` passed, `template`/`automation`/`script`
+domains reloaded via Supervisor API, all new entities confirmed live
+(`sensor.tuya_cloud_health` = `healthy`, `automation.tuya_cloud_state_feedback_stale` =
+`on`, etc.).
+
 ---
 
 ## 12. Error Signatures (Watchman-Confirmed)
