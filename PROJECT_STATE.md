@@ -5,6 +5,28 @@
 
 ## ⚠️ OPEN TODO
 
+- [ ] **REVIEW 2026-08-11 — Program 4 SOC target test (90% → 100%), started 2026-08-04.**
+      User asked to push Inverter Program 4 (14:00–17:00 window) target SOC from 90% to
+      100% on both inverters, reasoning: coming out of winter, days getting longer/warmer,
+      wants more midday solar banked into the battery for better overnight/morning grace
+      before the batteries run down. `number.inverter_1_program_4_soc` and
+      `number.inverter_2_program_4_soc` set to 100 live via Supervisor API call
+      (`number.set_value`) — **not a YAML/packages change**, so it won't show in
+      `git diff` and isn't covered by the E5 inverter-programme automation (confirmed no
+      automation in `power_automations.yaml` overwrites `program_4_soc` based on season/
+      forecast — only `force_inverter_sync`/force-charge save-restore touch it, and only
+      on their own triggers). `select.inverter_1/2_program_4_charging` left on **Grid**
+      (unchanged) — Program 4 already defaults to solar-only through the window and only
+      falls back to grid to close the gap to target near 16:00 if solar is short, so the
+      100% target raises the grid-topup ceiling too, not just solar utilization. Plan: run
+      a couple of days at 100%, compare morning battery SOC / grid draw against the prior
+      90% baseline, decide whether the extra grid-charging cost (on shortfall afternoons)
+      is worth the added morning runway. **Action next session (target 2026-08-11):**
+      pull a few days of `number.inverter_1_program_4_soc`/battery SOC history and
+      grid-import-during-P4-window history, compare to the pre-2026-08-04 baseline, and
+      either keep 100% or revert both `program_4_soc` entities to 90. See POWER_CONTRACT.md
+      §7 (Strategy & Decision Layer) for the Program SOC entity reference.
+
 - [x] **Critical/intruder inside-zone notifications could carry an hours-stale image
       (BUG-S73) — 2026-08-04.** User flagged from a live phone screenshot: a "🚨 INTRUDER —
       INSIDE (main house)" push at 23:00 (`home: all`, `cam: cam14_lounge`) carried a photo
