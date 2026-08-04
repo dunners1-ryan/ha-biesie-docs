@@ -1134,7 +1134,7 @@ entirely, gluing them together with no separator (`"...sensors:sensor.x"`); the 
 | Temperature | ✅ (x4) | ✅ (x4) | ✅ (x4) | ✅ (triggered) | PASS | 2026-06-19 BUG-A03 |
 | Device Power | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A04; 2026-07-06 delivery fixed (BUG-A10) |
 | Media | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A05; 2026-07-06 delivery fixed (BUG-A10) |
-| System Health | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-07-06 delivery fixed (BUG-A10); 2026-07-17 Watchman-cache staleness false positives fixed (BUG-A14) |
+| System Health | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-07-06 delivery fixed (BUG-A10); 2026-07-17 Watchman-cache staleness false positives fixed (BUG-A14); 2026-08-04 notification whitespace fixed (BUG-A16) |
 | Water | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A01; 2026-07-06 tank-low + borehole tiers delivery fixed (BUG-A10) |
 | Security | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A02; repeat reminders base implementation shipped 2026-07-10 (see BUG-A10) |
 | Presence | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-16 B1; 2026-07-06 delivery fixed (BUG-A10) |
@@ -1161,8 +1161,10 @@ entirely, gluing them together with no separator (`"...sensors:sensor.x"`); the 
 | BUG-A11 | **Medium** | ✅ Fixed 2026-07-06, restart completed 2026-07-07 | `alert.camera_health`'s `notifiers: [STD_Warning]` — that group doesn't exist at all (removed 2026-06-28), every repeat threw hard `ServiceNotFound`; notifier removed outright | alerts_camera_health.yaml |
 | BUG-A12 | **Low** | ✅ Fixed 2026-07-07 | Garden `TURN_OFF_POND_PUMP` mobile action button unreachable — `script.notify_system_event` had no `actions:` passthrough; added, garden alert now passes the button | notify_system_event.yaml, alerts_garden.yaml |
 | BUG-A13 | **Low** | ✅ Fixed 2026-07-17 | Gate alerts had no camera evidence and no way to cancel a false-positive repeat cycle — fresh snapshot per send + `input_boolean.gate_alert_snoozed` + Cancel Alert button (phone + Telegram) | alerts_doors.yaml, notify_security_events.yaml |
+| BUG-A16 | **Low** | ✅ Fixed 2026-08-04 | Critical Sensor Health push notification rendered with stray blank lines/indentation before the sensor list — un-trimmed Jinja block tags; added `-` trim modifiers + explicit single-space separator | alerts_system_health.yaml |
 
 **Open: 0 issues**  
+**Fixed 2026-08-04: BUG-A16**
 **Fixed 2026-07-17: BUG-A13**
 **Fixed 2026-07-07: BUG-A11 (restart), BUG-A12**
 **Fixed 2026-07-06: BUG-A10, BUG-A11**

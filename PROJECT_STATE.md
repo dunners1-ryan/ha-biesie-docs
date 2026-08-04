@@ -5,6 +5,20 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **Critical Sensor Health push notification had stray blank lines/indentation before the
+      sensor list (BUG-A16) — 2026-08-04.** `alerts_system_health.yaml`'s critical-severity
+      notification action re-derives its bad-sensor list inline in the `message:` template
+      (same live cross-check as BUG-A14); the block tags had no `-` whitespace-trim modifiers,
+      so each `set`/`for`/`if`/`endfor` line's own indentation/newline leaked into the rendered
+      push text — message content was correct, but arrived as "...critical sensors:" followed
+      by several blank lines before the actual list instead of one clean line. Fixed by adding
+      `-` trim modifiers throughout; since full trimming alone would glue the list directly onto
+      the preceding text with no separator, added an explicit `{{ " " ~ (...) }}` single-space
+      prefix on the final expression. Confirmed live via the Supervisor API that the two
+      pushes the user actually got weren't false positives — `switch.water_pressure_pump` has
+      been genuinely `unavailable` since 12:05 SAST (hardware confirmed dead, not investigated
+      further per user); the blank-line bug was hiding a real critical hit, not just a cosmetic
+      annoyance. See ALERTS_CONTRACT.md BUG-A16.
 - [x] **Tuya Cloud MQTT push thread died overnight, 4 false "geyser turn-on failed" critical
       alerts while it was actually on and heating (BUG-INFRA-TUYA01) — 2026-08-04.** User
       flagged from phone lock-screen notifications: 4 critical "🔴 Geyser — turn-on failed,
@@ -41,6 +55,30 @@
       `check_config` passed, `template`/`automation`/`script` reloaded via Supervisor API,
       all new entities confirmed live. Full writeup: INFRA_CONTRACT.md BUG-INFRA-TUYA01,
       POWER_CONTRACT.md Issue 26.
+
+- [ ] **OPEN — Network "AP Garage down" critical alerts fire from harmless ~2s UniFi
+      reconnect blips; anti-flap bypassed (candidate BUG-NET09) — found 2026-08-04, not yet
+      fixed (user has not decided).** User got 3 critical "Device(s) down: AP Garage
+      Connected, AP Lounge Connected, AP Office Connected, AP Passage Connected, AP Bar
+      Connected, ZenWiFi XD6 Connected" pushes in 40 min (14:02/14:07/14:12 SAST) while the
+      UniFi console showed everything healthy (AP Garage uptime continuous at 15d+, never
+      rebooted). Confirmed via state-history API: `group.network_devices` (all 5 APs +
+      ZenWiFi) blipped `unavailable` for ~2 seconds each time then self-recovered — the
+      signature of a UniFi integration/websocket reconnect, not a real outage (matches the
+      same class of blip BUG-NET06 previously documented). The domain's real anti-flap gate
+      worked correctly: `binary_sensor.network_device_down_alert_active` never reached `on`
+      (its 250s `for:` requirement was never met) and `alert.network_alert` stayed `idle`
+      throughout. **Root cause of the false pushes:** `automation.route_network_device_down_alert`
+      (`alerts_network.yaml` ~line 722) has a *second* trigger —
+      `sensor.network_device_down_alert_severity` transitioning to `critical`, with **no
+      `for:` duration at all** — that bypasses the 250s anti-flap entirely. A full-group
+      blip always computes `severity=critical` (6 devices down at once), so this trigger
+      fires instantly on every such blip regardless of duration. Logbook confirmed all 3
+      pushes fired via this exact trigger (`script.notify_system_event` called ~12-15ms
+      after each blip started). **Candidate fix (not applied — awaiting user decision):** add
+      a `for:` duration (e.g. `00:00:20`, matching the pattern already used on the sibling
+      "Route Critical Sensor Health Alert" automation) to that trigger. Logged as BUG-NET09
+      (open) in NETWORK_CONTRACT.md Section 6 + Section 8 pending the fix decision.
 
 - [ ] **REVIEW 2026-08-11 — Program 4 SOC target test (90% → 100%), started 2026-08-04.**
       User asked to push Inverter Program 4 (14:00–17:00 window) target SOC from 90% to
