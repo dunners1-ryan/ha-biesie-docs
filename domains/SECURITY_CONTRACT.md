@@ -2055,6 +2055,57 @@ departure/gate_activity image turns up.
 
 ---
 
+### BUG-S73 — Critical/intruder inside-zone notifications could carry an hours-stale image (arming-gate + no-fresh-edge race)
+**Priority: HIGH | Status: ✅ FIXED 2026-08-04**
+
+**Symptom:** Live push: "🚨 INTRUDER — INSIDE (main house)" fired at 23:00 (`home: all`,
+`conf: none`, `cam: cam14_lounge`) carrying a photo timestamped 05:04 that same day — nearly
+18 hours stale.
+
+**Root cause (two factors, both in `security_automations.yaml`):**
+1. **Arming stop-guard skips the BUG-S47 fix too.** `security_capture_each_camera_motion`
+   (the automation BUG-S47 patched to write `security_image_inside_main/_garage/_bedrooms`
+   unconditionally of confidence) has an earlier guard (~L292-320) that does `stop:` —
+   halting the *entire* automation run, including everything after it — whenever
+   `input_boolean.inside_cameras_armed` / `_passage_armed` is off. Those booleans are only
+   auto-armed when nobody's home or at the bedtime schedule, so every real cam14/cam05/cam15
+   motion event that happens while the family is home skips the image write entirely. The
+   BUG-S47 fix was never actually unconditional for the case it was written to fix.
+2. **RUNG 2.5 can classify off a stale edge.** RUNG 2.5 (`security_logic.yaml`, stay-mode
+   lounge intrusion) requires `inside_cameras_armed` = on, which auto-arms at 23:00 bedtime.
+   Confirmed live via logbook: cam14_lounge fired at 22:54 and 22:58 (unarmed — writes
+   skipped per #1), then at exactly 23:00:00 — the instant the arming boolean flipped —
+   `critical_intrusion` fired off the already-latched motion state. No *new* motion_valid
+   rising edge occurred at that instant, so `security_capture_each_camera_motion` never
+   re-triggered and no fresh snapshot was taken at all. The router then read whatever was
+   last in the slot: 05:04am, the last time cam14 fired while the zone happened to already
+   be armed (before anyone was up).
+
+The router's image lookup (`img`/`critical_img` variables) had no freshness check on the
+zone slot it read — same defect class as BUG-S72, just never applied to this path.
+
+**Fix (`security_automations.yaml`, `security_event_router`):** Consolidated the router's
+two separate, duplicated zone→slot lookups (the shared `img` variable used by
+perimeter_threat/grounds_low_confidence/intruder, and critical_intrusion's own inline
+`critical_img`) into one. For the three inside zones only (main house/garage/bedroom
+passage — the ones gated by the arming stop-guard), it now extracts the slot's embedded
+`?v=<timestamp>` and checks it's under 60s old; if stale (or empty), takes a real
+`camera.snapshot` of the correct camera (cam14/cam05/cam15) to
+`/config/www/inside_zone_locked_latest.jpg` right before notifying, same live-snapshot-
+fallback pattern as BUG-S72's arrival-lock fix. critical_intrusion now reuses the shared
+`img` variable instead of recomputing its own (unfixed) copy — removes the duplication that
+let this fix drift out of sync with BUG-S72's pattern in the first place. Perimeter/grounds
+zones are untouched — their slots aren't gated by the arming stop-guard and were not
+observed stale.
+
+**Not addressed (deliberately, in scope for a follow-up if it surfaces live):** the arming
+stop-guard itself (~L292-320) still skips writing `security_last_motion_camera`/
+`security_last_motion_image`/`security_event_session`/history for cam14/cam05/cam15 while
+unarmed — this fix only guarantees the *notification* image is fresh, not the dashboard's
+per-camera history/timeline entries for those three cameras during unarmed hours.
+
+---
+
 ### S18 — Notification severity/sound classification overhaul (2026-07-06)
 
 **Priority: MEDIUM | Status: ✅ APPLIED 2026-07-06**

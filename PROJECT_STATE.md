@@ -5,6 +5,31 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **Critical/intruder inside-zone notifications could carry an hours-stale image
+      (BUG-S73) — 2026-08-04.** User flagged from a live phone screenshot: a "🚨 INTRUDER —
+      INSIDE (main house)" push at 23:00 (`home: all`, `cam: cam14_lounge`) carried a photo
+      timestamped 05:04 that same morning — 18 hours stale. Root cause, found via Supervisor
+      API logbook replay of the actual event: (1) `security_capture_each_camera_motion`'s
+      arming stop-guard (skips the whole automation, including the BUG-S47 unconditional-
+      of-confidence image write, whenever `inside_cameras_armed`/`_passage_armed` is off)
+      means every real cam14/cam05/cam15 motion event while the family is home never
+      refreshes the zone image slot at all — BUG-S47's fix was never actually unconditional
+      for that case. (2) RUNG 2.5 (stay-mode lounge intrusion) can fire `critical_intrusion`
+      the instant `inside_cameras_armed` auto-arms at 23:00 bedtime, off a motion sensor
+      that was already latched on from before arming — no new motion_valid edge fires the
+      capture automation at that moment, so no fresh snapshot is taken either. Confirmed
+      live: cam14 fired 22:54/22:58 (unarmed, writes skipped), critical fired at exactly
+      23:00:00 with zero new capture-automation trigger in between. **Fix:** consolidated
+      the router's two duplicated zone→slot image lookups into one; for the three inside
+      zones only, it now checks the slot's embedded `?v=<timestamp>` age (<60s) and takes a
+      real `camera.snapshot` fallback if stale — same live-snapshot pattern already used for
+      BUG-S72 (arrival image lock). Perimeter/grounds slots untouched (not affected — no
+      arming guard on those cameras). `security_automations.yaml` modified, config-checked
+      valid via Supervisor API, `Reload Automations` applied live and confirmed firing
+      cleanly post-reload. See SECURITY_CONTRACT.md BUG-S73 for full detail. **Not
+      addressed:** the same arming stop-guard still skips dashboard history/timeline writes
+      (`security_last_motion_camera`/`_image`, `security_event_session`) for cam14/cam05/
+      cam15 while unarmed — only the notification image path was fixed.
 - [x] **Gate-open assist lighting + garage light no longer driven by AP presence alone —
       2026-08-03.** User request, two parts. **(1)** Inside the same window the boundary
       security lights run in (`binary_sensor.security_lighting_required` = on), a main gate
