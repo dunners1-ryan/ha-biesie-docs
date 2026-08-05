@@ -2357,6 +2357,20 @@ domains reloaded via Supervisor API, all new entities confirmed live
 (`sensor.tuya_cloud_health` = `healthy`, `automation.tuya_cloud_state_feedback_stale` =
 `on`, etc.).
 
+**E9 follow-up (2026-08-05) — closed the "warned but nothing happened" gap.** The very
+next morning showed E8's remaining weakness live: a turn-off correctly detected stale
+feedback and sent the reworded warning at 08:10, but the actual fix didn't happen until
+the separate `tuya_cloud_stale_alert` watchdog reached its own 4h trigger 36 minutes
+later at 08:46 — a real gap where the user had a warning but no way to act on it (the
+alert routes through `script.notify_power_event`, which has no `actions`/button field
+at all, unlike `script.notify_system_event`). Fix: `geyser_verified_turn_on`/`_off`'s
+stale-feedback branches now call `script.tuya_reload_and_verify` directly instead of
+just alerting — self-heals immediately rather than waiting on the scheduled watchdog.
+The shared script's own notification (info on success, warning + "🔄 Retry Reload" on
+failure) is now the only message for the event; the branches no longer send a separate
+`notify_power_event` in the stale case. Deployed: YAML validated, `check_config`
+passed, `script` domain reloaded, confirmed live.
+
 ---
 
 ## 12. Error Signatures (Watchman-Confirmed)

@@ -433,6 +433,19 @@ failure, the alert downgrades from critical to warning and says the command like
 succeeded and HA just can't confirm it, instead of accusing a dropped command
 (BUG-PWR-GEYSER01's failure mode) — see POWER_CONTRACT.md Issue 26.
 
+**E9 update, next morning (2026-08-05):** E8's stale branches only alerted — a real
+occurrence showed the gap: a turn-off correctly detected stale feedback and warned at
+08:10, but nothing actually reloaded until the scheduled `tuya_cloud_stale_alert`
+watchdog reached its own 4h trigger 36 minutes later at 08:46. The warning couldn't
+carry a "🔄 Retry Reload" button either, since it routes through
+`script.notify_power_event`, which — unlike `script.notify_system_event` — has no
+`actions` field. Rather than add button support to `notify_power_event`, the
+stale-feedback branches now call `script.tuya_reload_and_verify` directly the moment
+they detect it, instead of just alerting and waiting for the separate watchdog. The
+shared script's own notification (info on success, warning + retry button on failure)
+is now the single message for the event — the branches no longer send their own
+`notify_power_event` in the stale case, avoiding a duplicate/conflicting alert.
+
 **IMP-IDS01 [MEDIUM] — IDS Hyyp has no package file**
 The IDS alarm system has an integration installed but zero package-based config.
 Any alarm automations are buried in `automations.yaml`. Recommend creating

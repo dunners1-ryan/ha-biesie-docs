@@ -5,6 +5,29 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **BUG-INFRA-TUYA01 follow-up (E9) — geyser Tuya-stale alerts now self-heal
+      immediately instead of just warning and waiting — 2026-08-05.** User: "geyser
+      went off HA again today but alert didn't include the reload option?" Investigated
+      via logbook replay: at 08:10 SAST, `geyser_verified_turn_off`'s stale-feedback
+      branch (E8, added 2026-08-04) correctly detected `sensor.tuya_cloud_health` was
+      stale and sent a reworded warning — but that warning routes through
+      `script.notify_power_event`, which has no `actions`/button field at all (unlike
+      `script.notify_system_event`, which is what carries the "🔄 Retry Reload" button
+      on `tuya_health.yaml`'s own watchdog alert). Nothing actually reloaded the Tuya
+      integration until the separate `tuya_cloud_stale_alert` watchdog hit its own 4h
+      trigger 36 minutes later at 08:46 and fixed it. Rather than add button support to
+      `notify_power_event`, the real fix is not making the user wait or tap anything:
+      `geyser_verified_turn_on`/`_off`'s stale-feedback branches
+      (`packages/power/geyser_automations.yaml`, E9) now call
+      `script.tuya_reload_and_verify` directly the moment they detect stale feedback,
+      instead of just alerting. The shared script's own notification (info on success,
+      warning + retry button on failure) is now the only message for the event — the
+      branches no longer send a separate `notify_power_event` in the stale case, to
+      avoid a duplicate/conflicting alert. Deployed live: YAML validated, `check_config`
+      passed, `script` domain reloaded via Supervisor API, confirmed live. Full writeup:
+      INFRA_CONTRACT.md BUG-INFRA-TUYA01 (E9 update), POWER_CONTRACT.md Issue 26 (E9
+      follow-up).
+
 - [x] **Critical Sensor Health push notification had stray blank lines/indentation before the
       sensor list (BUG-A16) — 2026-08-04.** `alerts_system_health.yaml`'s critical-severity
       notification action re-derives its bad-sensor list inline in the `message:` template
