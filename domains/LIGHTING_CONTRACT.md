@@ -174,7 +174,7 @@ when turned on by evening_routine. See BUG-L01 and BUG-L02.
 |---|---|---|
 | `boundary_security_on` | security_lighting_required ON (10s stable) OR button | boundary_street + main_entrance always; + car_port/front/back/office_entrance if someone home |
 | `boundary_security_off` | security_lighting_required OFF (5min hysteresis) OR button | All boundary lights off (condition: threat_level=low) |
-| `lighting_gate_open_assist` | `binary_sensor.main_gate_sensor` off→on, **gated on `security_lighting_required` = on** (same window as the two above) | garage_light + front_house_security_light ON for 10 min, then OFF again — **only the ones that were off when the gate opened** (pre-state captured in `variables:`). Added 2026-08-03. |
+| `lighting_gate_open_assist` | `binary_sensor.main_gate_sensor` off→on, **gated on `security_lighting_required` = on** (same window as the two above) | garage_light + front_house_security_light ON for 10 min, then OFF again — **only the ones that were off when the gate opened** (pre-state captured in `variables:`). Added 2026-08-03. **Verify + retry added 2026-08-05 (BUG-L19):** re-checks each switch 3s after the initial `turn_on` and retries once if it didn't confirm `on` — covers a Sonoff device mid-reconnect. |
 
 **Gate-open assist (added 2026-08-03) — handoff rules.** The 10-minute auto-off is
 deliberately conservative, because three other automations can legitimately own these two
@@ -229,6 +229,11 @@ on with nobody in the garage — lighting the garage overnight. Three changes:
 shut gives no automatic light, day or night. Accepted deliberately — the garage is normally
 entered by car. Revisit if it becomes a nuisance (a real garage motion sensor, wired into the
 `presence_core.yaml` motion stubs, would resolve it properly).
+
+**Verify + retry added 2026-08-05 (BUG-L19).** Both the door-assist and presence branches now
+wait 3s after `switch.turn_on` and retry once (logging a warning) if `switch.garage_light`
+didn't confirm `on` — a Sonoff device mid-reconnect can swallow the command silently otherwise.
+See BUG-L19 (this file, Section 7) and ALERTS_CONTRACT.md BUG-A17 for the reload-storm root cause.
 
 ---
 
@@ -549,6 +554,20 @@ open.
 
 ---
 
+### BUG-L19 [MEDIUM] — ✅ FIXED 2026-08-05 — Garage light didn't turn on for a 21:43 arrival; root cause is a Sonoff reload storm, not lighting logic
+**Files:** `packages/lighting/lighting_boundary.yaml` (`lighting_gate_open_assist`), `packages/lighting/lighting_garage.yaml` (`lighting_garage_smart_control`) — symptom. Root cause in `packages/alerts/alerts_doors.yaml`, see ALERTS_CONTRACT.md BUG-A17.
+**Reported by:** user, after a 2026-08-04 21:43 arrival where the garage light never came on and the front security light turned off "after a while" (the second part was working as designed — see the 15-min bedtime cap under Night Arrival above).
+
+**Investigated live** via Supervisor REST API history + logbook replay of the actual arrival (not a re-derivation from docs): gate opened 21:43:45 → `lighting_gate_open_assist` fired its `switch.turn_on` on `switch.garage_light` + `switch.front_house_security_light`; `garage_occupied` went on at 21:44:07 → `lighting_garage_smart_control`'s presence branch also tried `switch.turn_on` on `switch.garage_light`. Both calls landed inside a window (21:40:50–21:45:15) where `switch.garage_light`'s physical Sonoff device was `unavailable` — the commands silently no-opped, and neither automation retriggers once a device comes back (both triggers are edge-based and had already fired). `front_house_security_light` is a different physical Sonoff device and was unaffected, which is why it turned on fine.
+
+**Root cause:** `binary_sensor.garage_door_stale` (`alerts_doors.yaml`) was defined as "door sensor state hasn't changed in >300s" — true almost constantly for a door that legitimately sits open/closed for hours — which fired a full Sonoff config-entry reload roughly every 6 minutes, 24/7, since 2026-03-31 (~4 months), briefly dropping every Sonoff entity in the house each cycle. This time one device's reconnect took ~4.5 min instead of the usual ~4s, and it happened to overlap the arrival. Full detail: ALERTS_CONTRACT.md BUG-A17.
+
+**Fix (lighting side):** both `lighting_gate_open_assist` and `lighting_garage_smart_control`'s presence/door-assist branches now wait 3s after `switch.turn_on` and retry once (with a logbook warning) if the target didn't confirm `on` — a safety net for any future transient device drop, independent of the BUG-A17 root-cause fix.
+
+**Deployed live:** YAML validated (`check_config` passed), `template` + `automation` reloaded via Supervisor API, no restart required.
+
+---
+
 ## Section 8: Cross-Domain Dependencies
 
 | Entity | Provider | Consumed by |
@@ -707,4 +726,7 @@ claimed the night action turned on entrance + front_security (it only ever turne
 *Updated: 2026-07-17 — BUG-L18 closed: `bar_bedtime_cutoff` now requires the bar to have actually
 been open (base bar lighting / patio lights / Apple TV) before firing, instead of notifying
 "Bar closed" on every bedtime regardless of use.*
+*Updated: 2026-08-05 — BUG-L19 closed: garage light missed a real 21:43 arrival because its Sonoff
+device was mid-reconnect (root cause: ALERTS_CONTRACT.md BUG-A17, a 6-min reload storm). Added
+verify+retry to `lighting_gate_open_assist` and `lighting_garage_smart_control`'s turn_on calls.*
 *Next review: After new AI cameras installed (cam motion valid sensors change)*

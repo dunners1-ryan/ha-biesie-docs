@@ -260,6 +260,7 @@ only indirectly. Only grid-offline data appears in the `devices` attribute.
 | Transient gate close | `automation.notify_gate_closed` → `script.notify_security_event` | ✅ information |
 | Escalation alerts | ~~Via `alert.door_alert` → `STD_Alerts`~~ **Correction:** `STD_Alerts` is dead (BUG-A10) and was never the live path here — real delivery is `automation.route_door_sustained_open_escalation` (fires once) + `automation.route_door_alert_repeat_reminder` (5/10/30/60 min), both added 2026-07-13, both calling `script.notify_security_event` directly. `alert.door_alert` itself still exists but its `notifiers: [STD_Alerts]` delivery is a no-op. | ✅ working path documented; `alert:` entity delivery still dead but unused |
 | Camera evidence + cancel | `route_door_sustained_open_escalation` / `route_door_alert_repeat_reminder` snapshot the relevant gate camera fresh on every send (ipcam03 for `main_gate_sensor`, cam04 for `front_security_gate_sensor`) and attach a "Cancel Alert" button (phone action `CANCEL_GATE_ALERT` + Telegram `/cancel_gate_alert`) that mutes `input_boolean.gate_alert_snoozed` for the rest of the open cycle | ✅ added 2026-07-17, see BUG-A13 |
+| Sonoff recovery watchdog | `binary_sensor.garage_door_stale` → `automation.recover_sonoff_if_stale` (`homeassistant.reload_config_entry` on the garage door sensor's Sonoff config entry) | ✅ fixed 2026-08-05, see BUG-A17 — was firing ~every 6 min 24/7 (false "stale" on a sensor that just hadn't toggled), now requires genuine unavailable/unknown state |
 
 **PASS.** BUG-A06 fixed 2026-04-16. `sensor.doors_open_alert_severity` deleted.
 `sensor.door_alert_context` is now the unified single source with tiered logic across
@@ -1124,11 +1125,45 @@ entirely, gluing them together with no separator (`"...sensors:sensor.x"`); the 
 
 ---
 
+### BUG-A17 — `garage_door_stale` watchdog reloaded the entire Sonoff integration every ~6 min, 24/7, for ~4 months — caused a real missed garage light
+**Severity:** Medium (self-inflicted connectivity instability; directly caused a user-visible lighting miss)
+**Files:** `packages/alerts/alerts_doors.yaml` (`binary_sensor.garage_door_stale`, `automation.recover_sonoff_if_stale`)
+**Status:** ✅ FIXED 2026-08-05
+**Reported by:** user asking why the garage light didn't turn on for a 2026-08-04 21:43 arrival — not reported as a watchdog/reload issue, that was found during investigation.
+
+`garage_door_stale` was defined as "`binary_sensor.garage_door_sensor`'s state hasn't changed in
+>300s" → `recover_sonoff_if_stale` then called `homeassistant.reload_config_entry` on the whole
+Sonoff config entry. A door contact sensor is event-driven, not a poller — sitting open or closed
+unchanged for hours is completely normal, not evidence of staleness. The result: this fired
+roughly every 6 minutes, continuously, since the automation was added 2026-03-31 (~4 months),
+briefly dropping *every* Sonoff entity in the house each cycle (garage light 3-gang device, garage
+door sensor itself, front house security light on a separate physical Sonoff device, etc.).
+Confirmed live via Supervisor API logbook replay — the every-6-min `unavailable` blip pattern is
+present in daytime history too, not just at night.
+
+Normally the reconnect is ~4s and invisible. On 2026-08-04 the garage 3-gang device's reconnect
+took ~4.5 min (21:40:50–21:45:15) instead, and that window happened to exactly overlap a real
+21:43 arrival — both `lighting_gate_open_assist` and `lighting_garage_smart_control`'s
+`switch.turn_on` calls on `switch.garage_light` landed while the device was still unavailable and
+silently no-opped. See LIGHTING_CONTRACT.md BUG-L19 for the lighting-side detail and the retry
+safety net added there.
+
+**Fix:** `garage_door_stale` now requires the entity to actually be reporting
+`unavailable`/`unknown` (real connectivity loss) for >300s, not just "hasn't toggled" — the 6-min
+reload storm stops; `recover_sonoff_if_stale` still runs its intended job of nudging a genuinely
+dead connection back to life.
+
+**Deployed live:** YAML validated (`check_config` passed), `template` domain reloaded via
+Supervisor API, confirmed `binary_sensor.garage_door_stale` reads `off` immediately after (door
+sensor was `on`, not `unavailable`, at reload time).
+
+---
+
 ## Section 9: Summary of Pipeline Audit Results
 
 | Domain | Binary | Context | Alert entity | Aggregator | Result | Updated |
 |---|---|---|---|---|---|---|
-| Doors | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-07-06 sustained-open escalation delivery fixed (BUG-A10); 2026-07-17 camera evidence + Cancel Alert button added (BUG-A13) |
+| Doors | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-07-06 sustained-open escalation delivery fixed (BUG-A10); 2026-07-17 camera evidence + Cancel Alert button added (BUG-A13); 2026-08-05 garage_door_stale reload-storm fixed (BUG-A17) |
 | Network | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A05; 2026-07-06 delivery fixed (BUG-A10) |
 | Power | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A07; 2026-07-06 warning-tier delivery fixed (BUG-A10) |
 | Temperature | ✅ (x4) | ✅ (x4) | ✅ (x4) | ✅ (triggered) | PASS | 2026-06-19 BUG-A03 |
@@ -1162,6 +1197,7 @@ entirely, gluing them together with no separator (`"...sensors:sensor.x"`); the 
 | BUG-A12 | **Low** | ✅ Fixed 2026-07-07 | Garden `TURN_OFF_POND_PUMP` mobile action button unreachable — `script.notify_system_event` had no `actions:` passthrough; added, garden alert now passes the button | notify_system_event.yaml, alerts_garden.yaml |
 | BUG-A13 | **Low** | ✅ Fixed 2026-07-17 | Gate alerts had no camera evidence and no way to cancel a false-positive repeat cycle — fresh snapshot per send + `input_boolean.gate_alert_snoozed` + Cancel Alert button (phone + Telegram) | alerts_doors.yaml, notify_security_events.yaml |
 | BUG-A16 | **Low** | ✅ Fixed 2026-08-04 | Critical Sensor Health push notification rendered with stray blank lines/indentation before the sensor list — un-trimmed Jinja block tags; added `-` trim modifiers + explicit single-space separator | alerts_system_health.yaml |
+| BUG-A17 | **Medium** | ✅ Fixed 2026-08-05 | `garage_door_stale` keyed on "door sensor hasn't toggled in 5min" (normal, not stale) — reloaded the whole Sonoff config entry ~every 6 min, 24/7, for ~4 months; one such reload's slow reconnect silently ate a real garage-light turn_on during a 21:43 arrival. Fixed: staleness now requires the entity to actually be unavailable/unknown | alerts_doors.yaml (see LIGHTING_CONTRACT.md BUG-L19) |
 
 **Open: 0 issues**  
 **Fixed 2026-08-04: BUG-A16**
@@ -1175,6 +1211,10 @@ entirely, gluing them together with no separator (`"...sensors:sensor.x"`); the 
 ---
 
 *Contract generated: 2026-04-13*
+*Last updated: 2026-08-05 — BUG-A17 (`garage_door_stale` was reloading the entire Sonoff config
+entry ~every 6 min, 24/7, since 2026-03-31 — redefined staleness to require real
+unavailable/unknown state instead of "hasn't toggled in 5min"; see LIGHTING_CONTRACT.md BUG-L19
+for the missed-garage-light symptom this caused)*
 *Last updated: 2026-08-04 — BUG-A16 (Critical Sensor Health push notification had stray
 blank lines/indentation before the sensor list due to un-trimmed Jinja block tags; added
 `-` trim modifiers throughout plus an explicit single-space separator, since full trimming

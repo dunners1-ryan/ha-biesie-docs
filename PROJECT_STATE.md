@@ -5,6 +5,38 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **Garage light didn't turn on for a real 21:43 arrival; front security light's
+      15-min auto-off looked odd but wasn't — investigated live, found a 4-month-old
+      self-inflicted Sonoff reload storm (BUG-A17/BUG-L19) — 2026-08-05.** User: "why
+      didn't garage lights turn on when came home after 9:30? front security lights came
+      and turned off after time — seems need to optimise?" Investigated via Supervisor
+      REST API history + logbook replay of the actual 2026-08-04 21:43 arrival (not
+      re-derived from docs). Front security light: **not a bug** — `lighting_gate_open_assist`
+      turned it on at gate-open (21:43:46), then `lighting_arrival_night.yaml`'s documented
+      15-min bedtime-gated auto-off turned it off at 21:59:14, exactly as designed. Garage
+      light: **real bug.** Gate opened 21:43:45 → `lighting_gate_open_assist` tried
+      `switch.turn_on` on `switch.garage_light`; `garage_occupied` went on at 21:44:07 →
+      `lighting_garage_smart_control`'s presence branch also tried. Both calls landed inside
+      a window (21:40:50–21:45:15) where `switch.garage_light`'s physical Sonoff device was
+      `unavailable` — both silently no-opped, and neither automation retriggers once a
+      device recovers (edge-triggered, already fired). **Root cause:**
+      `binary_sensor.garage_door_stale` (`alerts_doors.yaml`) was defined as "door sensor
+      state hasn't changed in >300s" — true almost constantly for a door that legitimately
+      sits open/closed for hours — which fired `automation.recover_sonoff_if_stale`
+      (`homeassistant.reload_config_entry` on the whole Sonoff integration) roughly **every
+      6 minutes, 24/7, since 2026-03-31** (~4 months, confirmed via daytime history too, not
+      just night), briefly dropping every Sonoff entity in the house each cycle. Normally the
+      reconnect is ~4s and invisible; this time the garage 3-gang device took ~4.5 min, and it
+      happened to overlap the arrival. **Fix:** (1) `garage_door_stale` now requires the
+      entity to actually report `unavailable`/`unknown` for >300s, not just "hasn't toggled" —
+      stops the reload storm entirely. (2) Added a verify+retry safety net to both
+      `lighting_gate_open_assist` and `lighting_garage_smart_control`: wait 3s after
+      `switch.turn_on`, retry once (with a logbook warning) if the target didn't confirm
+      `on` — covers any future transient device drop independent of fix (1). Deployed live:
+      `check_config` passed, `template` + `automation` reloaded via Supervisor API, confirmed
+      `binary_sensor.garage_door_stale` now reads `off` correctly. No restart required, no
+      entity renames. See ALERTS_CONTRACT.md BUG-A17, LIGHTING_CONTRACT.md BUG-L19.
+
 - [x] **BUG-INFRA-TUYA01 follow-up (E9) — geyser Tuya-stale alerts now self-heal
       immediately instead of just warning and waiting — 2026-08-05.** User: "geyser
       went off HA again today but alert didn't include the reload option?" Investigated
