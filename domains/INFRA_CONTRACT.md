@@ -446,6 +446,69 @@ shared script's own notification (info on success, warning + retry button on fai
 is now the single message for the event — the branches no longer send their own
 `notify_power_event` in the stale case, avoiding a duplicate/conflicting alert.
 
+**E10 update (2026-08-06) — E9's "stale == probably fine" assumption doesn't
+generalize; a genuinely expired Tuya auth token was silently swallowed for a full
+morning.** User: "Tuya app credentials expired... did auth them last night... but
+nothing turned on this morning." Investigated live via Supervisor API history +
+logbook replay. Root cause was NOT the same failure mode as the original
+2026-08-04 incident: this time it was a real expired OAuth token, not just a dead
+MQTT thread with REST commands still working. `sensor.tuya_cloud_health` went stale
+twice overnight (~18:42–22:42 and ~02:57–06:57 SAST) — the second window covered
+the *entire* scheduled morning heating sequence (04:00 primary + 04:15/04:45/05:15/
+05:45 backstop retries, 5 attempts total). Every attempt's `geyser_verified_turn_on`
+detected the stale feedback and, per E9, silently called
+`script.tuya_reload_and_verify` instead of alerting — but reloading a config entry
+with an expired token can't restore function, so every one of those "✅ reload
+succeeded" notifications was a false positive (confirmed via `sensor.geyser_heat_pump_power`
+staying flat at 0.0W the entire time — the geyser never actually drew any power).
+Net effect: **zero critical alerts reached the user across 5 consecutive real
+failures**, because E9's stale-feedback branch always assumed the benign case. The
+user only discovered it themselves and fixed it with a manual run + a fresh Tuya
+QR-code reauth around 08:07 SAST — the Tuya config entry's `modified_at` timestamp
+lines up with that moment exactly, not with the reauth the user believed they'd
+done the previous night.
+
+**Fix.** `geyser_verified_turn_on`/`_off` (`geyser_automations.yaml`) no longer
+trust stale Tuya feedback alone as evidence the command landed. Both scripts now
+baseline `sensor.inverter_load_power` (Solarman-sourced, no Tuya dependency) before
+issuing the command; when a retry fails to confirm AND feedback is stale, they
+cross-check real evidence — the geyser's own power sensor if it's actually
+reporting (>300W confirms on / <200W confirms off), else a >700W jump/drop in
+house load — before deciding to stay quiet. Only genuine evidence of the state
+change suppresses the alert; otherwise it now sends the critical alert (reworded to
+suggest the Tuya app may need re-authenticating) **and** still triggers the reload.
+Verified the 700W threshold against three real ramp-up curves (cold morning, midday,
+post-outage) — the geyser crosses 300W within ~1 min and 700W within 1.5–4.5 min in
+every observed case, comfortably inside the ~10-minute worst-case point (after both
+5-minute retry waits) where this check actually runs, so no false-negative risk from
+compressor ramp-up lag. Deployed live: `check_config` valid, `script` domain
+reloaded via Supervisor API, both scripts confirmed present and idle.
+
+**Same-day follow-up, NOT yet resolved — flagged, not fixed:** later the same day
+(2026-08-06), Tuya went stale a **third** time (~12:22–12:24 SAST) and the geyser's
+midday solar-gated + forced-minimum turn-on attempts (11:00/11:30/12:00/14:00 SAST,
+despite ~6.4kW PV) all failed to confirm "on" — only recovered via the separate
+`geyser_period_energy_snapshot` midday safety-net backstop at 15:00. Each of the 4
+failed attempts completed in **under 1 second** in the logbook, nowhere near the
+5-minute-per-retry timing `geyser_verified_turn_on` should take, and no critical
+alert was observed for any of them. This means it's **not yet confirmed that the
+E10 fix above actually engages correctly** on this pattern — the fast completion is
+unexplained from logbook/history data alone (no script-trace access over the REST
+API from this session). **Next session: pull the actual script traces (Settings →
+Automations → `geyser_verified_turn_on` → traces) for one of these fast-completing
+midday runs and confirm whether the retry/evidence logic is being reached at all,**
+before treating E10 as fully proven. Also worth reconsidering: 3 Tuya stale cycles
+in under 24h (vs. isolated incidents before) suggests the underlying auth/session
+problem may not be fully resolved by the 08:07 reauth either.
+
+**Open question, not resolved this session:** user recalled a prior "6 second
+reload" mechanism that they believe was removed around the same time as E9 and
+suspect is linked to needing to reauth more often lately. No such interval was
+found in `tuya_health.yaml`'s git history (the whole watchdog package is only
+2 days old, added 2026-08-04) — if it exists, it's likely in the `custom_components/tuya`
+integration itself (e.g. a `scan_interval`), not these packages. Flagged for the
+user to point at directly in a future session rather than guessed at here.
+
 **IMP-IDS01 [MEDIUM] — IDS Hyyp has no package file**
 The IDS alarm system has an integration installed but zero package-based config.
 Any alarm automations are buried in `automations.yaml`. Recommend creating

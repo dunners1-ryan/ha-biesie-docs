@@ -2371,6 +2371,42 @@ failure) is now the only message for the event; the branches no longer send a se
 `notify_power_event` in the stale case. Deployed: YAML validated, `check_config`
 passed, `script` domain reloaded, confirmed live.
 
+**E10 follow-up (2026-08-06) — reload can't fix an expired token, and E9's
+assumption was silently wrong for a full morning.** User: geyser never turned on
+2026-08-06, despite a Tuya reauth the night before. Live investigation (Supervisor
+API history/logbook, not re-derived from docs) found `sensor.tuya_cloud_health`
+stale twice overnight — the second window (~02:57–06:57 SAST) covered the entire
+morning turn-on sequence (5 attempts: 04:00 + 04:15/04:45/05:15/05:45 backstop).
+Every attempt hit E9's stale branch and silently reloaded instead of alerting —
+each "✅ reload succeeded" was a false positive (a config-entry reload can't fix a
+genuinely expired OAuth token, only a real reauth can), confirmed via
+`sensor.geyser_heat_pump_power` staying flat 0.0W throughout. **Zero critical
+alerts reached the user across 5 real failures.** User discovered and fixed it
+themselves with a manual run + Tuya QR reauth at ~08:07 SAST (matches the Tuya
+config entry's `modified_at` exactly — the "reauth last night" the user believed
+they'd done evidently didn't take effect on the HA side).
+
+**Fix:** `geyser_verified_turn_on`/`_off` (`geyser_automations.yaml`) now baseline
+`sensor.inverter_load_power` (Solarman-sourced, no Tuya dependency) before issuing
+the command, and cross-check real evidence — the geyser's own power sensor if
+available, else a >700W house-load jump/drop — before trusting a stale-feedback
+"probably fine" verdict. Only real evidence suppresses the alert; otherwise it now
+sends the critical alert (reworded to suggest re-authenticating) and still reloads.
+Threshold verified against 3 real ramp-up curves — geyser crosses 700W within
+1.5–4.5 min every time, well inside the ~10-min check point. Deployed live:
+`check_config` valid, `script` domain reloaded.
+
+**NOT yet fully verified — flagged for next session.** Later the same day, Tuya
+went stale a third time (~12:22–12:24 SAST) and the midday solar-gated +
+forced-minimum turn-on (11:00/11:30/12:00/14:00 SAST, ~6.4kW PV available) all
+failed to confirm "on," only recovering via the separate midday safety-net backstop
+at 15:00. Each failed attempt completed in under 1 second in the logbook — not the
+5-minute-per-retry timing the script should take — and no critical alert was
+observed. Whether E10's evidence-check logic is actually being reached on this
+pattern is unconfirmed; needs script-trace inspection (not available over the REST
+API used this session) before treating the fix as proven end-to-end. See
+INFRA_CONTRACT.md BUG-INFRA-TUYA01 (E10) for full detail.
+
 ---
 
 ## 12. Error Signatures (Watchman-Confirmed)

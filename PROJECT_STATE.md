@@ -5,6 +5,55 @@
 
 ## ⚠️ OPEN TODO
 
+- [ ] **RESUME-HERE — Geyser turn-on still failing silently, part unresolved
+      (E10, BUG-INFRA-TUYA01) — 2026-08-06.** User: "Tuya app credentials
+      expired... did auth them last night... but nothing turned on this
+      morning," then "also no alerts at all this morning for no run." Live
+      investigation (Supervisor API history/logbook replay, corrected an
+      initial UTC/SAST timezone mixup mid-session on the P4 SOC question
+      first) found: `sensor.tuya_cloud_health` went stale twice overnight,
+      the second window (~02:57–06:57 SAST) covering the entire scheduled
+      morning turn-on sequence (5 attempts). E9's stale-feedback branch
+      (added the day before) silently reloaded on every attempt instead of
+      alerting, assuming "stale == command probably landed" — wrong this
+      time, since `sensor.geyser_heat_pump_power` stayed flat 0.0W the whole
+      window (confirmed via recorder — a real expired Tuya OAuth token, not
+      just dead MQTT feedback with REST still working). Zero critical alerts
+      reached the user across 5 real failures. User fixed it themselves with
+      a manual run + fresh Tuya QR reauth ~08:07 SAST (matches the Tuya
+      config entry's `modified_at` exactly — not the previous night as
+      believed). **Fix deployed live:** `geyser_verified_turn_on`/`_off`
+      (`geyser_automations.yaml`) now baseline `sensor.inverter_load_power`
+      (no Tuya dependency) and cross-check real power/load evidence before
+      trusting a stale-feedback "probably fine" verdict — only genuine
+      evidence suppresses the alert, otherwise it alerts critical AND
+      reloads. Threshold (700W) verified against 3 real ramp-up curves
+      (crosses 700W within 1.5–4.5 min every time, well inside the ~10-min
+      check point) — user specifically asked about ramp timing before
+      approving. `check_config` valid, `script` domain reloaded, both
+      scripts confirmed idle. **NOT fully closed:** same afternoon, Tuya
+      went stale a 3rd time (~12:22–12:24 SAST) and 4 midday turn-on
+      attempts (11:00/11:30/12:00/14:00, ~6.4kW PV available) all failed to
+      confirm despite strong solar — only recovered via the separate midday
+      safety-net backstop at 15:00. Each failed attempt completed in <1s in
+      the logbook (not the expected 5-min-per-retry timing), and no critical
+      alert was observed for any of them — whether E10's fix actually
+      engages on this pattern is **unconfirmed**, since script-trace
+      inspection isn't available over the REST API this session used.
+      **Next session: open Settings → Automations → `geyser_verified_turn_on`
+      → traces in the UI for one of the fast-completing midday runs and
+      confirm the retry/evidence logic is actually being reached.** Also
+      worth a fresh look: 3 Tuya stale cycles in <24h (vs. isolated
+      incidents before this week) suggests the auth/session problem may not
+      be fully resolved by the 08:07 reauth either. User separately recalled
+      a "6 second reload" mechanism they believe was removed around the same
+      time as E9 and suspect is linked — not found in `tuya_health.yaml`'s
+      git history (whole watchdog is 2 days old); if real, likely lives in
+      `custom_components/tuya` itself, not these packages — ask user to
+      point at it directly next time rather than guessing. See
+      INFRA_CONTRACT.md BUG-INFRA-TUYA01 (E10), POWER_CONTRACT.md Issue 26
+      (E10 follow-up).
+
 - [x] **Garage light didn't turn on for a real 21:43 arrival; front security light's
       15-min auto-off looked odd but wasn't — investigated live, found a 4-month-old
       self-inflicted Sonoff reload storm (BUG-A17/BUG-L19) — 2026-08-05.** User: "why
