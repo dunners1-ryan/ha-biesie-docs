@@ -509,6 +509,61 @@ found in `tuya_health.yaml`'s git history (the whole watchdog package is only
 integration itself (e.g. a `scan_interval`), not these packages. Flagged for the
 user to point at directly in a future session rather than guessed at here.
 
+**E11 update (2026-08-06/07) — the real cause of the midday silent failures was
+an uncaught exception, and the fault is house-wide, not geyser-specific.** Same
+day as E10, the geyser's midday turn-on attempts (11:00/11:30/12:00/14:00 SAST,
+~6.4kW PV available) all failed with zero alert, each completing in under 1
+second — far too fast for E10's retry logic to have run. Pulled actual script
+traces to find out why: HA's trace data isn't exposed over the REST API used
+throughout this session, so this required a throwaway Python venv +
+`websocket-client` against `ws://supervisor/core/websocket` (auth via the same
+Supervisor bearer token, then `trace/list` / `trace/get` websocket commands).
+The traces showed `switch.turn_on` throwing an **uncaught exception** —
+`network error:(-9999999) sign invalid` — on the very first action
+(`sequence/1`), aborting the entire script instantly
+(`script_execution: "error"`) before it ever reached E10's retry/evidence/alert
+logic. Confirmed 4 occurrences this way: 3 on `geyser_verified_turn_on` today,
+1 on `geyser_verified_turn_off` the evening before (2026-08-05 21:00) — every
+one silent.
+
+**Fix:** added `continue_on_error: true` to all 4 `switch.turn_on`/
+`switch.turn_off` calls (initial + retry, both scripts,
+`geyser_automations.yaml`) — a hard Tuya API error now flows into the same
+wait/retry/evidence/alert path as a silent no-op failure instead of crashing
+the script before any notification code runs. Deployed live: `check_config`
+valid, `script` domain reloaded, both scripts confirmed idle.
+
+**Scope check via user-supplied HA Logs screenshot — this is bigger than the
+geyser.** Filtering HA's own error log for "sign invalid" shows the fault has
+been occurring since **2026-08-05 04:00:00, 34+ hours**, not just
+2026-08-06 (14 occurrences at the automation level, 11 at the script level for
+geyser turn-on alone, plus 2 more on geyser turn-off). **It also hits Pool
+Pump** — `automation.pool_pump_solar_control` ("Pool Pump — Solar-Aware Daily
+Control," `power_automations.yaml`) shows the identical error signature, 14
+occurrences since 12:00:01, on a completely different Tuya device
+(`switch.pool_pump_switch`). This confirms the fault is a **Tuya Cloud
+command-signing problem at the integration level** — not anything specific to
+how the geyser scripts are written. `pool_pump_solar_control` has NOT been
+given the `continue_on_error` treatment yet; flagged for a follow-up session
+rather than fixed opportunistically without reviewing that automation's own
+structure first.
+
+**Positive data point — the fault is intermittent, not a hard outage.** The
+evening of 2026-08-06 ran with zero errors: on by 16:18 SAST, at-temperature by
+19:06 SAST, through Sports Night, off at 22:00 SAST with a clean confirmed
+state change and notification, 4.46 kWh delivered. Consistent with the pattern
+of repeated stale/reload cycles rather than a single continuous break.
+
+**Still open, not resolved:** root cause of "sign invalid" itself. Two
+untested candidates: (1) host clock/NTP drift against Tuya's servers — Tuya
+signs requests with a timestamp and rejects signatures outside its tolerance
+window; `timedatectl`/`chronyc` were not reachable from this session's shell
+to check. (2) The frequency of `tuya_reload_and_verify`'s own auto-reloads
+possibly corrupting signing state — ties to the user's recalled (but
+unconfirmed) "6 second reload" mechanism above. `continue_on_error` only
+restores *visibility* into these failures; it does not fix why Tuya rejects
+the signature in the first place. See POWER_CONTRACT.md Issue 26 (E11).
+
 **IMP-IDS01 [MEDIUM] — IDS Hyyp has no package file**
 The IDS alarm system has an integration installed but zero package-based config.
 Any alarm automations are buried in `automations.yaml`. Recommend creating

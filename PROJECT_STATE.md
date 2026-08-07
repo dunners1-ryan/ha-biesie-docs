@@ -5,54 +5,93 @@
 
 ## ⚠️ OPEN TODO
 
-- [ ] **RESUME-HERE — Geyser turn-on still failing silently, part unresolved
-      (E10, BUG-INFRA-TUYA01) — 2026-08-06.** User: "Tuya app credentials
+- [ ] **RESUME-HERE — Tuya "sign invalid" is a house-wide, 34h+-running
+      command-signing fault, not a geyser-specific issue (E10+E11,
+      BUG-INFRA-TUYA01) — 2026-08-06/07.** User: "Tuya app credentials
       expired... did auth them last night... but nothing turned on this
-      morning," then "also no alerts at all this morning for no run." Live
-      investigation (Supervisor API history/logbook replay, corrected an
-      initial UTC/SAST timezone mixup mid-session on the P4 SOC question
-      first) found: `sensor.tuya_cloud_health` went stale twice overnight,
-      the second window (~02:57–06:57 SAST) covering the entire scheduled
-      morning turn-on sequence (5 attempts). E9's stale-feedback branch
-      (added the day before) silently reloaded on every attempt instead of
+      morning," then "also no alerts at all this morning for no run."
+
+      **E10 (morning incident).** Live investigation (Supervisor API
+      history/logbook replay) found `sensor.tuya_cloud_health` went stale
+      twice overnight, the second window (~02:57–06:57 SAST) covering the
+      entire scheduled morning turn-on sequence (5 attempts). E9's
+      stale-feedback branch silently reloaded on every attempt instead of
       alerting, assuming "stale == command probably landed" — wrong this
-      time, since `sensor.geyser_heat_pump_power` stayed flat 0.0W the whole
-      window (confirmed via recorder — a real expired Tuya OAuth token, not
-      just dead MQTT feedback with REST still working). Zero critical alerts
-      reached the user across 5 real failures. User fixed it themselves with
-      a manual run + fresh Tuya QR reauth ~08:07 SAST (matches the Tuya
-      config entry's `modified_at` exactly — not the previous night as
-      believed). **Fix deployed live:** `geyser_verified_turn_on`/`_off`
-      (`geyser_automations.yaml`) now baseline `sensor.inverter_load_power`
-      (no Tuya dependency) and cross-check real power/load evidence before
-      trusting a stale-feedback "probably fine" verdict — only genuine
-      evidence suppresses the alert, otherwise it alerts critical AND
-      reloads. Threshold (700W) verified against 3 real ramp-up curves
-      (crosses 700W within 1.5–4.5 min every time, well inside the ~10-min
-      check point) — user specifically asked about ramp timing before
-      approving. `check_config` valid, `script` domain reloaded, both
-      scripts confirmed idle. **NOT fully closed:** same afternoon, Tuya
-      went stale a 3rd time (~12:22–12:24 SAST) and 4 midday turn-on
-      attempts (11:00/11:30/12:00/14:00, ~6.4kW PV available) all failed to
-      confirm despite strong solar — only recovered via the separate midday
-      safety-net backstop at 15:00. Each failed attempt completed in <1s in
-      the logbook (not the expected 5-min-per-retry timing), and no critical
-      alert was observed for any of them — whether E10's fix actually
-      engages on this pattern is **unconfirmed**, since script-trace
-      inspection isn't available over the REST API this session used.
-      **Next session: open Settings → Automations → `geyser_verified_turn_on`
-      → traces in the UI for one of the fast-completing midday runs and
-      confirm the retry/evidence logic is actually being reached.** Also
-      worth a fresh look: 3 Tuya stale cycles in <24h (vs. isolated
-      incidents before this week) suggests the auth/session problem may not
-      be fully resolved by the 08:07 reauth either. User separately recalled
-      a "6 second reload" mechanism they believe was removed around the same
-      time as E9 and suspect is linked — not found in `tuya_health.yaml`'s
-      git history (whole watchdog is 2 days old); if real, likely lives in
-      `custom_components/tuya` itself, not these packages — ask user to
-      point at it directly next time rather than guessing. See
-      INFRA_CONTRACT.md BUG-INFRA-TUYA01 (E10), POWER_CONTRACT.md Issue 26
-      (E10 follow-up).
+      time (`sensor.geyser_heat_pump_power` stayed flat 0.0W throughout,
+      confirming a real expired Tuya OAuth token, not just dead MQTT
+      feedback with REST still working). Zero critical alerts reached the
+      user across 5 real failures. User fixed it with a manual run + fresh
+      Tuya QR reauth ~08:07 SAST (matches the Tuya config entry's
+      `modified_at` exactly — not the previous night as believed). **Fix:**
+      `geyser_verified_turn_on`/`_off` now baseline
+      `sensor.inverter_load_power` and cross-check real power/load evidence
+      before trusting a stale-feedback verdict — only genuine evidence
+      suppresses the alert. 700W threshold verified against 3 real ramp-up
+      curves (crosses within 1.5–4.5 min every time, well inside the ~10-min
+      check point).
+
+      **E11 (root cause of the midday failures, found via UI script
+      traces).** Same afternoon, 4 midday turn-on attempts
+      (11:00/11:30/12:00/14:00, ~6.4kW PV available) all failed silently —
+      each completed in <1s, no alert. Pulled actual script traces via the
+      HA websocket API (no REST equivalent; used a throwaway venv +
+      `websocket-client` against `ws://supervisor/core/websocket`,
+      `trace/list` + `trace/get`) and found the real cause:
+      `switch.turn_on` was throwing an **uncaught exception** —
+      `network error:(-9999999) sign invalid` — on the very first action,
+      crashing the whole script (`script_execution: "error"`) before it
+      ever reached the retry/evidence/alert logic from E10. Confirmed 4
+      occurrences over 2 days this way (3 turn-on today, 1 turn-off the
+      evening before), zero alerted. **Fix:** added `continue_on_error: true`
+      to all 4 `switch.turn_on`/`switch.turn_off` calls (initial + retry,
+      both scripts) — a hard Tuya API error now flows into the same
+      wait/retry/evidence/alert path instead of crashing silently.
+      `check_config` valid, `script` domain reloaded, both scripts idle.
+
+      **Scope is bigger than geyser — confirmed via user-supplied HA Logs
+      screenshot.** Filtering HA's own error log for "sign invalid" shows:
+      this has been happening since **2026-08-05 04:00:00 — 34+ hours**, not
+      just 2026-08-06 (14 occurrences at the `geyser_turn_on_morning_midday_evening`
+      automation level, 11 at the `geyser_verified_turn_on` script level, 2
+      more on `geyser_verified_turn_off` at the 2026-08-05 21:00 evening
+      hard-off). **And it hits Pool Pump too** — "Pool Pump — Solar-Aware
+      Daily Control: Choose at step 1: choice 7... sign invalid," 14
+      occurrences since 12:00:01 — a completely different automation/device
+      (`switch.pool_pump_switch`, `power_automations.yaml` id
+      `pool_pump_solar_control`), confirming this is a **Tuya Cloud
+      command-signing fault at the integration level**, not anything
+      specific to the geyser scripts' design. `pool_pump_solar_control` has
+      NOT been given the same `continue_on_error` treatment — flagged, not
+      yet fixed, pending user confirmation before touching a different
+      domain's automation.
+
+      **Positive data point:** the evening of 2026-08-06 ran cleanly with no
+      errors — on by 16:18 SAST (ahead of the 17:00 check), at-temperature
+      by 19:06 SAST (163 min heat-up), through Sports Night, off at 22:00
+      SAST with confirmed state + notification, 4.46 kWh delivered. So the
+      underlying fault is intermittent, not a hard-broken integration —
+      consistent with the 3 stale/reload cycles seen this week rather than a
+      single persistent outage.
+
+      **Still genuinely open — not resolved:**
+      - [ ] Root cause of "sign invalid" itself is unknown — candidates not
+            yet checked: host clock/NTP sync vs. Tuya's server (Tuya signs
+            requests with a timestamp; `timedatectl`/`chronyc` weren't
+            reachable from this session's shell), or the frequent
+            `tuya_reload_and_verify` auto-reloads themselves corrupting
+            signing state (ties to the user's recalled "6 second reload"
+            mechanism, still not located in this repo's history).
+      - [ ] `pool_pump_solar_control` (and possibly the pond pump, another
+            Tuya device) likely need the same `continue_on_error` safety net
+            as geyser — not yet applied.
+      - [ ] `continue_on_error` only makes failures visible again; it does
+            not fix why Tuya is rejecting the signature. Real fix is
+            upstream — likely needs a genuine Tuya re-auth or a deeper look
+            at `custom_components/tuya`'s token/signing refresh, not another
+            HA-side patch.
+
+      See INFRA_CONTRACT.md BUG-INFRA-TUYA01 (E10/E11), POWER_CONTRACT.md
+      Issue 26 (E10/E11 follow-up).
 
 - [x] **Garage light didn't turn on for a real 21:43 arrival; front security light's
       15-min auto-off looked odd but wasn't — investigated live, found a 4-month-old

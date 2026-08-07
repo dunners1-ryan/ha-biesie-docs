@@ -2396,16 +2396,40 @@ Threshold verified against 3 real ramp-up curves — geyser crosses 700W within
 1.5–4.5 min every time, well inside the ~10-min check point. Deployed live:
 `check_config` valid, `script` domain reloaded.
 
-**NOT yet fully verified — flagged for next session.** Later the same day, Tuya
-went stale a third time (~12:22–12:24 SAST) and the midday solar-gated +
-forced-minimum turn-on (11:00/11:30/12:00/14:00 SAST, ~6.4kW PV available) all
-failed to confirm "on," only recovering via the separate midday safety-net backstop
-at 15:00. Each failed attempt completed in under 1 second in the logbook — not the
-5-minute-per-retry timing the script should take — and no critical alert was
-observed. Whether E10's evidence-check logic is actually being reached on this
-pattern is unconfirmed; needs script-trace inspection (not available over the REST
-API used this session) before treating the fix as proven end-to-end. See
-INFRA_CONTRACT.md BUG-INFRA-TUYA01 (E10) for full detail.
+**E11 (2026-08-06/07) — found the real cause via UI script traces: an uncaught
+exception, not a gap in E10's logic.** The midday attempts flagged above
+(11:00/11:30/12:00/14:00 SAST, ~6.4kW PV) all completed in under 1 second with
+zero alert — too fast for E10's retry logic to have run at all. Pulled actual
+script traces (no REST endpoint for this — used a throwaway Python venv +
+`websocket-client` against `ws://supervisor/core/websocket`, `trace/list` +
+`trace/get`) and found `switch.turn_on` was throwing an **uncaught exception**,
+`network error:(-9999999) sign invalid`, on the very first action — crashing
+the whole script instantly, before E10's retry/evidence/alert logic ever ran.
+Confirmed 4 such silent crashes over 2 days (3 turn-on, 1 turn-off the evening
+before). **Fix:** added `continue_on_error: true` to all 4
+`switch.turn_on`/`switch.turn_off` calls (initial + retry, both scripts) — a
+hard API error now flows into the same alert path as a normal no-op failure.
+Deployed live: `check_config` valid, `script` domain reloaded.
+
+**Scope is house-wide, confirmed via user-supplied HA Logs screenshot — not a
+geyser-script issue.** "sign invalid" has been occurring since **2026-08-05
+04:00:00, 34+ hours**, and also hits `automation.pool_pump_solar_control`
+(`switch.pool_pump_switch`, 14 occurrences) — a completely different Tuya
+device and automation. This is a Tuya Cloud command-signing fault at the
+integration level, not a design gap in these geyser scripts specifically.
+`pool_pump_solar_control` has not yet been given the same `continue_on_error`
+fix — flagged for follow-up.
+
+**Positive data point:** the evening of 2026-08-06 ran with zero errors — on
+by 16:18 SAST, at-temp by 19:06 SAST, off cleanly at 22:00 SAST, 4.46 kWh
+delivered — confirming the fault is intermittent, not a permanent break.
+
+**Still open:** root cause of "sign invalid" itself — untested candidates are
+host clock/NTP drift against Tuya's signing tolerance, or the auto-reload
+watchdog's own reload frequency corrupting signing state (possibly tied to the
+user's recalled, still-unlocated "6 second reload" mechanism).
+`continue_on_error` restores visibility only; it doesn't fix the underlying
+cause. See INFRA_CONTRACT.md BUG-INFRA-TUYA01 (E10/E11) for full detail.
 
 ---
 
