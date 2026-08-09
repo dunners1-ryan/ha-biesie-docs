@@ -93,6 +93,33 @@
       See INFRA_CONTRACT.md BUG-INFRA-TUYA01 (E10/E11), POWER_CONTRACT.md
       Issue 26 (E10/E11 follow-up).
 
+      **E12 update (2026-08-09) — both open root-cause candidates checked,
+      both ruled out; pool pump given the same safety net.** Host clock is
+      confirmed NTP-synced (Supervisor `/host/info`: `dt_synchronized: true,
+      use_ntp: true`) — rules out clock/signing-timestamp drift. The only
+      scheduled auto-reload (`tuya_cloud_stale_alert`) only fires after 4h+
+      of stale feedback, nowhere near a "6 second" cadence — rules out our
+      own reload frequency as self-inflicted (the user's recalled "6 second
+      reload" mechanism still wasn't located anywhere in this repo).
+      Confirmed this house runs HA core's **built-in** `tuya` integration
+      (not a custom component — only unused `localtuya` lives in
+      `custom_components/`), so the fault is most likely upstream in HA
+      core's own Tuya cloud client; core 2026.8.1 is available (installed:
+      2026.8.0), not confirmed whether it touches Tuya signing. Applied the
+      previously-flagged follow-up: `continue_on_error: true` added to all 7
+      `switch.turn_on`/`switch.turn_off` call sites in
+      `pool_pump_solar_control` (`power_automations.yaml`) — same scope as
+      the geyser E11 fix (stops a silent script crash from swallowing the
+      alert), not a full verified-turn-on rebuild, since this automation has
+      no separate verification script to extend evidence-checking into.
+      Deployed live: `check_config` valid, `automation` domain reloaded,
+      confirmed `automation.pool_pump_solar_aware_daily_control` state `on`
+      post-reload. **Still genuinely open:** the actual upstream cause of
+      "sign invalid" remains unconfirmed — next real recurrence likely still
+      needs a genuine Tuya re-auth, or watching for a fix in a future HA
+      core release. See INFRA_CONTRACT.md BUG-INFRA-TUYA01 (E12),
+      POWER_CONTRACT.md Issue 26 (E12).
+
 - [x] **Garage light didn't turn on for a real 21:43 arrival; front security light's
       15-min auto-off looked odd but wasn't — investigated live, found a 4-month-old
       self-inflicted Sonoff reload storm (BUG-A17/BUG-L19) — 2026-08-05.** User: "why
@@ -199,9 +226,8 @@
       all new entities confirmed live. Full writeup: INFRA_CONTRACT.md BUG-INFRA-TUYA01,
       POWER_CONTRACT.md Issue 26.
 
-- [ ] **OPEN — Network "AP Garage down" critical alerts fire from harmless ~2s UniFi
-      reconnect blips; anti-flap bypassed (candidate BUG-NET09) — found 2026-08-04, not yet
-      fixed (user has not decided).** User got 3 critical "Device(s) down: AP Garage
+- [x] **FIXED 2026-08-09 — Network "AP Garage down" critical alerts fired from harmless ~2s
+      UniFi reconnect blips; anti-flap bypassed (BUG-NET09) — found 2026-08-04.** User got 3 critical "Device(s) down: AP Garage
       Connected, AP Lounge Connected, AP Office Connected, AP Passage Connected, AP Bar
       Connected, ZenWiFi XD6 Connected" pushes in 40 min (14:02/14:07/14:12 SAST) while the
       UniFi console showed everything healthy (AP Garage uptime continuous at 15d+, never
@@ -218,10 +244,12 @@
       blip always computes `severity=critical` (6 devices down at once), so this trigger
       fires instantly on every such blip regardless of duration. Logbook confirmed all 3
       pushes fired via this exact trigger (`script.notify_system_event` called ~12-15ms
-      after each blip started). **Candidate fix (not applied — awaiting user decision):** add
-      a `for:` duration (e.g. `00:00:20`, matching the pattern already used on the sibling
-      "Route Critical Sensor Health Alert" automation) to that trigger. Logged as BUG-NET09
-      (open) in NETWORK_CONTRACT.md Section 6 + Section 8 pending the fix decision.
+      after each blip started). **Fix (applied 2026-08-09):** added `for: "00:00:20"` to that
+      trigger, matching the pattern already used on the sibling from/to trigger in the same
+      automation. `check_config` valid, `automation` domain reloaded live via Supervisor API,
+      confirmed `automation.route_network_device_down_alert` state `on` post-reload. Not yet
+      live-verified against a real UniFi blip (none occurred during the fix session) — next
+      ~2s multi-AP reconnect is the real test. See NETWORK_CONTRACT.md Section 6 + Section 8.
 
 - [ ] **REVIEW 2026-08-11 — Program 4 SOC target test (90% → 100%), started 2026-08-04.**
       User asked to push Inverter Program 4 (14:00–17:00 window) target SOC from 90% to
@@ -244,6 +272,34 @@
       grid-import-during-P4-window history, compare to the pre-2026-08-04 baseline, and
       either keep 100% or revert both `program_4_soc` entities to 90. See POWER_CONTRACT.md
       §7 (Strategy & Decision Layer) for the Program SOC entity reference.
+
+      **Data pulled early 2026-08-09 (2 days ahead of the 08-11 target — decision still
+      pending, not made unilaterally).** Both `program_4_soc` entities confirmed still at
+      100 (unchanged since 08-04/08-05). Recorder history (`sensor.inverter_battery_soc`,
+      `sensor.house_grid_energy`) sampled at 14:00/17:00 SAST for 7 baseline days
+      (2026-07-28 to 08-03, @90%) vs. 5 complete test days (2026-08-04 to 08-08, @100%;
+      08-09 excluded as incomplete — window not yet closed at pull time):
+
+      | | ΔSOC over P4 window (14→17h) | Grid import during P4 window | SOC at next 06:00 |
+      |---|---|---|---|
+      | 90% baseline (7d) | avg +17.0 pts | avg 4.08 kWh | avg 44.4% |
+      | 100% test (5d) | avg +20.0 pts | avg 6.91 kWh | avg 44.9% |
+
+      Per-day grid import at 100% was noisy (3.66/3.99/10.25/10.31/6.36 kWh — the two
+      ~10kWh days likely reflect solar-short afternoons where Program 4 fell back to grid
+      to close the gap to the new, higher target, exactly the tradeoff flagged when this
+      test started). Headline read: grid import during the P4 window rose ~69% on average,
+      but next-morning SOC barely moved (+0.5 pts) — the extra grid cost isn't showing up
+      as extra overnight runway yet in this small sample. Caveats: only 5 complete days at
+      100% (vs. the "couple of days" originally planned — already met, but thin for a
+      noisy day-to-day signal), not controlled for solar/weather variance between the two
+      periods, and spring transition (more solar) is happening across the same window,
+      which could mask or exaggerate the real effect either direction. **Recommendation:**
+      given the visible grid-cost increase without a matching morning-SOC benefit so far,
+      leaning toward reverting to 90% — but this is a cost/comfort tradeoff for the user to
+      decide, not a bug, so `program_4_soc` was left untouched at 100 pending explicit
+      confirmation. Two more days of data (through the original 08-11 target) would firm
+      this up either way.
 
 - [x] **Critical/intruder inside-zone notifications could carry an hours-stale image
       (BUG-S73) — 2026-08-04.** User flagged from a live phone screenshot: a "🚨 INTRUDER —

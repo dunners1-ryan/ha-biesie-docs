@@ -301,9 +301,8 @@ passed after both edits.
 in the same session). The `wan_health_score` template edit itself would only need Reload
 Template Entities, but restart is required anyway for the new statistics sensors.
 
-### BUG-NET09 [MEDIUM] — 🟡 OPEN (found 2026-08-04, not fixed — awaiting user decision)
-— "AP Garage down" critical push fires from harmless ~2s UniFi reconnect blips; anti-flap
-bypassed by a second, ungated trigger
+### BUG-NET09 [MEDIUM] — ✅ FIXED 2026-08-09 — "AP Garage down" critical push fires
+from harmless ~2s UniFi reconnect blips; anti-flap bypassed by a second, ungated trigger
 **File:** `packages/alerts/alerts_network.yaml`
 **Problem:** User received 3 critical "Device(s) down: AP Garage Connected, AP Lounge
 Connected, AP Office Connected, AP Passage Connected, AP Bar Connected, ZenWiFi XD6
@@ -322,9 +321,14 @@ anti-flap entirely. A full-group blip always computes `severity=critical` (6 dev
 at once), so this trigger fires instantly regardless of how briefly the blip lasts.
 Logbook confirmed all 3 pushes fired via this exact trigger
 (`script.notify_system_event` called ~12-15ms after each blip began).
-**Candidate fix (not applied):** add a `for:` duration (e.g. `00:00:20`, matching the
-pattern already used on the sibling "Route Critical Sensor Health Alert" automation's
-first trigger) to this trigger. User has not yet decided whether to apply it.
+**Fix (applied 2026-08-09):** added `for: "00:00:20"` to the
+`sensor.network_device_down_alert_severity` → `critical` trigger, matching the pattern
+already used on the sibling `binary_sensor.network_device_down_alert_active` from/to
+trigger immediately above it in the same automation. `check_config` valid, `automation`
+domain reloaded live via Supervisor API, confirmed `automation.route_network_device_down_alert`
+back to state `on` post-reload. Not yet live-verified against a real UniFi reconnect blip
+(none occurred during the fix session) — next ~2s multi-AP blip is the real test that the
+trigger now requires 20s of sustained `critical` before firing.
 
 ---
 
@@ -479,7 +483,7 @@ DSM → Control Panel → Hardware & Power → General:
 | ~~BUG-NET03~~ | ~~High~~ | ~~Fix WAN packet loss formula (currently meaningless)~~ — **FIXED 2026-06-19** |
 | ~~BUG-NET06~~ | ~~Medium~~ | ~~`network_device_down_alert_severity` has no periodic re-evaluation trigger — can stick at a stale `critical` indefinitely.~~ — **FIXED 2026-07-17**, see Section 6. |
 | ~~BUG-NET08~~ | ~~High~~ | ~~Jitter permanently 0 (missing avg statistics sensors); packet loss never actually fed `wan_health_score` despite BUG-NET03~~ — **FIXED 2026-07-27**, see Section 6. |
-| BUG-NET09 | Medium | 🟡 **OPEN** — `route_network_device_down_alert`'s severity-critical trigger has no `for:` duration, bypassing the 250s anti-flap gate; fires false criticals on harmless ~2s UniFi reconnect blips. Found 2026-08-04, see Section 6. Fix not applied — awaiting user decision. |
+| ~~BUG-NET09~~ | ~~Medium~~ | ~~`route_network_device_down_alert`'s severity-critical trigger had no `for:` duration, bypassing the 250s anti-flap gate; fired false criticals on harmless ~2s UniFi reconnect blips.~~ — **FIXED 2026-08-09**, see Section 6. |
 | IMP-NET01 | Low | Add `sensor.network_alert_context` to `sensor.alert_device_entities` aggregator (verify wired — B3 done 2026-04-14) |
 | IMP-NET02 | Low | Add ISP name/plan to a descriptive input_text for context on dashboard |
 | IMP-NET03 | Low | Several UniFi diagnostic entities are disabled by the integration by default (`sensor.ap_bar_clients`, `sensor.ap_lounge_clients`, `sensor.ap_passage_clients`, `sensor.usw_ultra_poe_clients`, all per-port PoE switch/link-speed sensors) — inconsistent with `ap_garage`/`ap_office` which have clients enabled. Enable in the UniFi integration entity list if per-AP client counts / per-port PoE control become needed; the network-control LAN table degrades gracefully to "—" for these today. |
@@ -609,11 +613,10 @@ the time — this investigation is what surfaced BUG-NET08 (Section 6).
 
 ---
 
-*Last updated: 2026-08-04 — BUG-NET09 opened (not fixed): `route_network_device_down_alert`'s
-severity-critical trigger has no `for:` duration, bypassing the 250s anti-flap gate and firing
-false critical pushes on harmless ~2s UniFi reconnect blips (3 confirmed same day). Found while
-investigating a user report of "AP Garage down" alerts with a healthy UniFi console. Fix
-candidate documented in Section 6 but not applied — awaiting user decision.*
+*Last updated: 2026-08-09 — BUG-NET09 fixed: added `for: "00:00:20"` to
+`route_network_device_down_alert`'s severity-critical trigger, closing the anti-flap bypass
+that fired 3 false critical pushes on harmless ~2s UniFi reconnect blips on 2026-08-04. See
+Section 6.*
 *Last updated: 2026-07-27 — BUG-NET08 closed: added the missing `wan_*_5min_avg` statistics
 sensors (jitter's inputs were referencing nonexistent entities, so jitter was permanently 0)
 and added the missing packet-loss penalty term to `wan_health_score` (documented since

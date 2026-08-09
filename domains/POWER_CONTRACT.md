@@ -2431,6 +2431,27 @@ user's recalled, still-unlocated "6 second reload" mechanism).
 `continue_on_error` restores visibility only; it doesn't fix the underlying
 cause. See INFRA_CONTRACT.md BUG-INFRA-TUYA01 (E10/E11) for full detail.
 
+**E12 (2026-08-09) — both root-cause candidates checked and ruled out;
+`pool_pump_solar_control` given the same `continue_on_error` treatment as
+geyser.** Supervisor's `/host/info` confirms `dt_synchronized: true,
+use_ntp: true` — host clock is NTP-synced, ruling out drift. The only
+scheduled Tuya reload (`tuya_cloud_stale_alert`) only fires after 4h+ of
+stale feedback, nowhere near a "6 second" cadence, ruling out our own
+reload frequency as self-inflicted. Root cause is therefore most likely
+upstream in HA core's bundled `tuya` integration itself (this house runs
+the built-in integration, not a custom component, confirmed via
+`custom_components/` — only `localtuya` lives there, unused). HA core
+2026.8.1 is available (installed: 2026.8.0); not confirmed whether it
+touches Tuya signing. **Fix applied:** `continue_on_error: true` added to
+all 7 `switch.turn_on`/`switch.turn_off` call sites in
+`pool_pump_solar_control` (`power_automations.yaml`) — same scope as the
+geyser fix (stops a silent script crash from swallowing the alert), not a
+full verified-turn-on rebuild, since the automation has no separate
+verification script to extend evidence-checking into. Deployed live:
+`check_config` valid, `automation` domain reloaded, confirmed
+`automation.pool_pump_solar_aware_daily_control` state `on` post-reload.
+Full writeup: INFRA_CONTRACT.md BUG-INFRA-TUYA01 (E12).
+
 ---
 
 ## 12. Error Signatures (Watchman-Confirmed)

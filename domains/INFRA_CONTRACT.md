@@ -564,6 +564,36 @@ unconfirmed) "6 second reload" mechanism above. `continue_on_error` only
 restores *visibility* into these failures; it does not fix why Tuya rejects
 the signature in the first place. See POWER_CONTRACT.md Issue 26 (E11).
 
+**E12 update (2026-08-09) — both open root-cause candidates checked; both
+ruled out on the current evidence; pool pump given the safety net.** Neither
+`timedatectl` nor `chronyc` are reachable from this session's shell (same
+limitation as E11), but Supervisor's own host API is: `GET
+/host/info` returns `"dt_synchronized": true, "use_ntp": true` — the host
+clock is actively NTP-synced, ruling out candidate (1) as currently
+configured. Candidate (2) also doesn't hold up against the actual code:
+`tuya_cloud_stale_alert` (the only automation that calls
+`tuya_reload_and_verify` on a schedule) only fires after `sensor.tuya_last_activity_age`
+has been stale **4h+** (`for: 2min` stability on top of that) — nowhere near
+a "6 second" cadence, and reloads at most once per multi-hour stale window,
+not continuously. The user's recalled "6 second reload" mechanism still
+wasn't located anywhere in this repo's history; if it's real, it's most
+likely a `scan_interval`/token-refresh detail inside the built-in `tuya`
+integration itself (confirmed via `custom_components/` listing that this
+house runs HA core's bundled Tuya integration, not a custom component — so
+it upgrades with HA core, currently 2026.8.0 with 2026.8.1 available; not
+confirmed whether that release touches Tuya signing). With both in-repo
+candidates ruled out, the fault is very likely upstream in HA core's Tuya
+cloud client itself — the practical next step, if it recurs, is a genuine
+Tuya re-auth (as worked on 2026-08-06) or watching for a `tuya`-related fix
+in future core releases, not another automation-side patch. **Also applied
+the flagged pool-pump follow-up:** `continue_on_error: true` added to all 7
+`switch.turn_on`/`switch.turn_off` call sites in `pool_pump_solar_control`
+(`power_automations.yaml`) — same "stop a silent script crash, not a full
+verified-turn-on rebuild" scope as the geyser E11 fix, since the automation
+has no separate verification script to extend evidence-checking into.
+`check_config` valid, `automation` domain reloaded live, confirmed
+`automation.pool_pump_solar_aware_daily_control` state `on` post-reload.
+
 **IMP-IDS01 [MEDIUM] — IDS Hyyp has no package file**
 The IDS alarm system has an integration installed but zero package-based config.
 Any alarm automations are buried in `automations.yaml`. Recommend creating
