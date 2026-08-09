@@ -97,36 +97,6 @@ Assistant Health" card on the Home dashboard view, which was also extended (same
 display CPU temperature and uptime alongside CPU/load/RAM — see PROJECT_STATE.md session log
 2026-07-10.
 
-**BUG-CORE03 [MEDIUM] ✅ MITIGATED 2026-08-09 — `automatic_backup_failed`, DB too large to lock
-in time**
-**File:** `packages/core/ha_monitoring.yaml` (new automation)
-**Description:** The scheduled automatic backup attempted at 02:49:30 SAST 2026-08-09 failed —
-confirmed via `sensor.backup_last_successful_automatic_backup` still showing the prior day's
-run (2026-08-08 09:38:08) while `sensor.backup_last_attempted_automatic_backup` advanced to
-2026-08-09 02:49:30. Traced to "Could not lock database within 30 seconds" — `home-assistant_v2.db`
-had grown to **37.9GB / 216M rows**. Per-entity row counts (direct sqlite3 query) showed the
-UniFi/network diagnostic sensors (`sensor.unifi_gateway_*_cpu/memory_utilization`,
-`sensor.unifi_*_5m_max`, etc.) at ~2.9-3.2M rows *each* — these update every 1-5s and were
-sitting on the full global 90-day `purge_keep_days` for essentially no benefit (nobody drills
-into per-second UniFi CPU history from 80 days ago). Power/solar sensors are the other big
-contributor (e.g. `sensor.house_power_losses` at 6.28M rows) but genuinely need their full
-90-day window for real analysis, so a blanket retention cut or `recorder: exclude:` entry
-(which would drop UniFi history to zero, not just trim it) were both rejected.
-**Fix:** new `automation.recorder_purge_noisy_network_unifi_entities_to_30_days`
-(`ha_monitoring.yaml`) calls `recorder.purge_entities` daily at 02:30 — before the 02:49 backup
-attempt — trimming only `sensor.unifi_*` / `sensor.udm_*` / `sensor.wan_*` down to 30 days,
-independent of and without touching the global 90-day `purge_keep_days` everything else still
-uses. `check_config` valid, `automation` domain reloaded, confirmed
-`automation.recorder_purge_noisy_network_unifi_entities_to_30_days` state `on`.
-**Not yet confirmed fixed — mitigation only.** DB was still 38.0GB as of this doc update
-(same afternoon, before the new 02:30 job has had a chance to run even once); tonight's
-02:30 purge → 02:49 backup attempt is the first real test. This also does not address the
-underlying **write rate** — new UniFi states will keep landing every 1-5s regardless of
-retention — so if `automatic_backup_failed` recurs after a few days of purging, the next
-lever is reducing `scan_interval` on the noisy UniFi sensors themselves, not retention. Not
-attempted this session — flagged for follow-up if the purge alone isn't enough. See
-PROJECT_STATE.md session log 2026-08-09.
-
 **BUG-CORE03 [HIGH] `repairs.backup.automatic_backup_failed` — recorder DB too large to lock in time** — 🟡 PARTIALLY MITIGATED 2026-08-09
 
 Found while triaging live HA Repairs at user request. The Supervisor's native automatic backup
