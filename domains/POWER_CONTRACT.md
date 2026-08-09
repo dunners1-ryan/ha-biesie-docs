@@ -1044,6 +1044,16 @@ script.force_charge_cancel               Dashboard cancel → calls force_charge
 
 automation.force_charge_monitor          Template trigger: SOC ≥ force_charge_target_soc AND force_charge_active=on
                                            → calls force_charge_restore automatically.
+
+automation.force_charge_recovery_on_restart  Added 2026-08-09 (BUG-PWR-FORCECHARGE01).
+                                           Triggers on homeassistant: event: start. If
+                                           force_charge_active is still on (a restart landed
+                                           mid-cycle), waits 30s then calls force_charge_restore
+                                           directly instead of waiting on force_charge_monitor's
+                                           SOC-reached trigger to eventually catch up. Always
+                                           alerts (warning if the snapshot survived and restored
+                                           cleanly, critical if it didn't) — see BUG-PWR-FORCECHARGE01
+                                           below for why this was needed.
 ```
 
 Design notes:
@@ -1051,6 +1061,34 @@ Design notes:
 - Restore order: restore INV1 → sync INV2 → wait 10s → re-enable programme auto (prevents pattern automation racing the sync).
 - All restore actions have `continue_on_error: true` — partial restore preferred over full stop.
 - JSON in force_charge_saved_charging includes both charging select states AND SOC number values.
+
+**BUG-PWR-FORCECHARGE01 [MEDIUM] ✅ FIXED 2026-08-09 — no recovery path if HA restarts
+mid force-charge cycle**
+Found while investigating the user's suspicion (raised during the Program 4 SOC review,
+see Issue below) that inverter programme settings can revert after a restart.
+`input_text.force_charge_saved_charging` reads `unknown` across every restart visible in
+recorder history back to 07-31 — but it's also `unknown` *between* restarts, meaning
+`force_charge_batteries` has apparently never actually been invoked in this house's
+recorded history. So its restore-across-a-restart behaviour was genuinely untested, not
+confirmed working — closer to "unknown reliability" than "known bug", but treated as one
+regardless since the failure mode is real if it ever fires unluckily: if HA restarts while
+`force_charge_active` is on and SOC hasn't yet reached `force_charge_target_soc`,
+`force_charge_monitor`'s SOC-reached trigger does re-evaluate at startup but only fires
+once SOC actually climbs to target — which could be hours away, or never on a poor solar
+day — leaving `inverter_programme_auto_enabled` off and all 6 programs stuck on Grid
+charging silently in the meantime, with nothing else watching for that state. **Fix:** new
+`automation.force_charge_recovery_on_restart` calls `force_charge_restore` directly 30s
+after every HA start if `force_charge_active` is still on, rather than waiting on the SOC
+trigger — safe either way since `force_charge_restore`'s own guard (added in the
+2026-06-19 grid-waste-incident fix) already unconditionally clears `force_charge_active`
+and re-enables `inverter_programme_auto_enabled` before checking whether the snapshot is
+usable, and no-ops the actual P1-P6 select restoration if it isn't. The new automation
+always sends an alert either way (warning: restored cleanly / critical: snapshot lost,
+check manually) so this class of event is never silent again. Deployed live:
+`check_config` valid, `automation` domain reloaded, confirmed
+`automation.force_charge_recovery_after_restart` state `on`. **Not yet live-verified**
+against a real mid-cycle restart — none occurred with `force_charge_active` on during the
+fix session.
 
 ### Inverter Sync (power_helpers.yaml + power_automations.yaml — E1 2026-06-14; expanded E5 2026-06-14)
 

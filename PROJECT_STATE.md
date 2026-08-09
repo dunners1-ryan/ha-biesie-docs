@@ -120,6 +120,37 @@
       core release. See INFRA_CONTRACT.md BUG-INFRA-TUYA01 (E12),
       POWER_CONTRACT.md Issue 26 (E12).
 
+- [x] **Force charge had no recovery path if HA restarted mid-cycle
+      (BUG-PWR-FORCECHARGE01) — fixed 2026-08-09, found while investigating the
+      user's restart concern from the Program 4 SOC review above.** Traced
+      `input_text.force_charge_saved_charging` (the `force_charge_batteries` →
+      `force_charge_restore` P1-P6 snapshot) and found it's read "unknown" across
+      every restart in the recorder's history back to 07-31 — but also unknown
+      *between* restarts, meaning `force_charge_batteries` has apparently never
+      actually been invoked in this house, so the snapshot's restore-across-restart
+      behaviour was genuinely untested, not confirmed working. The real gap:
+      nothing re-triggers recovery if a restart lands while `force_charge_active`
+      is still on (mid-cycle, target not yet reached) — `force_charge_monitor`'s
+      SOC-reached trigger does re-evaluate at startup, but only self-heals once SOC
+      climbs back to target, which could be hours away (or never, on a poor solar
+      day), leaving `inverter_programme_auto_enabled` off and all 6 programs stuck
+      on Grid charging silently in the meantime. **Fix:** new
+      `force_charge_recovery_on_restart` automation (`power_automations.yaml`) —
+      triggers on `homeassistant: event: start`, and if `force_charge_active` is
+      still on, waits 30s (let Solarman finish its post-boot poll) then calls
+      `script.force_charge_restore` directly rather than waiting on the SOC
+      trigger. `force_charge_restore`'s own guard already handles a missing/corrupt
+      snapshot safely (unconditionally clears `force_charge_active` and re-enables
+      `inverter_programme_auto_enabled` before the guard, added in the 2026-06-19
+      fix), so this is safe either way — the automation always sends a
+      warning (snapshot survived, auto-restored) or critical (snapshot lost, check
+      the Solarman app manually) alert so a restart-interrupted force charge is
+      never silent again. Deployed live: `check_config` valid, `automation` domain
+      reloaded, confirmed `automation.force_charge_recovery_after_restart` state
+      `on`. Not yet live-tested against a real mid-cycle restart (none occurred
+      with `force_charge_active` on during the fix session). See POWER_CONTRACT.md
+      §"Force Charge" for the script pair this extends.
+
 - [x] **Garage light didn't turn on for a real 21:43 arrival; front security light's
       15-min auto-off looked odd but wasn't — investigated live, found a 4-month-old
       self-inflicted Sonoff reload storm (BUG-A17/BUG-L19) — 2026-08-05.** User: "why
@@ -274,32 +305,45 @@
       §7 (Strategy & Decision Layer) for the Program SOC entity reference.
 
       **Data pulled early 2026-08-09 (2 days ahead of the 08-11 target — decision still
-      pending, not made unilaterally).** Both `program_4_soc` entities confirmed still at
-      100 (unchanged since 08-04/08-05). Recorder history (`sensor.inverter_battery_soc`,
-      `sensor.house_grid_energy`) sampled at 14:00/17:00 SAST for 7 baseline days
-      (2026-07-28 to 08-03, @90%) vs. 5 complete test days (2026-08-04 to 08-08, @100%;
-      08-09 excluded as incomplete — window not yet closed at pull time):
+      pending, not made unilaterally). First pass had two real errors, both corrected
+      same session after user pushback:**
 
-      | | ΔSOC over P4 window (14→17h) | Grid import during P4 window | SOC at next 06:00 |
-      |---|---|---|---|
-      | 90% baseline (7d) | avg +17.0 pts | avg 4.08 kWh | avg 44.4% |
-      | 100% test (5d) | avg +20.0 pts | avg 6.91 kWh | avg 44.9% |
+      1. **Miscounted which days were actually at 100%.** The `number.set_value` call
+         that raised the target landed at **2026-08-04 16:09:37 SAST** (confirmed from
+         the entities' own state-change history, not assumed from the date) — so 08-04's
+         14:00–17:00 window ran at 90% for ~2h10m and only the last 51 min at 100%. First
+         pass wrongly counted it as a full 100% day. Only **08-05 through 08-08 (4 days)**
+         actually ran the whole P4 window at 100%; 08-09 still in progress at pull time.
+         No actual reversion to 90% shows anywhere in the recorder history since — a live
+         HA Core restart happened mid-session today (~15:40 SAST, cause unconfirmed, not
+         triggered by this session) and `program_4_soc` came back correctly at 100% on
+         both inverters afterward (read live from the inverter via Solarman, not a cached
+         HA value).
+      2. **Cooking-jump proxy was too narrow.** First pass used `sensor.house_kitchen_power`
+         as an evening-activity signal — user correctly flagged that this sensor is only
+         `sensor.main_fridge_plug_power` + `sensor.philips_airfryer_plug_power`
+         (confirmed via `group.house_kitchen_power_sensors`), missing the oven/stove/
+         microwave entirely since those aren't individually metered. Redone using
+         `sensor.inverter_load_power − sensor.geyser_heat_pump_power` (whole-house load
+         minus the geyser) as a broader evening-activity proxy, evening peak 17:00–21:00:
 
-      Per-day grid import at 100% was noisy (3.66/3.99/10.25/10.31/6.36 kWh — the two
-      ~10kWh days likely reflect solar-short afternoons where Program 4 fell back to grid
-      to close the gap to the new, higher target, exactly the tradeoff flagged when this
-      test started). Headline read: grid import during the P4 window rose ~69% on average,
-      but next-morning SOC barely moved (+0.5 pts) — the extra grid cost isn't showing up
-      as extra overnight runway yet in this small sample. Caveats: only 5 complete days at
-      100% (vs. the "couple of days" originally planned — already met, but thin for a
-      noisy day-to-day signal), not controlled for solar/weather variance between the two
-      periods, and spring transition (more solar) is happening across the same window,
-      which could mask or exaggerate the real effect either direction. **Recommendation:**
-      given the visible grid-cost increase without a matching morning-SOC benefit so far,
-      leaning toward reverting to 90% — but this is a cost/comfort tradeoff for the user to
-      decide, not a bug, so `program_4_soc` was left untouched at 100 pending explicit
-      confirmation. Two more days of data (through the original 08-11 target) would firm
-      this up either way.
+      | | n | ΔSOC (14→17h) | Grid import (P4 window) | SOC @ next 06:00 |
+      |---|---|---|---|---|
+      | 90% baseline, all 7 days | 7 | +17.0 pts avg | 4.08 kWh avg | 44.4% avg |
+      | 90% baseline, low evening load (<5kW) | 5 | +16.2 pts avg | 4.30 kWh avg | 45.0% avg |
+      | 100% clean, all 4 days | 4 | +21.0 pts avg | 7.73 kWh avg | 46.5% avg |
+      | 100% clean, low evening load (<5kW) | 3 | +21.8 pts avg | 6.89 kWh avg | **50.5% avg** |
+
+      On evenings with comparable household activity (excluding the one high-load evening
+      in each bucket — 08-02/08-03 baseline, 08-06 test), the 100% group shows both more
+      grid draw during the window **and** a meaningfully better next-morning SOC (+5.5 pts)
+      than the 90% baseline — a coherent, intuitive result (spend more grid now, bank more
+      battery, more overnight/morning runway), the opposite of first pass's "no benefit,
+      revert" lean, which was mostly an artifact of the two corrected errors above.
+      **Revised recommendation: keep at 100%** through the original 08-11 target for 2 more
+      days to firm up the still-thin sample (n=4, only 3 low-load), rather than reverting.
+      `program_4_soc` left untouched at 100 either way — this remains the user's call, not
+      a bug fix.
 
 - [x] **Critical/intruder inside-zone notifications could carry an hours-stale image
       (BUG-S73) — 2026-08-04.** User flagged from a live phone screenshot: a "🚨 INTRUDER —
