@@ -15,7 +15,8 @@ integration plumbing. It also documents all custom integrations (HACS).
 
 ### Files
 - `packages/core/core_helpers.yaml` — system_startup guard + HA health sensors
-- `packages/core/ha_monitoring.yaml` — recorder health, DB growth, EPS (broken), noisy entities
+- `packages/core/ha_monitoring.yaml` — recorder health, DB growth, EPS (broken), noisy entities;
+  tiered UniFi/network purge automation (added 2026-08-09, BUG-CORE03)
 - `packages/core/sensor_smoothing.yaml` — RSSI smoothing for Sonoff devices
 - `packages/core/tuya_health.yaml` — Tuya Cloud state-feedback staleness watchdog +
   auto-reload (added 2026-08-04, BUG-INFRA-TUYA01 — see Part 7 Known Bugs for the full
@@ -33,6 +34,11 @@ sensor.db_growth_mb_10min             — MB added to DB in last 10 min
 sensor.ha_events_per_second           — ⚠️ BUG-CORE01: misleading (see bugs)
 sensor.top_noisy_entities             — attribute list of recently-changed sensors
 binary_sensor.device_down_ping_helper — always-off helper to prevent empty groups
+automation.recorder_purge_noisy_network_unifi_entities_to_30_days
+                                       — added 2026-08-09, BUG-CORE03; daily 02:30
+                                         recorder.purge_entities on sensor.unifi_*/udm_*/wan_*
+                                         to 30 days, independent of the global 90-day
+                                         purge_keep_days power/solar sensors need
 ```
 
 Tuya Cloud Health (`tuya_health.yaml` — added 2026-08-04, BUG-INFRA-TUYA01):
@@ -91,6 +97,78 @@ Assistant Health" card on the Home dashboard view, which was also extended (same
 display CPU temperature and uptime alongside CPU/load/RAM — see PROJECT_STATE.md session log
 2026-07-10.
 
+**BUG-CORE03 [MEDIUM] ✅ MITIGATED 2026-08-09 — `automatic_backup_failed`, DB too large to lock
+in time**
+**File:** `packages/core/ha_monitoring.yaml` (new automation)
+**Description:** The scheduled automatic backup attempted at 02:49:30 SAST 2026-08-09 failed —
+confirmed via `sensor.backup_last_successful_automatic_backup` still showing the prior day's
+run (2026-08-08 09:38:08) while `sensor.backup_last_attempted_automatic_backup` advanced to
+2026-08-09 02:49:30. Traced to "Could not lock database within 30 seconds" — `home-assistant_v2.db`
+had grown to **37.9GB / 216M rows**. Per-entity row counts (direct sqlite3 query) showed the
+UniFi/network diagnostic sensors (`sensor.unifi_gateway_*_cpu/memory_utilization`,
+`sensor.unifi_*_5m_max`, etc.) at ~2.9-3.2M rows *each* — these update every 1-5s and were
+sitting on the full global 90-day `purge_keep_days` for essentially no benefit (nobody drills
+into per-second UniFi CPU history from 80 days ago). Power/solar sensors are the other big
+contributor (e.g. `sensor.house_power_losses` at 6.28M rows) but genuinely need their full
+90-day window for real analysis, so a blanket retention cut or `recorder: exclude:` entry
+(which would drop UniFi history to zero, not just trim it) were both rejected.
+**Fix:** new `automation.recorder_purge_noisy_network_unifi_entities_to_30_days`
+(`ha_monitoring.yaml`) calls `recorder.purge_entities` daily at 02:30 — before the 02:49 backup
+attempt — trimming only `sensor.unifi_*` / `sensor.udm_*` / `sensor.wan_*` down to 30 days,
+independent of and without touching the global 90-day `purge_keep_days` everything else still
+uses. `check_config` valid, `automation` domain reloaded, confirmed
+`automation.recorder_purge_noisy_network_unifi_entities_to_30_days` state `on`.
+**Not yet confirmed fixed — mitigation only.** DB was still 38.0GB as of this doc update
+(same afternoon, before the new 02:30 job has had a chance to run even once); tonight's
+02:30 purge → 02:49 backup attempt is the first real test. This also does not address the
+underlying **write rate** — new UniFi states will keep landing every 1-5s regardless of
+retention — so if `automatic_backup_failed` recurs after a few days of purging, the next
+lever is reducing `scan_interval` on the noisy UniFi sensors themselves, not retention. Not
+attempted this session — flagged for follow-up if the purge alone isn't enough. See
+PROJECT_STATE.md session log 2026-08-09.
+
+**BUG-CORE03 [HIGH] `repairs.backup.automatic_backup_failed` — recorder DB too large to lock in time** — 🟡 PARTIALLY MITIGATED 2026-08-09
+
+Found while triaging live HA Repairs at user request. The Supervisor's native automatic backup
+(distinct from the `packages/backup/github.yaml` git backup — see Part 2 for that one) failed
+2026-08-09 04:50 SAST: `Could not lock database within 30 seconds`. Root cause investigated
+directly against `home-assistant_v2.db` (`sqlite3 -readonly`, safe against the live DB — WAL
+mode allows concurrent reads): **216M rows / 37.9GB**, dominated by ~30 power/UniFi sensors
+updating every 1–5s kept at the global `purge_keep_days: 90` (`sensor.house_power_losses` alone
+= 6.28M rows). User explicitly wants the full 90-day raw window kept for power/solar sensors
+(used for real analysis) — so global `purge_keep_days` was deliberately left untouched.
+**Mitigation applied:** `automation.recorder_purge_noisy_network_unifi_entities_to_30_days`
+(`ha_monitoring.yaml`) runs `recorder.purge_entities` daily at 02:30 against
+`sensor.unifi_*`/`udm_*`/`wan_*` only, trimming those to 30 days independent of the global
+purge — these were ~7% of total rows, so this reduces standing DB size/index footprint over
+time but does **not** reduce write *rate* at backup time (the actual proximate cause of a lock
+timeout), since purge only ages out old rows, not future insert frequency.
+**Still genuinely open:** if `automatic_backup_failed` recurs, the real lever is reducing
+`scan_interval` on the noisiest power sensors at the integration level (fewer writes/sec, same
+90-day window, just lower raw resolution) — flagged, not done, since it touches the
+Solarman/inverter integration config directly and needs its own confirmation pass. Long-term
+statistics (never purged, unlimited retention regardless of `purge_keep_days`) already give
+multi-month/multi-year graphs for anything with `state_class` set — confirmed live back to
+2025-02-17 for `sensor.inverter_load_power` — so this is a backup-reliability problem, not a
+history-retention one.
+
+**BUG-CORE04 [LOW] 3× `template.composite_device_id_*` + `http.deprecated_yaml` repairs** — ✅ composite_device_id FIXED 2026-08-09, http.deprecated_yaml deferred (no urgency)
+
+Surfaced in live HA Repairs (`repairs/list_issues` via websocket), all created 2026-08-08
+~09:4x — right after this instance's 2026.7.4 → 2026.8.0 core upgrade (device-registry
+migration side effects; see the developer blog "Devices are restricted to a single config
+entry"). 3 UI-created template helpers (Inverter Battery Capacity, Test Inverter Today Energy
+Import, Inverter Total Energy Import Sum) pointed at a device_id
+(`b235df6c2e5d32bcc87765690a8606c8`) that no longer existed post-migration. **Fixed** by driving
+the repair's fix flow directly (`POST /api/repairs/issues/fix` with `{handler: "template",
+issue_id: ...}`, then the returned `flow_id` with empty data — the `device_id` field is
+optional, so submitting none cleanly detaches the entity from any device). No YAML involved —
+purely a `.storage`/registry fix, confirmed cleared from `repairs/list_issues` after. Entities
+still read correctly post-fix. `http.deprecated_yaml` (configuration.yaml `http:` block —
+`use_x_forwarded_for`/`trusted_proxies`) flagged but **not fixed** — `breaks_in_ha_version:
+2027.2.0`, no urgency, and migrating trusted-proxy config off YAML needs live UI verification
+to avoid breaking the reverse-proxy setup (CLAUDE.md: trusted proxy `172.30.0.0/16`) — deferred.
+
 ---
 
 ## Part 2: backup/ — GitHub Config Backup
@@ -121,6 +199,11 @@ both success (severity: info) and failure (severity: warning) branches. The dire
 `notify.send_message` calls were replaced. Backup still runs at 05:00 (quiet hours) —
 `notify_system_event` will respect quiet hours for the success notification but failure
 is severity `warning` which bypasses quiet hours, preserving the original intent.
+
+**Not the same system as `repairs.backup.automatic_backup_failed`** — this package covers only
+the git-based config backup (`gitupdate.sh`). The Supervisor's own native HA backup (full
+snapshot, unrelated to this file) is a separate mechanism — see Part 1 BUG-CORE03 for its
+2026-08-09 failure and root cause.
 
 ---
 

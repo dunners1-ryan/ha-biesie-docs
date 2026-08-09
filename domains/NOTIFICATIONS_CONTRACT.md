@@ -2,6 +2,14 @@
 # NOTIFICATIONS CONTRACT
 # HABiesie — Notifications Domain
 # Generated: 2026-04-13
+# Last updated: 2026-08-09 — three bugs found/fixed same session: BUG-N15
+# (`omit` sentinel broke on the 2026.7.4→2026.8.0 upgrade, killing WARNING/
+# CRITICAL action buttons + non-critical Telegram — replaced with `[]`),
+# BUG-N16 (`notify.STD_Alerts` group fixed for mobile, telegram dropped —
+# genuinely unreachable via `platform: group`), BUG-N17 (Vicky's Companion
+# App had silently re-registered under a new device_id 2026-07-18, breaking
+# delivery for 3+ weeks with no error; re-registered again same day after a
+# delete+reconnect, final clean name confirmed live). See Section 10.
 # Last updated: 2026-07-13 (BUG-NET08) — STD_Alerts repeat-reminder gap
 # closed for all 16 domains still on the dead group (the 2026-07-06 fix
 # below only ever covered the initial hit). See ALERTS_CONTRACT.md 2026-07-13
@@ -152,11 +160,14 @@ This was a deliberate choice (user picked "hardcode into chosen scripts" over bu
 reusable toggle system) — faster, matches the existing convention, smaller blast radius.
 
 **Vicky Dunnington** — onboarded 2026-07-13:
-- Targets: `notify.vicky_iphone13_mobile_app` (entity, unused so far — this repo's canonical
-  info/warning `notify.send_message` pattern isn't used by either script she's in) /
-  `notify.mobile_app_iphone13promax_vicky` (legacy per-device service — confirmed live via
-  `GET /api/services`, this is what's actually wired in, matching the pattern both chosen
-  scripts already use for warning/critical)
+- Targets: `notify.mobile_app_iphone13promax_vicky` (legacy per-device service — confirmed live
+  via `GET /api/services`, matching the pattern both chosen scripts already use for
+  warning/critical). **Do not trust this name without re-checking `GET /api/services` first** —
+  her Companion App registration has churned twice (BUG-N17): re-registered under a new
+  device_id 2026-07-18 (silently broke delivery for 3+ weeks, undetected because a dead push
+  token doesn't raise `ServiceNotFound`), then deleted + freshly re-added 2026-08-09, which
+  landed back on this exact clean name. Current as of 2026-08-09 — confirmed live, delivery
+  tested successfully.
 - Domains: **Security** (`notify_security_events.yaml`), **Power** (`notify_power_event.yaml`),
   **Water** (`notify_water_events.yaml`, added same session, same pattern). NOT wired into
   Presence, System, or Lighting.
@@ -329,10 +340,11 @@ fires at `hours: /3` (hitting midnight after restart) before Telegram service is
 ### Defined Notify Platforms
 
 ```
-notify.STD_Alerts         # Group: KNOWN BROKEN — see bug note below
+notify.STD_Alerts         # Group: mobile targets FIXED 2026-08-09 (BUG-N16), telegram dropped
 notify.telegram_bot_5527  # Telegram entity (NOT a bare service — see below)
-notify.ryan_iphone16_mobile_app, notify.ap_0223_1001,
-notify.honor_10_dash_mobile_app, notify.honor_x7_dash_mobile_app  # Individual mobile devices
+notify.mobile_app_iphone16promax_ryan, notify.mobile_app_ap_0223_1001,
+notify.mobile_app_honor10_dash, notify.mobile_app_honorx7_dash  # Individual mobile devices —
+                           # legacy bare services, confirmed live via GET /api/services 2026-08-09
 ```
 
 **BUG FIXED 2026-06-28 (two-pass — first attempt was wrong):** all four `notify.STD_*`
@@ -396,6 +408,13 @@ rather than reintroduced with a notifier).
 **Option (a) (HA "Notify Group" UI helper) was considered and NOT used** — the
 automation-based fix above is git-trackable, consistent with every other fix already made
 in this codebase, and doesn't depend on unverified `alert:`-to-group-entity compatibility.
+
+**`notify.STD_Alerts` itself FIXED 2026-08-09 (BUG-N16)** — mobile targets corrected to the
+verified-working `mobile_app_<device>` legacy service names (a different slug than what was
+tried in 2026-06-28); `telegram_bot_5527` dropped, genuinely unreachable via this mechanism
+(entity-only, no bare service). The 16 `alert:` defs listed above now reach phones through
+this group; migrating them to the `notify_*_event` scripts (for the Telegram mirror they still
+lack) remains the real long-term fix, not yet done. See Section 10 BUG-N16.
 
 ### Canonical Call Patterns
 
@@ -538,6 +557,75 @@ for 3 hours — this is structurally sound as an escalation monitor.
 ---
 
 ## 10. BUGS
+
+### BUG-N15 [HIGH] ~~`omit` sentinel undefined in `notify_security_events.yaml` / `notify_system_event.yaml` — WARNING/CRITICAL action buttons + non-critical Telegram broken~~ ✅ FIXED 2026-08-09
+
+**Files:** `packages/notifications/notify_security_events.yaml`, `packages/notifications/notify_system_event.yaml`
+**Found via:** live `ha core logs` review (user: "check logs for updated issues").
+**Description:** The documented `actions: "{{ mobile_actions if mobile_actions else omit }}"`
+pattern (Section 3, `actions`/`telegram_action` fields — working since 2026-07-03/07-06) started
+throwing `Template variable warning: 'omit' is undefined` on every WARNING/CRITICAL security or
+system event, starting the evening of 2026-08-08 — hours after this HA instance upgraded
+2026.7.4 → 2026.8.0 (confirmed via the last successful `Automatic backup 2026.7.4` label vs.
+current `2026.8.0`). Downstream: the malformed rendered value cascaded into
+`telegram_bot.send_message`'s `inline_keyboard` field ("Can't parse inlinekeyboardbutton: text
+buttons are unallowed in the inline keyboard") on every non-critical Telegram mirror, and into
+the `actions` field of every `notify.mobile_app_*` push. Root cause not fully isolated (likely a
+2026.8.0 template-engine regression in how `omit` resolves inside `choose:`-nested `data:`
+blocks) — no upstream fix confirmed in 2026.8.1's changelog as of this writing.
+**Fix:** replaced `else omit` with `else []` (empty list) at all 19 call sites — functionally
+identical outcome (no `actions`/`inline_keyboard` key sent when there's nothing to send) without
+depending on the broken sentinel. `check_config` valid, `script` domain reloaded.
+**Still open:** why `omit` broke is unconfirmed — if it turns out to be a real 2026.8.x core
+regression, worth filing upstream. Not chased further since the workaround is permanent and
+low-risk.
+
+### BUG-N16 [MEDIUM] ~~`notify.STD_Alerts` group still dead — Section 7's 2026-07-06 fix only covered STD_Information/Warning/Critical, not this one~~ ✅ FIXED 2026-08-09
+
+**File:** `configuration.yaml`
+**Description:** `notify.STD_Alerts` (feeds `notifiers: [STD_Alerts]` on 16 `alert:` definitions
+across `packages/alerts/*.yaml`) was left "known broken, not yet fixed" since 2026-06-28 —
+confirmed live via hourly `ServiceNotFound` errors for `notify.ryan_iphone16_mobile_app`,
+`notify.ap_0223_1001`, `notify.honor_10_dash_mobile_app`, `notify.honor_x7_dash_mobile_app`,
+`notify.telegram_bot_5527`. The 2026-06-28 comment claimed mobile_app "no longer registers ANY
+bare `notify.<x>` service" post-migration — **re-verified 2026-08-09 via live `GET
+/api/services` and this was only half right.** mobile_app still registers legacy bare services,
+just under `mobile_app_<device>` (e.g. `mobile_app_iphone16promax_ryan`), not `<device>_mobile_app`
+— a different slug than the group was using, and different from the entity_id
+(`notify.ryan_iphone16_mobile_app`) the send_message-based fixes elsewhere in this file use.
+Confirmed live: it's exactly what `notify_security_events.yaml` et al. call successfully every
+day.
+**Fix:** `STD_Alerts` services list corrected to the 4 verified-working
+`mobile_app_iphone16promax_ryan` / `mobile_app_ap_0223_1001` / `mobile_app_honor10_dash` /
+`mobile_app_honorx7_dash` names. `telegram_bot_5527` dropped from the group entirely — it's
+genuinely entity-only (`platform: telegram_bot`, no bare service), so there is still no way to
+reach it through the legacy `platform: group` mechanism. The 16 `alert:` defs using `STD_Alerts`
+now reach phones but still have no Telegram mirror — migrating them to the `notify_*_event`
+scripts (Section 7's originally-suggested option) remains the real long-term fix. Required a
+full core restart (notify groups can't hot-reload). Live-tested post-restart: `ServiceNotFound`
+gone, replaced by ordinary delivery attempts.
+
+### BUG-N17 [HIGH] ~~Vicky missing every warning/critical push for 3+ weeks — dead mobile_app registration~~ ✅ FIXED 2026-08-09
+
+**Files:** `notify_security_events.yaml`, `notify_water_events.yaml`, `notify_power_event.yaml` (6 call sites)
+**Description:** Vicky's Companion App re-registered under a new device_id on 2026-07-18
+(confirmed via `core.entity_registry` `created_at` timestamps and distinct push tokens in
+`core.config_entries`), producing a second HA registration, `iphone13promax_vicky1`, alongside
+the original `iphone13promax_vicky`. All 6 call sites across the three scripts (see Section 3A)
+kept targeting the original — its `device_tracker` had gone completely stale (`state: None`)
+while `vicky1` was reporting normally. Every warning/critical security/water/power notification
+to her silently failed for 3+ weeks; nothing alerted because the delivery attempt itself doesn't
+raise (dead push token, not `ServiceNotFound`).
+**Interim fix (2026-08-09):** retargeted all 6 call sites to `mobile_app_iphone13promax_vicky1`.
+**Final fix (same day, after user had Vicky delete + reconnect the app):** deleted both the dead
+original config entry and, once she reconnected, the fresh registration landed clean —
+`iphone13promax_vicky` (no suffix) — **on the service name itself**, confirmed via live
+`GET /api/services`. Two entities (`device_tracker.iphone13promax_vicky1`,
+`notify.iphone13promax_vicky1`) briefly snagged a leftover naming collision from the deletion
+race and kept the `1` suffix after the rest of the entity set landed clean; renamed both via
+`config/entity_registry/update` once confirmed the clean names were free. All 6 YAML call sites
+updated to the final clean `mobile_app_iphone13promax_vicky` and live-tested — delivery
+confirmed with no errors. Section 3A per-person onboarding note updated to match.
 
 ### BUG-N13 [HIGH] ~~notify_power_event.yaml + notify_presence_events.yaml critical branches silently failing~~ ✅ FIXED 2026-07-06
 

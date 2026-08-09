@@ -5,6 +5,80 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **Log-triage session 2026-08-09 (user: "check logs for updated issues") — 5 live issues
+      found and fixed, 1 partially mitigated, 1 deferred (no urgency).** All via direct
+      Supervisor/core API access (`ha core logs`, `/api/repairs/issues/fix`,
+      `config/entity_registry/update` websocket, `sqlite3 -readonly` against the live recorder
+      DB) — no user-reported symptom, purely proactive log/repairs review.
+
+      **1. BUG-N15 (NOTIFICATIONS_CONTRACT.md) — `omit` sentinel undefined, breaking every
+      WARNING/CRITICAL security/system push's action buttons + non-critical Telegram, since
+      the 2026.7.4→2026.8.0 core upgrade (2026-08-08 evening onward).** Fixed: `else omit` →
+      `else []` at 19 call sites across `notify_security_events.yaml` /
+      `notify_system_event.yaml`. `check_config` valid, scripts reloaded.
+
+      **2. BUG-N16 (NOTIFICATIONS_CONTRACT.md) — `notify.STD_Alerts` group (feeds 16 `alert:`
+      defs) still dead, hourly `ServiceNotFound` — 2026-06-28's fix only covered the other 3
+      STD_* groups.** User pushed back on the initial diagnosis ("those aren't dead service
+      names though?") — correctly, turned out the FIRST specific names proposed were wrong too;
+      re-verified against live `GET /api/services` before touching anything. Fixed: corrected to
+      the 4 verified-working `mobile_app_<device>` legacy services; `telegram_bot_5527` dropped
+      (genuinely unreachable via this mechanism, no drop-in fix exists). Required a full core
+      restart (notify groups can't hot-reload) — confirmed with user first. Live-tested post-
+      restart: `ServiceNotFound` gone.
+
+      **3. BUG-N17 (NOTIFICATIONS_CONTRACT.md) — Vicky missing every warning/critical push for
+      3+ weeks, dead mobile_app registration (re-registered 2026-07-18, YAML never updated).**
+      Two-stage fix: interim retarget to the then-live `iphone13promax_vicky1`, then — after
+      user had Vicky delete + reconnect the Companion App — the fresh registration landed clean
+      (`iphone13promax_vicky`, no suffix) on the service name itself; 2 entities
+      (`device_tracker`/`notify`) snagged a leftover naming-collision "1" suffix from the
+      deletion race, renamed both via the entity registry once the clean names were confirmed
+      free. All 6 YAML call sites (security/water/power) now point at the final clean name,
+      live-tested. See Section 3A note in NOTIFICATIONS_CONTRACT.md for the "don't trust this
+      name without re-checking" caveat this saga earned.
+
+      **4. BUG-CORE03 (INFRA_CONTRACT.md) — `repairs.backup.automatic_backup_failed`, root
+      cause found, partially mitigated.** Today's 04:50 native HA backup failed: `Could not
+      lock database within 30 seconds`. `home-assistant_v2.db` = 216M rows / 37.9GB, dominated
+      by power/UniFi sensors updating every 1–5s at the global 90-day `purge_keep_days`. User
+      wants the full 90-day window kept for power/solar specifically (real analysis need) — so
+      added a separate `recorder.purge_entities` automation trimming only
+      `unifi_*`/`udm_*`/`wan_*` to 30 days, independent of the global purge. Honestly flagged to
+      user (and here): this is ~7% of total rows and doesn't reduce write *rate* at backup time,
+      so it may not fully prevent recurrence — the real lever if it recurs is reducing
+      `scan_interval` on the noisiest power sensors, not touched this session.
+
+      **5. BUG-CORE04 (INFRA_CONTRACT.md) — 3× `template.composite_device_id_*` repairs, FIXED;
+      `http.deprecated_yaml` repair, deferred.** Both surfaced from the same 2026.8.0 upgrade
+      (device-registry migration). The 3 composite_device_id issues (dangling device_id on 3 UI
+      template helpers) fixed by driving the repair's fix flow directly via
+      `POST /api/repairs/issues/fix` — no YAML involved, `.storage`-only. `http.deprecated_yaml`
+      left alone — `breaks_in_ha_version: 2027.2.0`, no urgency, and touches the reverse-proxy
+      trusted_proxies config which needs live UI verification to change safely.
+
+      **6. Dashboard graph audit (no dedicated contract — logged here only).** Per user request
+      ("check all graphs... for longer than 3 months"), scanned all 5 `.storage/lovelace.*`
+      dashboards (111 graph-type cards). Confirmed `statistics-graph` cards and
+      `custom:plotly-graph` cards with `"statistic": "sum"` set are already correctly wired to
+      long-term statistics (verified live against the DB: `sensor.inverter_load_power` stats go
+      back to 2025-02-17, `sensor.house_power_losses` to 2026-03-12 — both unaffected by any
+      purge setting). Found 7 `custom:plotly-graph` cards using raw history at 30–31 day windows
+      (fine today, fragile long-term) across `dashboard_operations`/`dashboard_testing`/
+      `operations_debug` — added `"statistic": "sum", "period": "day"` to the 22 eligible entity
+      fields, matching the pattern the dashboards' own "Monthly Production" cards already prove
+      works. 2 entities (`sensor.prepaid_drift_rate_per_day`, `sensor.prepaid_drift_percentage`)
+      have a `statistics_meta` row but neither mean nor sum enabled — genuinely not fixable this
+      way, left on raw history, flagged to user. `input_number.prepaid_month_fixed_paid` not
+      statistics-eligible at all (helper, not a sensor) — also left as-is, flagged. Backed up
+      the 3 lovelace files before editing; required a full restart (`.storage/lovelace` changes
+      per CODING_STANDARDS.md); `check_config` valid, clean boot.
+
+      **Commits:** `105d55d6`, `8b34ff7a`, `bbf07162` (this session's own commits — two other
+      commits landed on `master` interleaved with these from a concurrent session/agent working
+      the same repo at the same time, `35610658` and `0cdf739a` — not this session's work, not
+      described here, see their own commit messages / doc updates).
+
 - [ ] **RESUME-HERE — Tuya "sign invalid" is a house-wide, 34h+-running
       command-signing fault, not a geyser-specific issue (E10+E11,
       BUG-INFRA-TUYA01) — 2026-08-06/07.** User: "Tuya app credentials
