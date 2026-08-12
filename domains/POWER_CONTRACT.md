@@ -1007,7 +1007,12 @@ input_number.orchestrator_conserve_degraded_soc_threshold % 60 — SOC floor for
 Other thresholds:
 ```
 input_number.orchestrator_surplus_export_threshold    W  1000 — solar surplus to enter surplus state
-input_number.orchestrator_target_soc_by_sunset        %  90   — charge target by end of solar window (future use)
+input_number.orchestrator_target_soc_by_sunset        %  100  — charge target by end of solar window; actively
+                                                                 read by the 14:00-16:30 P4 grid-topup evaluator
+                                                                 (power_automations.yaml ~L1195-1520) — NOT
+                                                                 "future use" as previously documented here.
+                                                                 No `initial:` (BUG-PWR-ORCHSOC01, see Issue 27) —
+                                                                 restores its last real value across restarts.
 input_number.orchestrator_load_first_soc_threshold    %  65   — crossover: battery-first → load-first (future use)
 input_number.orchestrator_pre_shed_hours_warning      h  3    — warning window before upcoming shed
 ```
@@ -2489,6 +2494,51 @@ verification script to extend evidence-checking into. Deployed live:
 `check_config` valid, `automation` domain reloaded, confirmed
 `automation.pool_pump_solar_aware_daily_control` state `on` post-reload.
 Full writeup: INFRA_CONTRACT.md BUG-INFRA-TUYA01 (E12).
+
+### Issue 27 — ✅ FIXED 2026-08-12: BUG-PWR-ORCHSOC01 — `orchestrator_target_soc_by_sunset`
+### reset to 90 on every HA Core restart, silently overriding the user's 100 setting
+**Priority:** P2 — not a false alert, but quietly degraded the P4 grid-topup target back to
+90% after most restarts, requiring the user to keep noticing and manually resetting it to 100
+**Files:** `packages/power/power_helpers.yaml`
+**Reported by:** user, "why do I keep having to reset target SOC to 100 as keeps defaulting
+back to 90?" 2026-08-12
+
+**What happened.** Initially investigated as a possible regression of the Program 4 SOC test
+(Issue tracked in PROJECT_STATE.md "REVIEW 2026-08-11") — but `number.inverter_1/2_program_4_soc`
+were confirmed rock-solid at 100 the whole time (recorder DB checked back to 2026-08-04
+16:09:37 SAST, the original test change: zero drift, every restart re-polls 100 live from the
+inverter via Solarman). The real culprit was a different, similarly-named entity:
+`input_number.orchestrator_target_soc_by_sunset` (feeds the 14:00–16:30 P4 grid-topup
+evaluator, power_automations.yaml ~L1195–1520 — actively used, not "future use" as this doc
+previously said at §7). Its recorder history showed it flipping to 90 at almost the exact
+timestamp of every HA Core restart, even after being manually set to 100 hours earlier —
+in one case reverting the same evening it was set (08-10 19:27 → 100, 08-10 20:57 restart →
+90). Root cause: the entity was defined in YAML with `initial: 90` — a well-known HA
+`input_number` gotcha where `initial:` is re-applied on every restart/reload, overriding
+whatever value was last set, instead of restoring it via the normal restore-state mechanism.
+No automation in this repo ever writes to this entity (grepped — read-only everywhere it's
+referenced), so the only two things that ever touched it were the user (manually, via
+dashboard slider) and this restart-reset behaviour.
+
+**Fix:** removed the `initial: 90` line from `power_helpers.yaml` entirely — with no
+`initial:`, HA's normal `RestoreEntity` behaviour takes over and the helper now restores its
+actual last value across restarts, like every other helper in this file that doesn't set
+`initial:`.
+
+**Deployed:** `check_config` valid on the YAML edit. `input_number.reload` ("Reload Helpers")
+was tried first per CODING_STANDARDS.md's normal reload table, but tested ineffective live —
+verified with a control entity (`orchestrator_pre_shed_soc_threshold`) whose `last_updated`
+also didn't move across two separate reload calls, confirming the reload service wasn't
+picking up the package-included YAML at all, not just this one entity. Fell back to a full
+HA Core restart (confirmed with user first) — confirmed live afterward: entity attribute
+`initial` now reads `null` (was `90.0`), state restored to `100` (its real last value) instead
+of resetting to 90. `number.inverter_1/2_program_4_soc` re-checked post-restart, unaffected,
+still 100.
+
+**Still open / worth a follow-up sweep:** no other `input_number` in this package was audited
+for the same `initial:` pattern — only this one was fixed since it's the one with confirmed
+symptoms. If another helper is ever reported "reverting" after a restart, check for `initial:`
+in its YAML definition first.
 
 ---
 

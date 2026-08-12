@@ -5,6 +5,31 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **BUG-PWR-ORCHSOC01 — `orchestrator_target_soc_by_sunset` reset to 90 on every HA Core
+      restart, not the Program 4 SOC test — fixed 2026-08-12.** User: "why do I keep having to
+      reset target SOC to 100 as keeps defaulting back to 90?" First checked whether the
+      Program 4 SOC test (see "REVIEW 2026-08-11" below) had regressed — it hadn't:
+      `number.inverter_1/2_program_4_soc` confirmed rock-solid at 100 via recorder DB back to
+      2026-08-04 16:09:37 SAST, zero drift, every restart re-polls 100 live from the inverter.
+      The real culprit was a different, similarly-named entity — `input_number.
+      orchestrator_target_soc_by_sunset` (feeds the 14:00–16:30 P4 grid-topup evaluator,
+      actively used despite POWER_CONTRACT.md previously flagging it "future use" — also
+      corrected). Its recorder history showed it snapping to 90 at almost the exact timestamp
+      of every restart, even hours after being manually set to 100 (one case reverted the
+      same evening it was set). Root cause: `power_helpers.yaml` defined it with `initial: 90`
+      — a well-known HA `input_number` gotcha where `initial:` is re-applied on every
+      restart/reload, overriding the last real value instead of restoring it. No automation
+      in this repo ever writes to this entity (read-only everywhere referenced) — only the
+      user's manual resets and this restart-reset behaviour ever touched it. **Fix:** removed
+      `initial: 90` from `power_helpers.yaml` so normal restore-state behaviour applies.
+      `input_number.reload` ("Reload Helpers") was tried first per CODING_STANDARDS.md but
+      tested ineffective live (confirmed with a control entity — `last_updated` didn't move
+      across two reload calls); fell back to a full HA Core restart (confirmed with user
+      first). Verified live post-restart: entity's `initial` attribute now `null` (was
+      `90.0`), state restored to `100` instead of resetting. See POWER_CONTRACT.md Issue 27.
+      **Flagged, not yet done:** no sweep of other `input_number` helpers in this package for
+      the same `initial:` pattern — only this one had confirmed symptoms.
+
 - [x] **Log-triage session 2026-08-09 (user: "check logs for updated issues") — 5 live issues
       found and fixed, 1 partially mitigated, 1 deferred (no urgency).** All via direct
       Supervisor/core API access (`ha core logs`, `/api/repairs/issues/fix`,
@@ -418,6 +443,12 @@
       days to firm up the still-thin sample (n=4, only 3 low-load), rather than reverting.
       `program_4_soc` left untouched at 100 either way — this remains the user's call, not
       a bug fix.
+
+      **2026-08-12 update:** user reported the target kept "defaulting back to 90" —
+      re-checked `program_4_soc` specifically for this and it's still confirmed rock-solid at
+      100 with zero drift since 08-04 (see BUG-PWR-ORCHSOC01 above). The actual reverting
+      entity was a different, similarly-named helper (`orchestrator_target_soc_by_sunset`),
+      now fixed — this A/B test's data and recommendation above are unaffected.
 
 - [x] **Critical/intruder inside-zone notifications could carry an hours-stale image
       (BUG-S73) — 2026-08-04.** User flagged from a live phone screenshot: a "🚨 INTRUDER —
