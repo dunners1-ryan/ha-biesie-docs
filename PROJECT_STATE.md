@@ -5,6 +5,32 @@
 
 ## ⚠️ OPEN TODO
 
+- [ ] **REVIEW 2026-08-12 — BUG-PWR-FORECASTBIAS01: Solcast forecast runs ~38% hot on
+      average, two mitigations applied, monitoring.** User noticed peak PV briefly hit
+      4kW+ despite bad weather while the day's forecast (40.5 kWh) badly missed actual
+      (~12.3 kWh, 30% ratio) — then asked why Solcast isn't combined with the live weather
+      forecast, believing it already was. Pulled 91 days of recorder data: mean actual/
+      forecast ratio **62%**, only 1/91 days landed within 85-115%, 87% of days under 70% —
+      a persistent one-directional bias across every season sampled (mid-May–August), not
+      weather noise. Confirmed `sensor.solar_weather_correlation` is misleadingly named — no
+      live OpenWeatherMap signal feeds it at all; it's purely retrospective (today's + 7d
+      actual-vs-forecast ratio), so it can't flag a bad day until same-day production data
+      has accumulated (~midday). No genuine Solcast+weather-forecast fusion exists in this
+      repo. **Applied:** (1) `select.solcast_pv_forecast_use_forecast_field` switched from
+      `estimate` (P50) to `estimate10` (Solcast's conservative percentile) — immediately cut
+      `forecast_today` ~31% (37.8→26.1 kWh) at the source, benefiting every consumer. (2)
+      `sensor.house_energy_resilience_hours` and `sensor.prepaid_topup_strategy` — the two
+      decision sensors found reading raw undamped forecast directly — now apply the same
+      live `ratio_today` correction the P4 grid-charge evaluator already used since
+      2026-07-01. Deployed live: `check_config` valid, `template` reloaded, confirmed both
+      sensors picked up the change. **Action next session:** compare `estimate10` forecast
+      vs actual over the following several days — if still running hot, the persistence/
+      magnitude points to a genuine Solcast site-calibration issue (array capacity/tilt/
+      azimuth/shading as configured in the Solcast site) rather than something the
+      percentile switch alone fixes. **Not yet built:** a real prospective weather-fusion
+      (e.g. derating the forecast using OWM cloud-cover before sunrise) — flagged, needs its
+      own scoped design. See POWER_CONTRACT.md Issue 28.
+
 - [x] **BUG-PWR-ORCHSOC01 — `orchestrator_target_soc_by_sunset` reset to 90 on every HA Core
       restart, not the Program 4 SOC test — fixed 2026-08-12.** User: "why do I keep having to
       reset target SOC to 100 as keeps defaulting back to 90?" First checked whether the

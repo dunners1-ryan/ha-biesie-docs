@@ -793,6 +793,14 @@ sensor.solar_weather_correlation           4-state: excellent / good / poor / de
                                            Consumers: energy_state.yaml checks (== 'degraded') → conserve branch.
                                            'ratio' attribute kept for energy_state.yaml decision_reason string.
                                            Backward compat: 'degraded' state preserved from 2-state (2026-04-22) version.
+                                           ⚠️ NAME IS MISLEADING (flagged 2026-08-12, Issue 28): despite the name,
+                                           this is entirely RETROSPECTIVE — it classifies how much actual production
+                                           has already undershot Solcast (today + 7d), not a PROSPECTIVE combination
+                                           of Solcast with a live weather forecast (OWM cloud cover/condition). No
+                                           OWM signal feeds this at all. On a day that's overcast from sunrise, this
+                                           can't say "degraded" until ratio_today has enough same-day data (hour ≥
+                                           12 or ≥ 14 depending on threshold) — see Issue 28 for the live-weather
+                                           prospective-fusion gap this leaves.
 sensor.solar_season_efficiency_factor      Float multiplier (dimensionless). Season from sensor.season:
                                              summer 1.0, autumn 0.75, winter 0.55, spring 0.85 (JHB defaults)
                                            UI-adjustable via input_number.solar_factor_{summer|autumn|winter|spring}.
@@ -2539,6 +2547,78 @@ still 100.
 for the same `initial:` pattern — only this one was fixed since it's the one with confirmed
 symptoms. If another helper is ever reported "reverting" after a restart, check for `initial:`
 in its YAML definition first.
+
+### Issue 28 — ⏳ MITIGATED, MONITORING 2026-08-12: BUG-PWR-FORECASTBIAS01 — Solcast
+### forecast systematically over-predicts actual solar by ~38% on average, feeding several
+### undamped planning sensors
+**Priority:** P2 — not a false alert, but degrades planning accuracy across P4 charge-by-
+sunset, prepaid top-up timing, and the grid-outage resilience estimate
+**Files:** `packages/power/energy_state.yaml`, `packages/power/prepaid_strategy.yaml`,
+Solcast integration config (`select.solcast_pv_forecast_use_forecast_field`)
+**Reported by:** user, "seems far too high as was over 4kw today when bad weather" — noted
+while reviewing why `orchestrator_target_soc_by_sunset` planning felt unreliable, then
+separately: "should we not be combining Solcast with weather forecast... I thought we
+already were?"
+
+**Quantified the bias.** Pulled 91 days of paired morning-forecast vs actual-daily-total
+data from the recorder DB (`sensor.solcast_pv_forecast_forecast_today` sampled ~06:00-08:00
+SAST vs the day's final `sensor.inverter_today_production`), spanning mid-May through
+2026-08-12, all seasons in range:
+- Mean ratio (actual ÷ forecast): **62%**. Median: 64%.
+- Only **1 of 91 days** landed "close" (85-115% of forecast).
+- **79 of 91 days (87%)** came in under 70% of forecast.
+- **Zero days** where actual exceeded forecast — one-directional, not noise around a
+  correct mean.
+
+Today (2026-08-12) specifically: forecast 40.5 kWh, actual ~12.3 kWh (30% ratio) — one of
+the worst days in the sample, but not an outlier in *direction*, only in degree. Peak PV
+power did briefly hit 8,533 W (11:33 SAST, a ~20s cloud-edge spike) against Solcast's
+8,521 W peak-power forecast — a near-exact hit on instantaneous peak while the day's energy
+*total* missed by 70%, because the clear break didn't sustain. This is what the user saw as
+"over 4kW despite bad weather" on a live dashboard/app — several such brief 4-5kW pokes
+happened through the day (11:22, 11:24, 12:30) between long stretches of 150-3000W.
+
+**This is not weather-forecast fusion — there isn't any, despite the name.**
+`sensor.solar_weather_correlation` sounds like it combines Solcast with a live weather
+signal, but it's purely retrospective: it classifies how much actual production has
+*already* undershot Solcast (today's ratio + 7d mean + coefficient of variation), with no
+`weather.openweathermap` cloud-cover/condition input at all. On a day that's overcast from
+sunrise, nothing here can say "expect a bad day" before enough same-day production data has
+accumulated (`ratio_today` only engages after 10am, and the `degraded`/`poor` thresholds
+need hour ≥ 12-14 to fire off same-day data alone). A genuine prospective fusion — e.g.
+derating the morning forecast using OWM's cloud-cover % or condition string before sunrise —
+does not exist in this repo. Flagged, not built this session (needs its own scoped design:
+which OWM attribute, what threshold, applied where).
+
+**Fix applied — two complementary layers, since the P4 evaluator's existing `ratio_today`
+correction (Issue in §9, added 2026-07-01) only protects that one automation:**
+
+1. **`select.solcast_pv_forecast_use_forecast_field`** switched from `estimate` (P50) to
+   `estimate10` (Solcast's own conservative/10th-percentile estimate) — live-tested:
+   `sensor.solcast_pv_forecast_forecast_today` dropped from 37.8 kWh to 26.1 kWh immediately
+   on switching (~31% reduction) for the same underlying weather data. This is an
+   integration-level change, so it derates every consumer of the raw Solcast entities at
+   the source, not just the two sensors below.
+2. **`sensor.house_energy_resilience_hours`** (`energy_state.yaml`) and
+   **`sensor.prepaid_topup_strategy`** (`prepaid_strategy.yaml`) — the two decision sensors
+   found reading the raw, undamped `forecast_remaining_today` directly (a real safety-signal
+   and a real money-decision respectively) — now scale it by the same live `ratio_today`
+   (`sensor.solar_vs_forecast_ratio_today`) correction the P4 evaluator already uses,
+   neutral (×1) before 10am via that sensor's own guard. Deployed live: `check_config`
+   valid, `template` domain reloaded, both sensors confirmed picking up the new logic
+   (`last_updated` moved on reload). Effect wasn't visible in tonight's numbers since
+   `forecast_remaining_today` was already 0 (post-sunset) at deploy time — first real test
+   is tomorrow's daylight hours.
+
+**Not touched:** `sensor.solar_vs_forecast_ratio` (energy_helpers.yaml, legacy duplicate
+without the 10am guard) — informational only, no decision consumer found.
+
+**Monitoring plan:** watch `estimate10` vs actual over the next several days — if it still
+runs meaningfully high, the persistence/magnitude of the original bias (consistent across 3
+months and every season sampled) points to a Solcast site-calibration issue (array
+capacity/tilt/azimuth/shading as configured in the Solcast rooftop site) rather than
+something a percentile-field switch alone fixes. See PROJECT_STATE.md for the open review
+item.
 
 ---
 
