@@ -2518,7 +2518,7 @@ were confirmed rock-solid at 100 the whole time (recorder DB checked back to 202
 inverter via Solarman). The real culprit was a different, similarly-named entity:
 `input_number.orchestrator_target_soc_by_sunset` (feeds the 14:00–16:30 P4 grid-topup
 evaluator, power_automations.yaml ~L1195–1520 — actively used, not "future use" as this doc
-previously said at §7). Its recorder history showed it flipping to 90 at almost the exact
+previously said at §8). Its recorder history showed it flipping to 90 at almost the exact
 timestamp of every HA Core restart, even after being manually set to 100 hours earlier —
 in one case reverting the same evening it was set (08-10 19:27 → 100, 08-10 20:57 restart →
 90). Root cause: the entity was defined in YAML with `initial: 90` — a well-known HA
@@ -2591,7 +2591,8 @@ does not exist in this repo. Flagged, not built this session (needs its own scop
 which OWM attribute, what threshold, applied where).
 
 **Fix applied — two complementary layers, since the P4 evaluator's existing `ratio_today`
-correction (Issue in §9, added 2026-07-01) only protects that one automation:**
+correction (§7, `inverter_p4_grid_charge_control` E5-3, "Forecast ratio adjustment", added
+2026-07-01) only protects that one automation:**
 
 1. **`select.solcast_pv_forecast_use_forecast_field`** switched from `estimate` (P50) to
    `estimate10` (Solcast's own conservative/10th-percentile estimate) — live-tested:
