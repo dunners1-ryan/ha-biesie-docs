@@ -5,6 +5,37 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-08-14 — Power/solar/battery/prepaid 2-year system audit + BUG-PWR-DOCDRIFT01
+      fixed.** User asked for a full audit across the recorder's full history (~18 months
+      available) to peg performance against the real hardware/software timeline and confirm
+      whether the June 2026 battery swap (Freedom Won → 3× Greenrich AF1600) and the pending
+      panel/inverter swap actually helped. Timeline corrected against DB evidence: a
+      2025-05-16 lightning event damaged the old battery BMS (inverter offline 2025-05-22→
+      06-03, ran on a 5kW loan unit meanwhile, stable again 2025-06-05 — DB-corroborated,
+      grid import 2.06× higher / solar 47% lower during the degraded window vs after);
+      2025-09-09→13 roof maintenance disconnected the panels entirely (DB shows exactly 4
+      days of 0.0 kWh production, resolving the earlier open question in
+      `SOLAR_UPGRADE_ROI_2026.md` about whether that stretch was weather or an outage — it
+      was neither, it was maintenance). **Notable finding, not yet explained:** the June
+      2026 battery swap's year-over-year grid-import comparison (June/July 2026 vs 2025,
+      same months) shows grid import *up* 31%/21%, not down — house load also grew (+12%/
+      +6%) but not enough to fully explain it, and the window is confounded by the
+      concurrent E1–E8 orchestrator rewrite (same week) plus the since-fixed
+      ORCHSOC01 SOC-reset bug. Flagged as inconclusive rather than forced into a false
+      payback number — needs re-checking once Aug/Sept data clears both confounds (see
+      `/power-audit` command). **BUG-PWR-DOCDRIFT01 (fixed):** POWER_CONTRACT.md's Entity
+      Reference table pointed at `sensor.prepaid_solar_savings_monthly`, which doesn't exist
+      — corrected to the real entity, `sensor.solar_savings_this_month`. See POWER_CONTRACT.md
+      Issue 29 and its Hardware/Cost History section (now includes panel specs — 24× 435W JA
+      Solar, 1 damaged — and the battery-swap system cost, previously missing entirely).
+      **New artifacts:** `private_docs/POWER_SYSTEM_AUDIT_2026.md` (full audit, private —
+      financial/ROI detail lives here, not synced publicly),
+      `private_docs/POWER_SYSTEM_PERFORMANCE_LOG.md` (recurring dated log), and
+      `/power-audit` command (`.claude/commands/power-audit.md`) — a manually-run monthly/
+      quarterly habit, not an automation, for extending this audit over time. A new "ROI /
+      Audit" view was also planned for the existing `operations_debug` ("Debug") Lovelace
+      dashboard.
+
 - [ ] **REVIEW 2026-08-12 — BUG-PWR-FORECASTBIAS01: Solcast forecast runs ~38% hot on
       average, two mitigations applied, monitoring.** User noticed peak PV briefly hit
       4kW+ despite bad weather while the day's forecast (40.5 kWh) badly missed actual

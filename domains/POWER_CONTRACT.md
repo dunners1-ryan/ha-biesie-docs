@@ -642,7 +642,11 @@ script.prepaid_diagnostic                    dashboard button → pyscript.prepa
 
 # Strategy sensors (prepaid_strategy.yaml)
 sensor.prepaid_solar_savings_today       R    solar value vs grid cost
-sensor.prepaid_solar_savings_monthly     R    solar value monthly
+sensor.solar_savings_this_month          R    solar value monthly (unique_id: solar_offset_this_month —
+                                               ⚠️ RENAMED 2026-08-14 (BUG-PWR-DOCDRIFT01): doc previously
+                                               listed this as sensor.prepaid_solar_savings_monthly, which
+                                               does not exist (404) — corrected during
+                                               private_docs/POWER_SYSTEM_AUDIT_2026.md's entity health sweep
 sensor.prepaid_fixed_charge_impact       %    fixed charges as % of total spend
 sensor.prepaid_topup_strategy                critical_buy_now/buy_today/delay_topup/prepare/optimal
 sensor.prepaid_depletion_date                ISO date string (BUG: references missing entity)
@@ -2635,6 +2639,21 @@ months and every season sampled) points to a Solcast site-calibration issue (arr
 capacity/tilt/azimuth/shading as configured in the Solcast rooftop site) rather than
 something a percentile-field switch alone fixes. See PROJECT_STATE.md for the open review
 item.
+
+### Issue 29 — ✅ FIXED 2026-08-14: BUG-PWR-DOCDRIFT01 — stale entity reference in
+Entity Reference table
+
+Found during the entity/data health sweep for `private_docs/POWER_SYSTEM_AUDIT_2026.md`
+(a 2-year power/solar/battery/prepaid audit — see that doc for full context, not synced
+publicly). Section 6's Entity Reference table listed `sensor.prepaid_solar_savings_monthly`
+as the "solar value monthly" sensor. That entity returns 404 — it does not exist. The real
+entity is `sensor.solar_savings_this_month` (`unique_id: solar_offset_this_month`, defined
+in `prepaid_strategy.yaml`, confirmed live). No functional bug — the real sensor works
+fine, only the doc pointed at the wrong name. Fixed directly in Section 6.
+
+Swept ~40 other core power/solar/battery/prepaid/orchestrator entities in the same pass —
+everything else returned real values, no other stale references or `unknown`/`unavailable`
+states found.
 
 ---
 
