@@ -33,8 +33,22 @@
       `private_docs/POWER_SYSTEM_PERFORMANCE_LOG.md` (recurring dated log), and
       `/power-audit` command (`.claude/commands/power-audit.md`) — a manually-run monthly/
       quarterly habit, not an automation, for extending this audit over time. A new "ROI /
-      Audit" view was also planned for the existing `operations_debug` ("Debug") Lovelace
-      dashboard.
+      Audit" view was added to the existing `operations_debug` ("Debug") Lovelace dashboard.
+      **Same-day follow-up (still 2026-08-14):** root-caused the grid-import increase —
+      user confirmed the old Freedom Won units had 2 damaged cells (explains the non-linear
+      SOC-collapse symptom, running damaged the whole 13-month gap); tested and rejected
+      "divide the `statistics.sum` spikes by 2" (checked against the sensor's own raw
+      `state` reading — wrong for anything but the smallest spikes), fixed via
+      state-fallback instead (55 days corrected, monthly solar table now complete in the
+      audit doc); found the P4 force-charge window (14:00-17:00) carries 35.5% of daily
+      grid import in 2026 vs 2.9% in 2025 (~17× jump) — large enough to fully explain the
+      post-swap increase on its own, and now **live-tracked** via two new automations
+      (`p4_window_capture_1400_snapshot`, `p4_window_compute_daily_share` in
+      `power_automations.yaml`) plus `input_number.p4_window_share_of_day_percent` and
+      `sensor.p4_window_share_7d_mean` (power_helpers.yaml / power_statistics.yaml) — see
+      POWER_CONTRACT.md's P4 entity reference addition. Also fixed the new Debug dashboard's
+      Grid Import chart: `apexcharts-card`'s `statistics.type: sum` pulls the raw cumulative
+      value, not a period delta — corrected to `type: change`.
 
 - [ ] **REVIEW 2026-08-12 — BUG-PWR-FORECASTBIAS01: Solcast forecast runs ~38% hot on
       average, two mitigations applied, monitoring.** User noticed peak PV briefly hit

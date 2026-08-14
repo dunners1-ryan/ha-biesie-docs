@@ -1170,6 +1170,21 @@ input_number.p4_max_grid_charge_rate_kw       kW   5.0 — added 2026-06-28. Obs
                                                          Used to detect when the remaining kWh shortfall
                                                          can no longer close in the time left — see
                                                          "Rate-urgency + load shedding" below.
+
+# P4 window grid-import share tracking (added 2026-08-14 — see private_docs/
+# POWER_SYSTEM_AUDIT_2026.md §3.3 for why this metric exists). Two new
+# automations in power_automations.yaml: p4_window_capture_1400_snapshot
+# (14:00) and p4_window_compute_daily_share (17:00, guarded against
+# near-zero grid-import days). No `initial:` on either input_number —
+# see BUG-PWR-ORCHSOC01 (Issue 27) for why.
+input_number.p4_window_grid_import_at_1400    kWh  — grid_energy_import_today snapshot at 14:00
+input_number.p4_window_share_of_day_percent   %    — computed daily at 17:00: P4-window kWh /
+                                                       today's grid import so far * 100
+sensor.p4_window_share_7d_mean                %    — platform:statistics 7d rolling mean of the
+                                                       above (power_statistics.yaml), the noise-
+                                                       smoothed trend figure — compare against the
+                                                       audit's 2025 baseline (2.9%) / 2026 post-swap
+                                                       average (35.5%) to see if it's normalizing
 ```
 
 **Programme time slots (confirmed E5 pre-flight):**
