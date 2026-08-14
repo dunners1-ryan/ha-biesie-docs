@@ -51,7 +51,23 @@
       cameras when the derived sensor hasn't caught up; `security_capture_each_camera_
       motion` (security_automations.yaml) now writes the global camera-name tracker
       immediately (before its snapshot delay) instead of after. `ha core check` valid.
-      Full writeup: SECURITY_CONTRACT.md BUG-S74.
+      **Follow-up same session — audited the rest of the pipeline for the same defect
+      class, found + fixed 4 more open gates (BUG-S75): grounds-front/perimeter image
+      slots had no unconditional-confidence write (BUG-S65's fix never extended past
+      grounds-rear); the router's freshness check only ever covered the 3 inside zones,
+      not grounds/perimeter; `gate_activity`/departure branches read `ipcam03_driveway_
+      history` with no age check (flagged unaddressed in BUG-S72, never closed); the
+      arming stop-guard blocked the camera-name tracker write for cam14/cam05/cam15, not
+      just images. **Then user caught a live regression the same day** — a genuine
+      front-perimeter push showed "Camera: Cam15-Passage": the BUG-S74 fix only handled
+      `sensor.security_trigger_camera` reading `'none'`, not the more common case where
+      it holds an unrelated camera (cam14/cam15 rank top of its global priority list and
+      often active for ordinary at-home reasons, regardless of which zone actually fired).
+      **Corrected:** `reason`'s `cam_s` no longer reads the global trigger-camera sensor
+      at all — rewritten to scan only the cameras belonging to the zone this block already
+      determined (mirrors `zone_label`'s own zone logic instead of a separate, zone-
+      agnostic sensor). `ha core check` valid, live `template.reload`/`automation.reload`
+      confirmed. Full writeup: SECURITY_CONTRACT.md BUG-S74 (+ correction) and BUG-S75.
 
 - [x] **BUG-PWR-ORCHSOC01 — `orchestrator_target_soc_by_sunset` reset to 90 on every HA Core
       restart, not the Program 4 SOC test — fixed 2026-08-12.** User: "why do I keep having to

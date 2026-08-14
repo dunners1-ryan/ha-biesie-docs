@@ -2162,6 +2162,88 @@ AcuSense debounce, not the 30-45s NVR debounce that gave this race room to matte
 `img_slot`'s inside-zone map (already covered by BUG-S72/S73's own freshness checks). Flag
 for a follow-up if a perimeter/gate equivalent turns up live.
 
+**Correction — this fix was incomplete, caught live the same day (2026-08-14), see
+BUG-S75.** The `cam_s` fallback above only fired when `sensor.security_trigger_camera`
+read `'none'`. It missed the far more common failure: that sensor is a single GLOBAL
+"any active camera anywhere" value on a fixed priority list (cam14 lounge / cam15 passage
+rank above every outdoor camera) — so whenever an inside camera happened to be active for
+any unrelated reason, it won that global slot and got embedded in the reason text
+regardless of which zone the notification was actually about. Observed live: a genuine
+front-perimeter event (ipcam01/02, correct zone/title) carried `cam: cam15_passage` because
+cam15 was active at the same moment — and that wrong name then fed straight into
+`notify_security_events.yaml`'s highest-priority `reason_cam` tier, putting
+"Camera: Cam15-Passage" on a front-perimeter push. Rewritten (`security_logic.yaml`) to
+never read the global `sensor.security_trigger_camera` for this text at all — `cam_s` now
+scans only the cameras belonging to the same zone the block already determined
+(garage/main/bedrooms/grounds/perimeter-front/perimeter-rear), mirroring `zone_label`'s own
+zone logic instead of a separate, zone-agnostic global sensor. Verified via `ha core check`
++ live `template.reload`; `sensor.security_event_classification` confirmed rendering
+cleanly post-reload.
+
+---
+
+### BUG-S75 — Four more instances of the BUG-S65/S72/S73 confidence-gate/no-freshness-check pattern, found auditing the rest of the pipeline after BUG-S74
+**Priority: HIGH | Status: ✅ FIXED 2026-08-13**
+
+Not a live symptom — found by auditing the rest of `security_automations.yaml` for the same
+defect class as BUG-S74 immediately after fixing it, on request. All four were real, open
+gaps; none had been exercised live yet at the time of the fix.
+
+**Gap 1 — `security_image_grounds_front` / both perimeter slots had no unconditional-write
+path.** BUG-S65 (2026-07-17) fixed this exact confidence gate for `security_image_grounds_
+rear` only (`security_capture_each_camera_motion` writes it unconditional of confidence).
+The front-zone slot and both perimeter slots were never given the equivalent — they still
+relied solely on `security_capture_best_snapshot`, gated on medium/high confidence. A lone
+low-confidence trigger from `cam04`/`cam07` (front) — the same NVR/no-AI cameras that made
+BUG-S65 necessary for the rear zone — would show a stale front photo, the same failure mode
+BUG-S74 was called in for, just not misrouted to the wrong zone anymore.
+**Fix:** added matching unconditional-write blocks for `security_image_grounds_front`,
+`security_image_perimeter_front`, and `security_image_perimeter_rear` alongside the
+existing grounds-rear block.
+
+**Gap 2 — the router's freshness check (`img_fresh`) only ever covered the 3 inside zones.**
+`inside_zone_cam == ''` short-circuited `img_fresh` to always `true` for every grounds/
+perimeter zone — i.e. `perimeter_threat`, `grounds_low_confidence` (the exact branch BUG-S74
+fired on), and `intruder` had **zero staleness protection** on their `{{ img }}`, even after
+BUG-S74's zone-routing fix. This is the actual mechanism that let this morning's 25-minute-
+old photo through in the first place, and it was still open for the front/perimeter case.
+**Fix:** generalized `inside_zone_cam` → `zone_snapshot_cam`, naming a live-snapshot camera
+for every zone the classifier produces (not just the inside three): grounds front→ipcam03,
+grounds rear→ipcam04, perimeter front→ipcam01, perimeter rear→ipcam05, gate→ipcam03. The
+60s freshness check and live-snapshot fallback (previously inside-only) now apply uniformly.
+Fallback file renamed `inside_zone_locked_latest.jpg` → `security_zone_locked_latest.jpg`
+to reflect the wider scope (only reference to the old name was this same code).
+
+**Gap 3 — two branches read `ipcam03_driveway_history`'s last entry with no age check.**
+Flagged explicitly as unaddressed in BUG-S72's writeup and never closed: the `gate_activity`
+branch's `ga_img` and the `departure` push's inline image both took the last history entry
+unconditionally, however old, with no live-snapshot fallback — unlike the arrival branch
+immediately above them, which got the age-check+live-snapshot treatment in BUG-S72.
+**Fix:** mirrored the arrival branch's exact pattern (check embedded `?v=<timestamp>`, must
+be <20s old, else take a real `camera.snapshot` of `camera.ipcam03_driveway`) onto both.
+
+**Gap 4 — arming stop-guard blocked the camera-name tracker too, not just images/history.**
+BUG-S73 explicitly deferred this: `security_capture_each_camera_motion`'s arming guards
+(cam14/cam05 need `inside_cameras_armed`, cam15 needs `inside_cameras_passage_armed`) `stop:`
+the *entire* automation run — including BUG-S74's newly-hoisted `security_last_motion_camera`
+write — whenever the family is home. So a notification's "Camera:" field could still fall
+back to a stale/wrong name sourced from one of these three cameras during normal at-home
+hours. **Fix:** moved the `security_last_motion_camera` write (name only — a plain string,
+no snapshot dependency) above both arming guards, so it's unconditional except for the
+master `security_system_enabled` kill switch. The snapshot itself, per-cam history, zone
+image slot, and event-session entries for cam14/cam05/cam15 remain deliberately gated by
+arming — that gate exists on purpose to cut snapshot churn while the family is home, and
+forcing it open would reintroduce the churn BUG-S73's guard was added to prevent. Removed
+the now-redundant duplicate `security_last_motion_camera` write further down the same
+automation (same value, same run — harmless but dead code once hoisted).
+
+**Verification:** `ha core check` valid; `template.reload` + `automation.reload` via the
+Supervisor API confirmed `security_capture_each_camera_motion`, `security_capture_best_
+snapshot`, `security_event_router`, `security_gate_vehicle_stage_1_direction_check`,
+`security_arrival_stage_2_confirm_who_arrived`, and `security_departure_stage_2_confirm_
+who_left` all came back `on` post-reload; `sensor.security_event_classification` confirmed
+still rendering correctly post-reload (`cam: cam15_passage` on a live cam15 event).
+
 ---
 
 ### S18 — Notification severity/sound classification overhaul (2026-07-06)
