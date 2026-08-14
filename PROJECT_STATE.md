@@ -31,6 +31,28 @@
       (e.g. derating the forecast using OWM cloud-cover before sunrise) — flagged, needs its
       own scoped design. See POWER_CONTRACT.md Issue 28.
 
+- [x] **BUG-S74 — grounds_low_confidence push showed wrong camera name + 25min-stale wrong-
+      zone image (trigger_camera propagation race) — fixed 2026-08-13.** User flagged a
+      07:26 "⚠️ Activity in grounds" push whose "Camera:" field said Cam09-Back-Bedroom but
+      whose photo (timestamp 07:00:55, 25min stale) showed the driveway/a car leaving — two
+      separate mismatches in one notification. Queried `home-assistant_v2.db` directly (the
+      classification/trigger-camera sensors themselves aren't recorded — diagnostic
+      exclusion) and confirmed the real trigger was `camera.cam12_back_pond` at 07:26:21, a
+      grounds-**rear** event; gate was closed, nobody arriving/departing/staff — low-risk,
+      not an intrusion. Root cause: `sensor.security_trigger_camera` is a template sensor
+      derived from `*_motion_valid` one hop removed and read `'none'` for a render cycle
+      before catching up to cam12 — `zone_label` (security_logic.yaml) defaulted grounds
+      events to `'grounds front'` off that stale read (wrong zone → wrong, stale image
+      slot), and `notify_security_events.yaml`'s camera-name resolver fell through to the
+      volatile global `security_last_motion_camera` tracker, which itself lost a race
+      against its own writer's deliberate 1s snapshot-settle delay and still held cam09's
+      value from ~10 minutes earlier. **Applied:** `zone_label`/`reason` in
+      security_logic.yaml now fall back to a direct `*_motion_valid` scan of the grounds
+      cameras when the derived sensor hasn't caught up; `security_capture_each_camera_
+      motion` (security_automations.yaml) now writes the global camera-name tracker
+      immediately (before its snapshot delay) instead of after. `ha core check` valid.
+      Full writeup: SECURITY_CONTRACT.md BUG-S74.
+
 - [x] **BUG-PWR-ORCHSOC01 — `orchestrator_target_soc_by_sunset` reset to 90 on every HA Core
       restart, not the Program 4 SOC test — fixed 2026-08-12.** User: "why do I keep having to
       reset target SOC to 100 as keeps defaulting back to 90?" First checked whether the

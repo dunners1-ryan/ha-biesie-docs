@@ -2106,6 +2106,64 @@ per-camera history/timeline entries for those three cameras during unarmed hours
 
 ---
 
+### BUG-S74 — grounds_low_confidence push showed the wrong camera name AND a 25-minute-stale, wrong-zone image (trigger_camera propagation race)
+**Priority: HIGH | Status: ✅ FIXED 2026-08-13**
+
+**Symptom:** Live push at 07:26 (2026-08-13): "⚠️ Activity in grounds" — `zones: Grounds |
+gate: closed | home: no | arriving: no | departing: no | staff: no | conf: none | cam:
+none`. "Camera:" field said "Cam09-Back-Bedroom". Attached photo was `security_grounds_
+front_latest.jpg`, timestamped 07:00:55 — showing ipcam03_driveway and a car leaving
+through the gate, 25 minutes stale and from an unrelated earlier departure event.
+Confirmed via `home-assistant_v2.db` that the actual, real-time trigger was `camera.
+cam12_back_pond` firing at 07:26:21 (`group.security_grounds_rear_cameras` → on,
+`sensor.cam12_back_pond_last_event` and `input_text.cam12_back_pond_history` both updated
+at 07:26:21-22) — a grounds-**rear** event, not front, and neither cam09 nor the driveway.
+
+**Root cause (two related propagation races, both starting from the same fact:
+`sensor.security_trigger_camera` is a template sensor derived FROM the `*_motion_valid`
+sensors one hop removed, and can still read `'none'` for a render cycle after a fresh
+trigger before it catches up — same lag class as BUG-S63/BUG-NET05/06):**
+1. **Zone/image misroute (`security_logic.yaml`).** `zone_label`'s grounds branch chose
+   `'grounds rear'` vs `'grounds front'` by checking `trig_cam in rear_cams`, where
+   `trig_cam = states('sensor.security_trigger_camera')`. On this event `trig_cam` was
+   still `'none'` when `zone_label` rendered (proven by `reason`'s own `cam_s`, built from
+   the same value, literally embedding `cam: none` in the delivered message) — so it fell
+   to the `else` branch, `'grounds front'`. The router (`security_automations.yaml`
+   `security_event_router`) maps `'grounds front'` → `input_text.security_image_grounds_
+   front`, which hadn't been touched since ipcam03's 07:00:55 departure snapshot — the
+   BUG-S65 fix (unconditional-of-confidence write) only applies to whichever slot the zone
+   *actually* resolves to, so a front/rear misroute bypasses it entirely.
+2. **Camera-name misroute (`notify_security_events.yaml`).** With `reason_cam` = `'none'`
+   (per #1), `cam_name` fell through to the volatile global tracker `input_text.security_
+   last_motion_camera`. `security_capture_each_camera_motion` (`security_automations.yaml`)
+   is the automation that keeps this tracker current on every camera unconditionally
+   (BUG-S65) — but it does so *after* a deliberate `delay: "00:00:01"` (added for the NVR
+   snapshot to be ready). The classification→router→notify path has no equivalent delay
+   and reads the tracker within the same second the triggering `motion_valid` sensor turns
+   on, so it read the tracker's previous value — `cam09_back_bedroom`, last written ~10
+   minutes earlier at 07:16:01 — instead of the write already queued behind cam12's delay.
+
+**Fix:**
+1. `security_logic.yaml` (`sensor.security_event_classification`) — `zone_label`'s grounds
+   branch and `reason`'s `cam_s` both gained a direct fallback: when `sensor.security_
+   trigger_camera` reads `'none'`, scan the 6 grounds `*_motion_valid` sensors directly
+   (same hop as `binary_sensor.security_grounds_motion` itself, no extra propagation lag)
+   instead of trusting the laggy derived sensor. Fixes both the misleading `cam: none` text
+   and the front/rear zone misroute at the source.
+2. `security_automations.yaml` (`security_capture_each_camera_motion`) — hoisted the
+   `input_text.security_last_motion_camera` write to happen immediately after the arming
+   guards, *before* the 1s snapshot-settle delay, so it wins the race against the notify
+   pipeline. The image-path writes (which genuinely need the snapshot file to exist first)
+   are untouched and still happen after the delay.
+
+**Not addressed:** the same `trig_cam`-derived pattern is still used as-is for perimeter/
+gate zone_label branches (not observed misrouting live — perimeter/gate cameras use 5s
+AcuSense debounce, not the 30-45s NVR debounce that gave this race room to matter) and for
+`img_slot`'s inside-zone map (already covered by BUG-S72/S73's own freshness checks). Flag
+for a follow-up if a perimeter/gate equivalent turns up live.
+
+---
+
 ### S18 — Notification severity/sound classification overhaul (2026-07-06)
 
 **Priority: MEDIUM | Status: ✅ APPLIED 2026-07-06**
