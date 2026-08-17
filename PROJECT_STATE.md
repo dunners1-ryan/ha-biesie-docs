@@ -5,6 +5,22 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **BUG-A18 — garage-door critical escalation showed no image, then wrong camera — fixed
+      2026-08-14/15.** User flagged a garage-door "Door/Gate Left Open" critical push (open
+      38+ min overnight) with no photo. Root cause: `route_door_sustained_open_escalation`'s
+      camera-selection logic (`alerts_doors.yaml`) only ever recognized the two Tier-1 gates
+      (main gate, front security gate) — a Tier-2 entry door (garage/front door) escalating
+      alone always fell through with no snapshot taken. **Fix:** added garage_door →
+      `camera.cam05_inside_garage` and front_door → `camera.cam07_front_kitchen` branches,
+      matching image logic. **Correction same investigation:** user pointed out cam05 faces
+      into the garage interior, not the door — switched garage's camera to
+      `camera.cam04_car_port_front` (outside, facing the door). **Also flagged, not a code
+      bug:** `sensor.garage_door_sensor_battery` found `unavailable` continuously (twice,
+      40min apart, in lockstep with the door sensor's own updates) — likely dying battery,
+      plausible cause of the door reading stuck "open"; recommended physical check + battery
+      replacement. `ha core check` valid, `automation.reload` confirmed live both times. Full
+      writeup: ALERTS_CONTRACT.md BUG-A18.
+
 - [x] **2026-08-14 — Power/solar/battery/prepaid 2-year system audit + BUG-PWR-DOCDRIFT01
       fixed.** User asked for a full audit across the recorder's full history (~18 months
       available) to peg performance against the real hardware/software timeline and confirm

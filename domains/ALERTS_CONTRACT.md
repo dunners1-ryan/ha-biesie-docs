@@ -1159,11 +1159,63 @@ sensor was `on`, not `unavailable`, at reload time).
 
 ---
 
+### BUG-A18 — `route_door_sustained_open_escalation` had no image branch for Tier-2 entry doors (garage/front door) — rendered blank
+**Severity:** Medium (notification pipeline gap, not a false alert)
+**Files:** `packages/alerts/alerts_doors.yaml` (`automation.route_door_sustained_open_escalation`)
+**Status:** ✅ FIXED 2026-08-14/15
+**Reported by:** user — "images included in the doors open alert like garage isn't displaying anymore," while a genuine garage-door critical escalation was in progress.
+
+**Symptom:** A "Door/Gate Left Open" critical push for the garage door (open 38+ min overnight,
+`sensor.door_alert_context` correctly at `critical`) carried no photo.
+
+**Root cause:** `gate_cam` (the variable that decides which camera to snapshot before sending)
+only ever recognized the two Tier-1 gates:
+```
+{% if is_state('binary_sensor.main_gate_sensor','on') %}main_gate
+{% elif is_state('binary_sensor.front_security_gate_sensor','on') %}front_security_gate
+{% else %}none{% endif %}
+```
+Built for gates only (BUG-A13, 2026-07-17) and never extended when Tier 2 (garage/front door)
+was added to `sensor.door_alert_context`'s severity model. A Tier-2-only critical escalation —
+no gate simultaneously open — always fell to `none`: no `camera.snapshot` taken, `image:` field
+rendered empty.
+
+**Fix:** renamed to `door_cam`, added `garage_door` → (originally `camera.cam05_inside_garage`,
+see correction below) and `front_door` → `camera.cam07_front_kitchen` branches, same priority
+order as `sensor.door_alert_context`'s own Tier-1-then-Tier-2 severity computation (a gate being
+open is treated as more urgent when several doors are open at once). Matching `image:` branches
+added for both new cases.
+
+**Correction (2026-08-15, same investigation) — wrong camera for garage.** User pointed out
+`camera.cam05_inside_garage` faces into the garage interior and doesn't have the door itself in
+frame — useless for confirming whether the door is actually open. Switched to
+`camera.cam04_car_port_front` (outside, facing the carport/garage door), which can actually see
+the door.
+
+**Also flagged live, same investigation, not a code bug:** `sensor.garage_door_sensor_battery`
+was found `unavailable` continuously (re-confirmed twice, 40 minutes apart, updating in lockstep
+with the door sensor's own state each time) — consistent with a dying/low battery, and a
+plausible contributor to the door reading "open" in the first place. Recommended the user
+physically check the door and replace the sensor battery; no HA-side fix applies to a hardware
+battery.
+
+**Deployed live:** YAML validated (`check_config` passed), `automation` domain reloaded via
+Supervisor API both times, `automation.route_door_sustained_open_escalation` confirmed `on`
+after each reload.
+
+**Not addressed:** `route_door_alert_repeat_reminder`'s trigger is `group.tier1_perimeter` only
+(the two gates) — Tier-2 doors (garage/front door) never get a repeat reminder at all, regardless
+of how long they've been open past the first critical escalation. Out of scope for this fix
+(a trigger-scope change, not an image bug); flagging for a follow-up if repeat reminders for
+entry doors are wanted.
+
+---
+
 ## Section 9: Summary of Pipeline Audit Results
 
 | Domain | Binary | Context | Alert entity | Aggregator | Result | Updated |
 |---|---|---|---|---|---|---|
-| Doors | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-07-06 sustained-open escalation delivery fixed (BUG-A10); 2026-07-17 camera evidence + Cancel Alert button added (BUG-A13); 2026-08-05 garage_door_stale reload-storm fixed (BUG-A17) |
+| Doors | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-07-06 sustained-open escalation delivery fixed (BUG-A10); 2026-07-17 camera evidence + Cancel Alert button added (BUG-A13); 2026-08-05 garage_door_stale reload-storm fixed (BUG-A17); 2026-08-15 Tier-2 (garage/front door) escalation image gap fixed + garage camera corrected to carport view (BUG-A18) |
 | Network | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A05; 2026-07-06 delivery fixed (BUG-A10) |
 | Power | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A07; 2026-07-06 warning-tier delivery fixed (BUG-A10) |
 | Temperature | ✅ (x4) | ✅ (x4) | ✅ (x4) | ✅ (triggered) | PASS | 2026-06-19 BUG-A03 |
