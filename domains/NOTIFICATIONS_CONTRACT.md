@@ -627,6 +627,37 @@ race and kept the `1` suffix after the rest of the entity set landed clean; rena
 updated to the final clean `mobile_app_iphone13promax_vicky` and live-tested — delivery
 confirmed with no errors. Section 3A per-person onboarding note updated to match.
 
+### BUG-N18 [MEDIUM] `alert:` entities with `notifiers: STD_Alerts` double-deliver alongside their `route_*` workaround automations — BUG-N16 follow-on, water fixed, others open
+
+**Files:** `alerts/alerts_water.yaml` (✅ fixed 2026-08-18); `alerts/alerts_temperature.yaml`,
+`alerts/alerts_doors.yaml`, `alerts/alerts_presence.yaml`, `alerts/alerts_device_power.yaml`,
+`alerts/alerts_power.yaml`, `alerts/alerts_media.yaml`, `alerts/alerts_batteries.yaml`,
+`alerts/alerts_garden.yaml`, `alerts/alerts_network.yaml` (still open)
+**Description:** While `notify.STD_Alerts` was dead (2026-06-28 → 2026-08-09), every domain
+built a `route_*` automation calling `script.notify_*_event` directly as the real delivery path,
+leaving the original `alert:` entity's own `notifiers: [STD_Alerts]` in place (harmless at the
+time — it just errored silently). BUG-N16 fixed `STD_Alerts` mobile delivery on 2026-08-09, but
+nobody went back to remove the now-redundant `notifiers:` lines — so every one of these domains
+has, since 2026-08-09, been sending **two** near-simultaneous pushes (different wording, often
+different severity framing) for the same single event: one from the `route_*` automation, one
+from the `alert:` entity's own now-working `STD_Alerts` delivery.
+**Found:** investigating the 2026-08-18 09:11 borehole no-rise fault — `sensor.water_alert_context`
+hit `critical` at 09:11:01 (firing `route_water_tank_alert`) while `alert.water_alert` itself
+turned `on` at 09:11:31 and pushed via its own `STD_Alerts` notifier ~30s later, plus a third,
+separately-triggered push from `water_borehole_first_fault_notification` (fault-count = 1) at
+09:11:01 — three pushes for one 70-second event. See `WATER_CONTRACT.md` Issue 19.
+**Fix (water only, 2026-08-18):** removed `notifiers: STD_Alerts` from `water_alert`,
+`water_borehole_fault`, `water_borehole_critical_fault` — matches the `alerts_security.yaml`
+`security_alert` precedent (BUG-A10), which already keeps the `alert:` entity for
+dashboard/ack/`repeat:` visibility only and treats the route automation as the sole delivery
+path. **⚠️ Required full HA restart** (`alert:` entity change).
+**Not fixed:** the other 9 files listed above carry the identical pattern and are — as of
+2026-08-09 — almost certainly double-delivering the same way water was, one restart-batch of
+work for a future session. Section 6's Priority 1 table already flagged
+`alerts_device_power.yaml`'s "Dual delivery on every fault" for this reason before BUG-N16 even
+landed; this entry generalizes that finding to every other affected domain now that the group
+itself works again.
+
 ### BUG-N13 [HIGH] ~~notify_power_event.yaml + notify_presence_events.yaml critical branches silently failing~~ ✅ FIXED 2026-07-06
 
 **Files:** `packages/notifications/notify_power_event.yaml`, `packages/notifications/notify_presence_events.yaml`

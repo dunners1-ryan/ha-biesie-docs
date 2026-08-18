@@ -5,6 +5,56 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-08-18 — Borehole no-rise fault investigation + 4-bug water/notifications fix
+      (Issues 16-19, BUG-N18).** User asked what happened with the automated borehole refill
+      that morning and why "Refill Status" showed blank. Reconstructed the full timeline from
+      the recorder DB (`home-assistant_v2.db`, states+context, not doc guesswork): pump auto-on
+      08:56:01 (`water_state=safety` → Branch 1 emergency bypass); `water_borehole_no_rise_protection`
+      hard-stopped it 09:11:01 after exactly 15:00 with zero depth rise
+      (`sensor.water_tank_depth_rate` < 0.01, depth flat 0.28-0.33m) — **confirmed real fault, not
+      a false trigger:** `sensor.borehole_pump_power` held a steady ~1200-1350W / 6.2-6.8A the
+      entire 15 minutes (~0.31 kWh burned for zero tank gain), so the pump was genuinely running
+      against no flow, not idling. Pump restarted 09:12:02 — `context_user_id_bin` on that state
+      row resolves to Ryan Dunnington in `.storage/auth`, confirming a direct manual switch flip
+      (not one of the `water_manual_borehole_run_*min` scripts — `water_refill_manual_run` never
+      went `on`), and it caught successfully (`water_state` safety→low by 09:26:40, still filling
+      normally as of investigation). **4 bugs found and fixed, all live-tested with `ha core
+      check` (passing):**
+      1. **Issue 16 (`water_protection_automations.yaml`):** `input_text.borehole_last_fault` was
+         only ever written by the disabled dry-run automation — the live no-rise automation never
+         wrote it, so every fault notification for months quoted a stale 2026-02-18 fault. Added
+         the same write action to `water_borehole_no_rise_protection`.
+      2. **Issue 17 (`water_helpers.yaml`):** `sensor.water_refill_last_outcome`'s `else` branch
+         defaulted to "Completed Normally" any time neither safety-abort nor manual-run flags
+         were set — including mid-refill, since the abort flag clears the instant a new cycle
+         starts. This is what the user saw as a false "complete" status while still actively
+         refilling. Added a `water_refill_cycle_active` check → reports "Refilling…" instead.
+      3. **Issue 18 (`.storage/lovelace.dashboard_operations`, ⚠️ required full restart):** the
+         dashboard's "Refill Status" row read `attribute: reason` off
+         `binary_sensor.water_refill_allowed` — an attribute that was never defined on that
+         entity's template (only `grid`/`battery_soc`/`required_soc`/`borehole_enabled`/
+         `orchestrator_state`/`conserve_blocked`/`last_sun_blocked` exist), so the field has
+         always been blank regardless of refill state. Repointed to the existing
+         `sensor.water_refill_blocked_reason`.
+      4. **Issue 19 / BUG-N18 (`alerts_water.yaml`, ⚠️ required full restart):** `alert.water_alert`
+         + the two borehole-fault alert entities notified via `notifiers: STD_Alerts` — dead when
+         the 2026-07-06 `route_water_tank_alert`/`route_water_borehole_fault_alert_tier_*`
+         automations were built as the working replacement (calling `script.notify_water_event`
+         directly). `STD_Alerts` mobile delivery was fixed 2026-08-09 (BUG-N16) but the redundant
+         `notifiers:` lines were never removed — confirmed the user got **3 separate pushes**
+         for this one 70-second fault (route automation at 09:11:01, `alert.water_alert`'s own
+         STD_Alerts delivery at 09:11:31, plus the independent first-fault-of-day notification,
+         also 09:11:01). Removed `notifiers: STD_Alerts` from all 3 water alert entities, matching
+         the existing `alerts_security.yaml`/BUG-A10 precedent (alert entity kept for
+         dashboard/ack/`repeat:` only). **Flagged, not fixed:** the identical dead-STD_Alerts +
+         parallel-route-automation pattern exists in 9 other alert files
+         (temperature/doors/presence/device_power/power/media/batteries/garden/network) — all
+         built during the same 2026-07-06 window, all likely double-notifying the same way since
+         the 2026-08-09 fix. Logged as `NOTIFICATIONS_CONTRACT.md` BUG-N18 for a future
+         cross-domain sweep; out of scope for this water-only session.
+      **Docs updated:** `WATER_CONTRACT.md` (Issues 16-19 + entity table),
+      `NOTIFICATIONS_CONTRACT.md` (BUG-N18). `ha core check` passed after all 4 edits.
+
 - [x] **BUG-A18 — garage-door critical escalation showed no image, then wrong camera — fixed
       2026-08-14/15.** User flagged a garage-door "Door/Gate Left Open" critical push (open
       38+ min overnight) with no photo. Root cause: `route_door_sustained_open_escalation`'s
