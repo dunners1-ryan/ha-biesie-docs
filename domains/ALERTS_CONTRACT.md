@@ -1211,23 +1211,97 @@ entry doors are wanted.
 
 ---
 
+### BUG-A19 — Only doors/gates could cancel a repeat-reminder cycle; every other critical alert domain nagged with no way to stop it short of the underlying condition clearing
+**Severity:** Medium (notification UX gap, not a false alert)
+**Files:** `notify_system_event.yaml`, `notify_power_event.yaml`, `notify_water_events.yaml`,
+`notify_presence_events.yaml` (all in `packages/notifications/`); `alerts_power.yaml`,
+`alerts_water.yaml`, `alerts_temperature.yaml`, `alerts_device_power.yaml`, `alerts_media.yaml`,
+`alerts_network.yaml`, `alerts_security.yaml`, `alerts_batteries.yaml`, `alerts_presence.yaml`,
+`alerts_garden.yaml`, `alerts_system_health.yaml` (all in `packages/alerts/`)
+**Status:** ✅ FIXED 2026-08-18
+
+**Reported by:** user, prompted by the garage-door "left open" critical escalation as the
+example case — asking whether every critical alert has a way to cancel/stop its own escalation.
+
+**Investigation finding:** the garage-door case itself was already covered —
+`route_door_sustained_open_escalation` fires the critical push for any of the four doors/gates
+and every send already carries a working "Cancel Alert" button (BUG-A13, extended to Tier-2
+doors by BUG-A18). But auditing every OTHER domain's live repeat-reminder automation
+(`route_*_alert` calling `script.notify_*_event` on a `repeat: [...]` trigger schedule) found
+**none of them had any snooze/cancel gate at all** — straight `trigger: → action:`, no
+`condition:` checking anything a user could set from the notification itself. The `alert.*`
+entities all carry `can_acknowledge: true`, but that's a dead end two ways: (1) their
+`notifiers:` route through the dead `STD_Alerts` group (no-op, see BUG-A10), and (2) the real
+delivery automations above don't read the `alert.*` entity's acknowledged state either — so
+tapping HA's native Acknowledge button on the dashboard did nothing to stop a repeating push.
+The only way to silence a false-positive/already-being-handled critical repeat in any of these
+11 domains was to wait out the underlying condition or flip that domain's notify toggle off
+globally (which also mutes genuinely new, unrelated events) — the `security` domain's own
+comment even flagged this explicitly ("wiring the Acknowledge button up properly is a follow-up,
+not part of this base implementation").
+
+**Fix — rolled the BUG-A13 gate pattern out to every remaining domain:**
+- `notify_power_event`, `notify_water_event`, `notify_presence_event` gained the same
+  `actions`/`telegram_action` passthrough fields `notify_security_event` already had (mobile
+  action buttons + a Telegram inline-keyboard button); `notify_system_event` already had
+  `actions`, gained `telegram_action`. All four Telegram sections were switched from the
+  generic `notify.send_message` wrapper (which structurally can't carry `inline_keyboard`,
+  confirmed by the pre-existing comments in `notify_power_event`/`notify_security_events`) to
+  the native `telegram_bot.send_message` action.
+- Each domain's repeat-reminder automation(s) gained: a per-cycle `input_boolean.<x>_snoozed`
+  helper (`initial: false`), a `condition:` gate on it being off, a "Cancel Alert" button on both
+  the phone push (`CANCEL_<X>_ALERT` action) and the Telegram mirror (`/cancel_<x>_alert`), a new
+  `<x>_alert_cancel_from_notification` automation handling the tap from either channel (turns the
+  boolean on, logs it, sends a one-line "reminders cancelled" confirmation), and a
+  `<x>_alert_snooze_reset` automation that clears the boolean automatically once the underlying
+  `binary_sensor.*_alert_active` (or context sensor, where one binary sensor covers multiple
+  severities) returns to normal — so a false-positive dismissal can never suppress a later,
+  genuine event. Domains covered, with stream count where more than one independent
+  repeat-reminder exists per domain: Power (1), Water (3: tank/safety, borehole fault tier-2,
+  borehole critical fault tier-3), Temperature (4: WAN/LAN/device/storage), Device Power (1),
+  Media (1), Network (4: device down, WAN down, WAN degraded, device restart), Security (1 — also
+  replaces the ad-hoc `security_alert_notify` global-mute workaround the repeat reminder had been
+  using as a stand-in), Dash Batteries (1), Presence (1), Garden (1 — added alongside the existing
+  `TURN_OFF_POND_PUMP` button, both now offered on the same push).
+- Doors (already fixed, BUG-A13/A18) and Camera Health were left as-is: Camera Health's
+  `alert.camera_health` `repeat: [60, 240]` has no live notifier at all (BUG-A11 removed the dead
+  `STD_Warning` notifier outright and no replacement repeat automation was ever built — it only
+  fires once, on initial fault) — there is nothing repeating to cancel, so no snooze mechanism
+  was added; flagging that as a separate, smaller gap (no repeat delivery exists for Camera
+  Health at all) rather than building an unused cancel button for it.
+
+**Tested:** `POST /api/config/core/check_config` returned `{"result":"valid"}` after every file
+edit (11 alert files + 4 notify scripts). Live-reloaded `automation`, `script`, and
+`input_boolean` domains via the Supervisor-proxied Core API afterward (all three are safe to
+hot-reload — no `alert:` entity definitions were touched, so no restart was required, unlike
+BUG-A18/Issue 18/19 above). Spot-checked several new entities live post-reload
+(`input_boolean.power_alert_snoozed`, `.water_alert_snoozed`, `.wan_temp_alert_snoozed`,
+`.security_alert_snoozed`, `.critical_sensor_health_alert_snoozed` all present and `off`;
+`automation.power_alert_cancel_from_notification` and `automation.route_wan_temp_alert` both
+`on`). Not yet live-verified: an actual notification tap on each new Cancel Alert button end to
+end (34 new automations across 11 files) — the pattern is a direct structural copy of BUG-A13,
+which was proven working, but a real tap on every domain hasn't been individually confirmed by
+the user yet.
+
+---
+
 ## Section 9: Summary of Pipeline Audit Results
 
 | Domain | Binary | Context | Alert entity | Aggregator | Result | Updated |
 |---|---|---|---|---|---|---|
 | Doors | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-07-06 sustained-open escalation delivery fixed (BUG-A10); 2026-07-17 camera evidence + Cancel Alert button added (BUG-A13); 2026-08-05 garage_door_stale reload-storm fixed (BUG-A17); 2026-08-15 Tier-2 (garage/front door) escalation image gap fixed + garage camera corrected to carport view (BUG-A18) |
-| Network | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A05; 2026-07-06 delivery fixed (BUG-A10) |
-| Power | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A07; 2026-07-06 warning-tier delivery fixed (BUG-A10) |
-| Temperature | ✅ (x4) | ✅ (x4) | ✅ (x4) | ✅ (triggered) | PASS | 2026-06-19 BUG-A03 |
-| Device Power | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A04; 2026-07-06 delivery fixed (BUG-A10) |
-| Media | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A05; 2026-07-06 delivery fixed (BUG-A10) |
-| System Health | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-07-06 delivery fixed (BUG-A10); 2026-07-17 Watchman-cache staleness false positives fixed (BUG-A14); 2026-08-04 notification whitespace fixed (BUG-A16) |
-| Water | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A01; 2026-07-06 tank-low + borehole tiers delivery fixed (BUG-A10) |
-| Security | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A02; repeat reminders base implementation shipped 2026-07-10 (see BUG-A10) |
-| Presence | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-16 B1; 2026-07-06 delivery fixed (BUG-A10) |
-| Garden | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-29 new; 2026-07-06 delivery fixed (BUG-A10); 2026-07-07 action button restored (BUG-A12) |
-| Dash Batteries | ✅ (x5) | ✅ | ✅ | ✅ (triggered) | PASS | 2026-05-27 new; 2026-07-06 delivery fixed (BUG-A10) |
-| Camera Health | — | ✅ | ✅ | Not confirmed | PASS with note | 2026-07-06 added to contract; BUG-A11 fixed, restart completed 2026-07-07 |
+| Network | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A05; 2026-07-06 delivery fixed (BUG-A10); 2026-08-18 Cancel Alert added to all 4 streams (BUG-A19) |
+| Power | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A07; 2026-07-06 warning-tier delivery fixed (BUG-A10); 2026-08-18 Cancel Alert added (BUG-A19) |
+| Temperature | ✅ (x4) | ✅ (x4) | ✅ (x4) | ✅ (triggered) | PASS | 2026-06-19 BUG-A03; 2026-08-18 Cancel Alert added to all 4 streams (BUG-A19) |
+| Device Power | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A04; 2026-07-06 delivery fixed (BUG-A10); 2026-08-18 Cancel Alert added (BUG-A19) |
+| Media | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A05; 2026-07-06 delivery fixed (BUG-A10); 2026-08-18 Cancel Alert added (BUG-A19) |
+| System Health | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-07-06 delivery fixed (BUG-A10); 2026-07-17 Watchman-cache staleness false positives fixed (BUG-A14); 2026-08-04 notification whitespace fixed (BUG-A16); 2026-08-18 Cancel Alert added (BUG-A19) |
+| Water | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A01; 2026-07-06 tank-low + borehole tiers delivery fixed (BUG-A10); 2026-08-18 Cancel Alert added to all 3 streams (BUG-A19) |
+| Security | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A02; repeat reminders base implementation shipped 2026-07-10 (see BUG-A10); 2026-08-18 Cancel Alert added, replacing the global-mute workaround (BUG-A19) |
+| Presence | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-16 B1; 2026-07-06 delivery fixed (BUG-A10); 2026-08-18 Cancel Alert added (BUG-A19) |
+| Garden | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-29 new; 2026-07-06 delivery fixed (BUG-A10); 2026-07-07 action button restored (BUG-A12); 2026-08-18 Cancel Alert added alongside Turn Off Pump (BUG-A19) |
+| Dash Batteries | ✅ (x5) | ✅ | ✅ | ✅ (triggered) | PASS | 2026-05-27 new; 2026-07-06 delivery fixed (BUG-A10); 2026-08-18 Cancel Alert added (BUG-A19) |
+| Camera Health | — | ✅ | ✅ | Not confirmed | PASS with note | 2026-07-06 added to contract; BUG-A11 fixed, restart completed 2026-07-07; 2026-08-18 audited for BUG-A19 — no live repeat delivery exists to cancel (flagged separately, not fixed) |
 
 ---
 
@@ -1250,8 +1324,12 @@ entry doors are wanted.
 | BUG-A13 | **Low** | ✅ Fixed 2026-07-17 | Gate alerts had no camera evidence and no way to cancel a false-positive repeat cycle — fresh snapshot per send + `input_boolean.gate_alert_snoozed` + Cancel Alert button (phone + Telegram) | alerts_doors.yaml, notify_security_events.yaml |
 | BUG-A16 | **Low** | ✅ Fixed 2026-08-04 | Critical Sensor Health push notification rendered with stray blank lines/indentation before the sensor list — un-trimmed Jinja block tags; added `-` trim modifiers + explicit single-space separator | alerts_system_health.yaml |
 | BUG-A17 | **Medium** | ✅ Fixed 2026-08-05 | `garage_door_stale` keyed on "door sensor hasn't toggled in 5min" (normal, not stale) — reloaded the whole Sonoff config entry ~every 6 min, 24/7, for ~4 months; one such reload's slow reconnect silently ate a real garage-light turn_on during a 21:43 arrival. Fixed: staleness now requires the entity to actually be unavailable/unknown | alerts_doors.yaml (see LIGHTING_CONTRACT.md BUG-L19) |
+| BUG-A18 | **Medium** | ✅ Fixed 2026-08-14/15 | `route_door_sustained_open_escalation` had no camera branch for Tier-2 entry doors (garage/front door) — a garage-only critical escalation rendered no image; extended to all 4 doors, garage camera corrected to the carport-facing view | alerts_doors.yaml |
+| BUG-A19 | **Medium** | ✅ Fixed 2026-08-18 | Only doors/gates could cancel a repeat-reminder cycle (BUG-A13) — every other critical alert domain (power, water ×3, temperature ×4, device power, media, network ×4, security, batteries, presence, garden) had no way to stop a repeating push short of the underlying condition clearing or a global notify-toggle; rolled the BUG-A13 pattern (per-cycle snooze boolean + Cancel Alert button, phone + Telegram + auto-reset) out to all of them | 4 notify_*.yaml scripts + 11 alerts_*.yaml files |
 
 **Open: 0 issues**  
+**Fixed 2026-08-18: BUG-A19**
+**Fixed 2026-08-15: BUG-A18**
 **Fixed 2026-08-04: BUG-A16**
 **Fixed 2026-07-17: BUG-A13**
 **Fixed 2026-07-07: BUG-A11 (restart), BUG-A12**
@@ -1263,6 +1341,13 @@ entry doors are wanted.
 ---
 
 *Contract generated: 2026-04-13*
+*Last updated: 2026-08-18 — BUG-A19 (only doors/gates could cancel a repeat-reminder cycle;
+rolled the BUG-A13 per-cycle snooze + Cancel Alert button pattern out to all 11 remaining
+domains with live repeat delivery — power, water ×3 streams, temperature ×4 streams, device
+power, media, network ×4 streams, security, batteries, presence, garden; Camera Health audited
+and found to have no live repeat delivery to cancel, flagged separately; also backfilled the
+missing BUG-A18 row in Section 10, which had been documented in prose above but never added to
+the issues table)*
 *Last updated: 2026-08-05 — BUG-A17 (`garage_door_stale` was reloading the entire Sonoff config
 entry ~every 6 min, 24/7, since 2026-03-31 — redefined staleness to require real
 unavailable/unknown state instead of "hasn't toggled in 5min"; see LIGHTING_CONTRACT.md BUG-L19

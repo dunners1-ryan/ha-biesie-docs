@@ -5,6 +5,45 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-08-18 — Cancel Alert rolled out to every critical alert domain, BUG-A19 fixed.**
+      User asked to audit whether every critical alert has a way to cancel its own escalation,
+      using the garage-door "left open" critical push as the example. Investigation found the
+      garage-door case itself was already covered (BUG-A13/BUG-A18 — the doors/gates domain has
+      a working "Cancel Alert" button on phone + Telegram, per-cycle mute via
+      `input_boolean.gate_alert_snoozed`, auto-reset once `sensor.door_alert_context` returns to
+      normal). But auditing every other domain's live repeat-reminder automation found **none of
+      the other 11 had any snooze/cancel mechanism at all** — the `alert.*` entities' native
+      Acknowledge button is a dead end (their `notifiers:` route through the dead `STD_Alerts`
+      group, and the real delivery automations don't read the entity's acknowledged state
+      either), so a false-positive critical repeat in power/water/temperature/etc. could only be
+      stopped by waiting out the underlying condition or flipping that domain's notify toggle
+      off globally (silencing genuinely new events too). User chose to roll the BUG-A13 pattern
+      out to all domains in one session rather than a partial rollout. **Fix:** extended
+      `notify_power_event`/`notify_water_event`/`notify_presence_event` with the same
+      `actions`/`telegram_action` passthrough `notify_security_event` already had (`notify_system_event`
+      already had `actions`, gained `telegram_action`); all four Telegram sections switched from
+      `notify.send_message` (can't carry `inline_keyboard`) to native `telegram_bot.send_message`.
+      Added a per-cycle `input_boolean.<x>_alert_snoozed` + condition gate + Cancel Alert button
+      (phone action + Telegram `/cancel_*`) + cancel-handler automation + auto-reset-on-clear
+      automation to every repeat-reminder stream: Power (1), Water (3: tank/safety, borehole
+      fault tier-2, borehole critical fault tier-3), Temperature (4: WAN/LAN/device/storage),
+      Device Power (1), Media (1), Network (4: device down, WAN down, WAN degraded, device
+      restart), Security (1 — also retires the ad-hoc global-mute workaround the repeat reminder
+      had been using), Dash Batteries (1), Presence (1), Garden (1 — alongside the existing Turn
+      Off Pump button). Camera Health audited and left alone — its `alert:` `repeat: [60,240]`
+      has no live notifier at all (BUG-A11 removed the dead one, no replacement repeat automation
+      was ever built), so there's nothing repeating to cancel; flagged as a separate, smaller gap.
+      **Validated:** `POST /api/config/core/check_config` → `{"result":"valid"}` after every one
+      of the 15 touched files (4 notify scripts + 11 alert files). Live-reloaded `automation`,
+      `script`, and `input_boolean` domains via the Supervisor-proxied Core API — no restart
+      needed (no `alert:` entity definitions were touched). Spot-checked several new entities
+      live post-reload, all present and correctly `off`/`on`. **Not yet live-verified:** an
+      actual notification tap on each new Cancel Alert button end to end — the pattern is a
+      direct structural copy of the already-proven BUG-A13 implementation, but a real tap on
+      every domain hasn't been individually confirmed yet. **Docs updated:** ALERTS_CONTRACT.md
+      (BUG-A19 full writeup, Section 9 domain table, Section 10 issues table — also backfilled
+      the missing BUG-A18 row there).
+
 - [x] **2026-08-18 — WAN Degraded notification storm investigation, BUG-NET10/11 fixed
       (⚠️ requires HA restart — lovelace + input_boolean changes).** User reported being
       spammed with "Network Alert — WAN Degraded" critical pushes overnight and into the
