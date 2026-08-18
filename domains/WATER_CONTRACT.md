@@ -791,6 +791,21 @@ BUG-N02 — corrected there too.
 
 ---
 
+### Issue 20 — ✅ ENHANCEMENT 2026-08-18: No-rise stop now auto-retries instead of always requiring a manual restart
+**Priority:** P3 — reduces manual intervention, bounded added dry-run risk (user-accepted tradeoff)  
+**File:** `packages/water/water_protection_automations.yaml` — `water_borehole_no_rise_protection`  
+**Motivation:** Investigating the 2026-08-18 09:11 fault (see Issue 16-19 above) showed a no-rise trip isn't proof of a dry borehole — it's a NET signal, blind to the difference between "producing nothing" and "producing slowly, outpaced by concurrent house consumption." That fault: net depth -0.04m over the 15min run, but `sensor.water_tank_consumption_rate` read 0.24-0.48 m/h the *entire* window (never zero); raw vs validated depth matched exactly and `binary_sensor.water_tank_depth_sensor_stable`/`sensor.tuya_cloud_health` stayed on/healthy throughout (no sensor glitch); a manual restart refilled normally within seconds. User asked for an automatic bounded retry instead of always waiting for a human.  
+**Design (user-selected from 2 options each):**
+- **Delay:** urgency-scaled — 2 min if `sensor.water_state == 'safety'` (most urgent, depth 0.25-0.35m), 5 min otherwise (more patient — lets a slow borehole/air-lock settle or concurrent usage stop).
+- **Cap:** auto-retry only while `counter.water_borehole_faults_today <= 2` (i.e. retries after fault #1 and #2, not #3+). Deliberately lines up with the existing tier-2 "repeated fault" alert at `>=3 faults` (`binary_sensor.water_borehole_fault_alert_active`) — by the time auto-retry stops, the user is already being told via that pipeline.
+- **Re-check before retrying:** pump still off, `water_tank_refill_enabled` + `load_control_borehole_enabled` still on, depth still `< 1.95`. Any failing just ends the sequence quietly — no retry, no error.
+- **Scope:** added to the no-rise automation's own action sequence, not a separate automation keyed off the shared `water_refill_aborted_due_to_safety` flag — battery-hard-stop (Protection 4) and max-depth-stop are different failure modes that should NOT auto-retry the same way.
+- **Notification:** fires an `information`-severity `[Code: borehole_auto_retry]` push before retrying (in addition to the existing warning-severity no-rise notification).
+- **Accepted tradeoff:** worst-case dry-run exposure rises from 15min (1 attempt) to 45min (3 attempts x 15min) if the borehole genuinely is dry. User confirmed this is acceptable given the alert-threshold cap.
+**Reload:** Automations reload only — no restart required (unlike Issues 18/19 above).
+
+---
+
 ## 7. Error Signatures (Watchman-Confirmed)
 
 | Entity | Status | File | Issue |
@@ -932,6 +947,7 @@ Five protections listed in `WATER_CONTEXT.md`. Each audited independently.
 - **Trigger:** Pump on for 15 minutes + depth rate < 0.01 m/h + depth < 1.95
 - **Independence:** ✅ Separate condition checks; marks safety abort flag
 - **Issue:** Uses `sensor.water_tank_depth_rate` which is a derivative of the RAW sensor. If a raw sensor spike occurs within the 15-minute window, the derivative shows a positive rate, resetting the effective timer. A spike could therefore mask a genuine dry-run.
+- **Auto-retry (added 2026-08-18, Issue 20):** a no-rise trip is a NET signal — it can't distinguish "borehole producing nothing" from "borehole producing slowly, outpaced by concurrent house consumption." Confirmed real on 2026-08-18: net depth -0.04m over the 15min run, but `sensor.water_tank_consumption_rate` read 0.24-0.48 m/h the entire window (never zero), sensors were healthy/stable throughout, and a manual restart refilled normally within seconds. The automation now auto-retries after a cooldown instead of requiring a manual restart every time — see Issue 20.
 - **Verdict:** IMPLEMENTED. Works correctly for genuine no-rise conditions. Spike sensitivity is a minor risk.
 
 ### Protection 4: Battery Hard Stop

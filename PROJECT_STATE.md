@@ -5,6 +5,48 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-08-18 — WAN Degraded notification storm investigation, BUG-NET10/11 fixed
+      (⚠️ requires HA restart — lovelace + input_boolean changes).** User reported being
+      spammed with "Network Alert — WAN Degraded" critical pushes overnight and into the
+      evening, suspecting Microsoft DNS specifically, and said toggling the notify helpers
+      off hadn't stopped it. Live-traced via the recorder DB (not doc guesswork): 9 separate
+      "degraded" episodes in a 6-hour window alone, each a smooth ~90s-7min score sawtooth
+      from 100 down to 0 and back. **Root cause was not Microsoft** — in every episode
+      `sensor.unifi_gateway_google_wan_latency` spiked alone to 100-144ms while Cloudflare
+      and Microsoft stayed at 2-4ms throughout. Two compounding bugs: (1) **BUG-NET10** —
+      `binary_sensor.wan_degraded_alert_active` had no anti-flap delay at all (every sibling
+      binary sensor in the file requires 250s sustained; NETWORK_CONTRACT.md had already
+      documented a `for: minutes: 5` that was never actually implemented) — a single
+      elevated ping on just one of the 3 WAN targets flipped it on instantly, then the
+      `value_max` statistics sensors (20-sample/5min window) held that one spike as the
+      reported max until it aged out, stretching a few-second blip into a multi-minute
+      "critical" alert. Fixed with `delay_on: minutes: 5`. Also confirmed the user's
+      architectural instinct was right in principle: `wan_health_score`'s latency term uses
+      the **max** of the 3 targets, so one bad target with the other two healthy can still
+      swing the composite score to 0/critical — left as-is pending more data (a sustained
+      5-min bad reading on even one target may be a real issue), but the notification now
+      states which target and its raw ms value so this is no longer a mystery on the phone.
+      (2) **BUG-NET11** — all 4 network notify toggles (`network_device_down_notify`,
+      `wan_down_notify`, `device_restart_notify`, `wan_degraded_notify`) had `initial: true`
+      — the same restart/reload-reset gotcha as BUG-PWR-ORCHSOC01 — silently undoing the
+      user's own attempt to turn off WAN Degraded notifications on the next restart or
+      "Reload Helpers". Removed `initial:` from all four. **Also found + fixed the BUG-N18
+      double-notification pattern for the network file** (flagged, not fixed, in the
+      2026-08-18 water session below): `alert.network_alert` still carried
+      `notifiers: STD_Alerts`, dead until 2026-08-09 (BUG-N16) then silently became a
+      second push channel alongside the working `route_*_alert` automations, doubled again
+      by `force_network_alert_retrigger_on_escalation`'s off/on retrigger re-sending the
+      alert's own initial push each time — removed. **Dashboard gaps found + fixed:**
+      `input_boolean.wan_degraded_notify` was missing from the "Alert Notifications
+      Control" card entirely (the other 3 network toggles were there) — likely why the
+      user couldn't find/confirm the toggle; added it. Also found **no `alert.*` entity of
+      any domain is on any dashboard** — tapping the `binary_sensor.*_alert_active` rows
+      that are on dashboards has no Acknowledge action, only the `alert.*` entity itself
+      gets HA's native Acknowledge button. Added `alert.network_alert` to the same card as
+      a first fix; the same gap almost certainly exists for every other domain and is
+      flagged for a future session, not fixed here. `ha core check` valid after all YAML
+      edits. **Docs updated:** NETWORK_CONTRACT.md (BUG-NET10, BUG-NET11, Section 6).
+
 - [x] **2026-08-18 — Borehole no-rise fault investigation + 4-bug water/notifications fix
       (Issues 16-19, BUG-N18).** User asked what happened with the automated borehole refill
       that morning and why "Refill Status" showed blank. Reconstructed the full timeline from
@@ -54,6 +96,27 @@
          cross-domain sweep; out of scope for this water-only session.
       **Docs updated:** `WATER_CONTRACT.md` (Issues 16-19 + entity table),
       `NOTIFICATIONS_CONTRACT.md` (BUG-N18). `ha core check` passed after all 4 edits.
+      **Same-day follow-up (still 2026-08-18) — Issue 20, auto-retry added.** User pushed back
+      on the "flat/no-rise = maybe dry" framing: net depth was actually -0.04m over the 15min
+      run (declined, not flat), and `sensor.water_tank_consumption_rate` read 0.24-0.48 m/h the
+      *entire* window (never zero) — real concurrent house draw, not a stuck sensor (raw vs
+      validated depth matched exactly throughout; `water_tank_depth_sensor_stable`/
+      `tuya_cloud_health` stayed on/healthy, no Tuya dropout). No automated irrigation valve
+      exists in this system (`GARDEN_CONTRACT.md` — garden watering is manual/untracked) and
+      `gardener_on_site` was off, so garden use specifically isn't provable, but ordinary
+      household draw is entirely sufficient explanation — the no-rise protection only sees net
+      depth change, with no way to separate borehole output from concurrent consumption. User
+      asked for automatic retry (matching what a manual restart already proved fixes it) instead
+      of always requiring a human. Added to `water_borehole_no_rise_protection`'s own action
+      sequence (`water_protection_automations.yaml`) — urgency-scaled delay (2min if
+      `water_state=safety`, 5min otherwise, both user-selected), capped at fault-counter `<=2`
+      today (auto-retry stops at fault #3, which is also where the existing tier-2 alert already
+      fires — user-selected cap), re-checks pump/master-switch/depth state before retrying,
+      fires an `information`-severity notification before each retry. Deliberately scoped to
+      this automation only, not the shared `water_refill_aborted_due_to_safety` flag broadly —
+      battery-hard-stop and max-depth-stop are different failure modes. `ha core check` passed.
+      Automations-reload only, no restart needed (unlike the Issue 18/19 restart-required
+      changes above). `WATER_CONTRACT.md` Issue 20 added.
 
 - [x] **BUG-A18 — garage-door critical escalation showed no image, then wrong camera — fixed
       2026-08-14/15.** User flagged a garage-door "Door/Gate Left Open" critical push (open

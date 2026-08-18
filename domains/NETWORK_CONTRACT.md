@@ -2,7 +2,7 @@
 # HABiesie — NETWORK CONTRACT
 # Domain Audit: Network / WAN Monitoring
 # Generated: 2026-04-16
-# Updated: 2026-04-21
+# Updated: 2026-08-18
 # Source: packages/network/network_helpers.yaml, packages/alerts/alerts_network.yaml
 ##########################################################
 
@@ -330,6 +330,79 @@ back to state `on` post-reload. Not yet live-verified against a real UniFi recon
 (none occurred during the fix session) — next ~2s multi-AP blip is the real test that the
 trigger now requires 20s of sustained `critical` before firing.
 
+### BUG-NET10 [HIGH] — ✅ FIXED 2026-08-18 — WAN Degraded had no anti-flap delay at
+all; a single-target latency spike swung the health score to "critical" and
+notification-stormed for hours
+**File:** `packages/alerts/alerts_network.yaml`
+**Problem:** User reported being spammed with "WAN health score: 0 — CRITICAL" pushes
+overnight and into the evening, suspecting Microsoft DNS specifically ("if it's just
+Microsoft then it can't be critical if the other two are up"). Live-traced via the
+recorder DB: `binary_sensor.wan_degraded_alert_active` had **no anti-flap delay** —
+unlike every sibling binary sensor in this file (`network_device_down`/`wan_down` both
+require 250s sustained via a `last_changed` check), it flips straight to `on` the
+instant *any one* of `sensor.wan_cf_5min_max` / `wan_google_5min_max` / `wan_ms_5min_max`
+exceeds 80ms. Section 7 of this doc had already (incorrectly) documented WAN degraded as
+using "a `for: minutes: 5` on the numeric_state trigger" — that was never actually
+implemented in code; doc and code had silently diverged. Once tripped, the three
+`WAN * 5min Max` sensors (`platform: statistics`, `state_characteristic: value_max`,
+`sampling_size: 20`, `max_age: 5 min` — Section 3) hold a single spike as the reported
+max until it ages out of the 20-sample buffer, stretching one bad ping into a smooth
+~90s–7min "degraded" episode each time — 9 separate episodes counted in a 6-hour trace
+window on 2026-08-18. **Root cause was not Microsoft:** in every traced episode,
+`sensor.unifi_gateway_google_wan_latency` spiked alone to 100–144ms while Cloudflare and
+Microsoft stayed at 2–4ms the entire time — the user's Microsoft suspicion was reasonable
+(it's listed first in the `wan_degraded_reason` template and the health-score formula)
+but wrong; it was consistently Google. Underlying architectural gap the user correctly
+identified: `sensor.wan_health_score`'s latency term uses the **max** of the three
+targets (Section 4), so one degraded target with the other two fully healthy can still
+drag the composite score to 0 and read as `critical` — `wan_degraded_alert_severity`'s
+`high_count >= 2` branch (needing 2+ bad targets) is bypassed entirely by its sibling
+`score <= 30` branch, which only needs one.
+**Fix applied:** added `delay_on: minutes: 5` to `binary_sensor.wan_degraded_alert_active`
+(template binary sensor's native anti-flap option — matches the doc's original intent
+and the 250s-class delay used domain-wide). Also added the actual cause to the
+notification body (`sensor.wan_degraded_reason` + all 3 raw ms values) — previously the
+message only stated the health score with no explanation. **Not changed (flagged for a
+future session if it recurs):** the single-target-can-reach-critical design itself;
+5 minutes of sustained bad latency on even one target is arguably still a real WAN
+quality problem worth a critical push once anti-flapped, so this was left alone pending
+more data on whether Google's periodic spikes are a genuine ISP/routing issue or noise.
+`ha core check` valid. **Reload:** template entity change — Reload Template Entities is
+normally sufficient, but bundled with BUG-NET11 restart below.
+
+### BUG-NET11 [HIGH] — ✅ FIXED 2026-08-18 — the 4 network notify toggles reset to
+`true` on every restart/reload, undoing the user's own attempt to silence WAN Degraded
+**File:** `packages/alerts/alerts_network.yaml`
+**Problem:** Same class of bug as `POWER_CONTRACT.md`'s BUG-PWR-ORCHSOC01:
+`network_device_down_notify`, `wan_down_notify`, `device_restart_notify`, and
+`wan_degraded_notify` were all defined with `initial: true`. HA re-applies `initial:` on
+every restart *and* every `input_boolean.reload` ("Reload Helpers"), silently overwriting
+the last real value instead of restoring it — exactly what the user hit ("tried turning
+it off, still fired"): the toggle worked until the next restart/reload, then silently
+flipped back to `on` with no indication anything had changed.
+**Fix applied:** removed `initial: true` from all four so normal restore-state behaviour
+applies, matching the ORCHSOC01 fix. **Also found (BUG-N18 instance):** `alert.network_alert`
+still carried `notifiers: [STD_Alerts]` — dead until STD_Alerts mobile delivery was fixed
+2026-08-09 (BUG-N16), then silently became a *second* push channel for the same event
+alongside the 4 `route_*_alert` automations (built 2026-07-06, call
+`script.notify_system_event` directly) — the exact pattern already fixed for
+`alerts_water.yaml` this session and flagged as outstanding in the other 9 alert files
+(`NOTIFICATIONS_CONTRACT.md` BUG-N18). Doubled again by
+`force_network_alert_retrigger_on_escalation`, which turns `alert.network_alert` off/on
+on every severity→`critical` transition — each turn-on re-sent the alert's own "initial"
+push since `skip_first` was never set. Removed `notifiers:` from `alert.network_alert`
+(kept the alert entity itself for dashboard state / acknowledge / repeat-timer display).
+**Dashboard (⚠️ requires full HA restart — `.storage/lovelace.dashboard_system` edited
+directly):** `input_boolean.wan_degraded_notify` was missing entirely from the "Alert
+Notifications Control" card — the other 3 network toggles were there, but this one
+never had a row, so there was no dashboard control to have caught the `initial: true` bug
+sooner. Added it next to `wan_down_notify`. Also added `alert.network_alert` itself
+(no `alert.*` entity of any domain was on any dashboard — clicking a `binary_sensor.
+*_alert_active` row has no Acknowledge action; only `alert.*` entities get HA's native
+Acknowledge button in their more-info dialog) so the network alert can actually be
+acknowledged from the UI — same gap likely exists for every other domain's `alert.*`
+entity, not fixed here, flagged for a future session. `ha core check` valid.
+
 ---
 
 ## Section 7: Architecture Notes
@@ -612,6 +685,14 @@ the time — this investigation is what surfaced BUG-NET08 (Section 6).
 **⚠️ Requires a full HA restart** (`.storage/lovelace` rule, same as above).
 
 ---
+
+*Last updated: 2026-08-18 — BUG-NET10 fixed (WAN Degraded had zero anti-flap delay —
+added `delay_on: minutes: 5`; root cause of a notification storm was Google WAN latency
+spiking alone, not Microsoft as suspected) and BUG-NET11 fixed (all 4 network notify
+toggles reset to `true` on every restart/reload via `initial: true` — removed; also
+closed the BUG-N18-class duplicate-notification path on `alert.network_alert` and added
+the missing `wan_degraded_notify` toggle + an acknowledgeable `alert.network_alert` row
+to the Alerts dashboard, requires full HA restart). See Section 6.*
 
 *Last updated: 2026-08-09 — BUG-NET09 fixed: added `for: "00:00:20"` to
 `route_network_device_down_alert`'s severity-critical trigger, closing the anti-flap bypass
