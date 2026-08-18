@@ -187,7 +187,10 @@ Inverter 1 = MASTER
     sensor.inverter_1_battery_temperature
     sensor.inverter_ac_temperature       ← AC temperature (max of both)
     sensor.inverter_dc_temperature       ← DC temperature (max of both)
-    sensor.inverter_1_battery_soc        ← contributes to averaged SOC
+    sensor.inverter_1_battery            ← contributes to averaged SOC (⚠️ RENAMED
+                                            2026-08-18, BUG-PWR-DOCDRIFT02: doc previously
+                                            said sensor.inverter_1_battery_soc, which does
+                                            not exist — 404, confirmed live)
     sensor.inverter_1_load_power         ← contributes to combined load
 
 Inverter 2 = SLAVE
@@ -200,7 +203,8 @@ Inverter 2 = SLAVE
     sensor.inverter_2_pv2_voltage        ← string 4 voltage (V)
     sensor.inverter_2_battery_power      ← battery charge/discharge (W)
     sensor.inverter_2_load_power         ← contributes to combined load
-    sensor.inverter_2_battery_soc        ← contributes to averaged SOC
+    sensor.inverter_2_battery            ← contributes to averaged SOC (⚠️ RENAMED
+                                            2026-08-18, BUG-PWR-DOCDRIFT02 — see above)
 ```
 
 ### Combined Sensor Aggregation Rules
@@ -2669,6 +2673,19 @@ fine, only the doc pointed at the wrong name. Fixed directly in Section 6.
 Swept ~40 other core power/solar/battery/prepaid/orchestrator entities in the same pass —
 everything else returned real values, no other stale references or `unknown`/`unavailable`
 states found.
+
+### Issue 30 — ✅ FIXED 2026-08-18: BUG-PWR-DOCDRIFT02 — per-inverter battery SOC
+entity names wrong in Section 3's register map
+
+Found while verifying a user claim about per-inverter battery SOC asymmetry (tree-felling
+monitoring, `private_docs/POWER_SYSTEM_AUDIT_2026.md` §3.5). Section 3's Inverter Register
+Map listed `sensor.inverter_1_battery_soc` / `sensor.inverter_2_battery_soc` — both 404, do
+not exist. The real entities are `sensor.inverter_1_battery` / `sensor.inverter_2_battery`
+(no `_soc` suffix), confirmed live (both reading 82% at check time, identical minute-by-
+minute all day — no side-to-side asymmetry found in the data, contrary to what prompted the
+check; may refer to something this granularity doesn't capture, e.g. per-string or
+per-physical-battery-unit, not per-inverter). No functional bug — fixed directly in
+Section 3.
 
 ---
 
