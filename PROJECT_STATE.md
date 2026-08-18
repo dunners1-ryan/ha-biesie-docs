@@ -1837,6 +1837,44 @@ automation.gate_alert_snooze_reset              # auto-clear on door_alert_conte
 /config/www/gate_alert_front_security_gate_latest.jpg # fresh snapshot, camera.cam04_car_port_front
 ```
 
+### Cancel Alert Rollout (BUG-A19 — added 2026-08-18)
+```
+# Same gate_alert_snoozed pattern (BUG-A13 above), rolled out to every other
+# critical alert domain's repeat-reminder stream. Naming convention:
+# input_boolean.<x>_alert_snoozed / automation.<x>_alert_cancel_from_notification
+# / automation.<x>_alert_snooze_reset — one triplet per stream.
+input_boolean.power_alert_snoozed                          # alerts_power.yaml
+input_boolean.water_alert_snoozed                           # alerts_water.yaml (tank/safety)
+input_boolean.water_borehole_fault_snoozed                  # alerts_water.yaml (tier 2, >=3)
+input_boolean.water_borehole_critical_fault_snoozed         # alerts_water.yaml (tier 3, >=5)
+input_boolean.wan_temp_alert_snoozed                        # alerts_temperature.yaml
+input_boolean.lan_temp_alert_snoozed                        # alerts_temperature.yaml
+input_boolean.device_temp_alert_snoozed                     # alerts_temperature.yaml
+input_boolean.storage_temp_alert_snoozed                    # alerts_temperature.yaml
+input_boolean.device_power_alert_snoozed                    # alerts_device_power.yaml
+input_boolean.media_alert_snoozed                           # alerts_media.yaml
+input_boolean.network_device_down_alert_snoozed             # alerts_network.yaml
+input_boolean.wan_down_alert_snoozed                        # alerts_network.yaml
+input_boolean.wan_degraded_alert_snoozed                    # alerts_network.yaml
+input_boolean.device_restart_alert_snoozed                  # alerts_network.yaml
+input_boolean.security_alert_snoozed                        # alerts_security.yaml (replaces the
+                                                              # security_alert_notify global-mute
+                                                              # workaround the repeat reminder used)
+input_boolean.dash_battery_alert_snoozed                    # alerts_batteries.yaml
+input_boolean.presence_alert_snoozed                        # alerts_presence.yaml
+input_boolean.garden_alert_snoozed                          # alerts_garden.yaml (alongside existing
+                                                              # TURN_OFF_POND_PUMP action button)
+input_boolean.critical_sensor_health_alert_snoozed          # alerts_system_health.yaml
+# Each has a matching automation.<x>_alert_cancel_from_notification (handles the
+# CANCEL_<X>_ALERT phone action / /cancel_<x>_alert Telegram tap) and
+# automation.<x>_alert_snooze_reset (auto-clears on the underlying binary_sensor/
+# context sensor returning to off/normal). Not added: Camera Health — its
+# alert: repeat schedule has no live notifier at all, nothing to cancel.
+# notify_power_event.yaml / notify_water_events.yaml / notify_presence_events.yaml
+# gained actions:/telegram_action: passthrough (notify_system_event.yaml already had
+# actions:, gained telegram_action:) — same convention as notify_security_events.yaml.
+```
+
 ### Dogs Inside Notification Toggle (BUG-S68 — added 2026-07-17)
 ```
 automation.dogs_inside_off_from_notification    # DOGS_INSIDE_OFF action → turns off

@@ -86,6 +86,15 @@ input_boolean.network_device_down_notify   — toggle LAN device down alerts
 input_boolean.wan_down_notify              — toggle WAN offline alerts
 input_boolean.wan_degraded_notify          — toggle WAN quality alerts
 input_boolean.device_restart_notify        — toggle router/AP restart alerts
+
+# Added 2026-08-18 (BUG-A19, see ALERTS_CONTRACT.md) — per-cycle Cancel Alert
+# mutes, one per repeat-reminder stream, distinct from the global notify
+# toggles above. Each auto-clears when its own binary_sensor.*_alert_active
+# returns to off (automation.<x>_alert_snooze_reset).
+input_boolean.network_device_down_alert_snoozed
+input_boolean.wan_down_alert_snoozed
+input_boolean.wan_degraded_alert_snoozed
+input_boolean.device_restart_alert_snoozed
 ```
 
 ### Groups

@@ -2,6 +2,15 @@
 # NOTIFICATIONS CONTRACT
 # HABiesie — Notifications Domain
 # Generated: 2026-04-13
+# Last updated: 2026-08-18 — notify_power_event.yaml / notify_water_events.yaml /
+# notify_presence_events.yaml gained the same actions:/telegram_action: passthrough
+# notify_security_event already had (notify_system_event already had actions:,
+# gained telegram_action:); all four Telegram sections switched from
+# notify.send_message (can't carry inline_keyboard) to native telegram_bot.send_message.
+# Built to support ALERTS_CONTRACT.md BUG-A19 (Cancel Alert button rolled out to every
+# critical alert domain's repeat-reminder stream — previously only doors/gates had one).
+# See Section 3 "script.notify_power_event / notify_water_event / notify_presence_event
+# — Extended Fields".
 # Last updated: 2026-08-09 — three bugs found/fixed same session: BUG-N15
 # (`omit` sentinel broke on the 2026.7.4→2026.8.0 upgrade, killing WARNING/
 # CRITICAL action buttons + non-critical Telegram — replaced with `[]`),
@@ -294,6 +303,39 @@ Added to close BUG-A12 (ALERTS_CONTRACT.md) — `alerts_garden.yaml`'s pond-pump
 warning now passes `actions: [{action: "TURN_OFF_POND_PUMP", title: "Turn Off Pump"}]`.
 Any future caller needing a mobile action button on a system-domain warning/
 critical push can reuse this field rather than bypassing the script.
+
+**`telegram_action` (dict, optional) — added 2026-08-18 (BUG-A19):**
+Same shape and behavior as `notify_security_event`'s field above — single extra
+Telegram inline-keyboard button, e.g. `{"action": "some_action", "title": "Button
+Label"}` → `"Button Label:/some_action"`. Required switching the Telegram section
+from `notify.send_message` (message+title only, can't carry `inline_keyboard` —
+see Section 6/BUG-N14 for the same class of bug) to native `telegram_bot.send_message`,
+gated on `sev in ['warning', 'critical']` (information keeps using `notify.send_message`,
+unaffected). Used by every domain's Cancel Alert button that calls this script — see
+ALERTS_CONTRACT.md BUG-A19.
+
+### script.notify_power_event / notify_water_event / notify_presence_event — Extended Fields (2026-08-18, BUG-A19)
+
+Standard fields: `severity`, `title`, `message` (+ `subsystem` on power/water).
+
+**`actions` (list, optional):** Same passthrough pattern as `notify_system_event` above —
+applied to the nested `data:` block of every per-device `notify.mobile_app_*` call on the
+**warning and critical branches only**. `notify_power_event`/`notify_water_event` didn't
+carry any mobile action buttons before this; `notify_presence_event` didn't either.
+
+**`telegram_action` (dict, optional):** Same shape as `notify_security_event`'s field above.
+`notify_power_event` already had a critical-only Telegram inline_keyboard (the standing
+`Acknowledge:/ack_power_alert` button, native `telegram_bot.send_message`) — `telegram_action`
+appends to it, and the previously button-less non-critical branch was converted from
+`notify.send_message` to `telegram_bot.send_message` so it can carry one too.
+`notify_water_event`/`notify_presence_event` had no Telegram button at all before this — both
+Telegram sections converted from `notify.send_message` to native `telegram_bot.send_message`
+for the same reason (can't carry `inline_keyboard` otherwise).
+
+Built to give every domain's repeat-reminder automation a working "Cancel Alert" button —
+see ALERTS_CONTRACT.md BUG-A19 for the full per-domain rollout (Power, Water ×3 streams,
+Presence, plus the `notify_system_event`/`notify_security_event` callers: Temperature ×4,
+Device Power, Media, Network ×4, Security, Batteries, Garden).
 
 ---
 
