@@ -2671,25 +2671,35 @@ something a percentile-field switch alone fixes. See PROJECT_STATE.md for the op
 item.
 
 **Site-calibration check (2026-08-21):** pulled the live Solcast site config
-(`solcast_solar/solcast-sites.json`, "Home Biesie", resource `a900-21df-4d5b-a523`):
-capacity 10.2 kW AC / 10.8 kW DC, **azimuth 41°**, tilt 26°, loss_factor 0.9. Azimuth 41°
-doesn't match a north-facing roof (true north ≈ 0° in Solcast's convention, positive =
-east of north) — this alone is a plausible material contributor to the bias, independent
-of the `estimate10` fix. Also relevant: the property had trees felled ~mid-August 2026,
+(`solcast_solar/solcast-sites.json`, "Home Biesie", resource `a900-21df-4d5b-a523`) and
+found it miscalibrated against the install docs: capacity 10.2 kW AC / 10.8 kW DC,
+**azimuth 41°**, tilt 26°, loss_factor 0.9. Azimuth 41° didn't match the documented
+north-facing roof; tilt had no documented source at all; capacity_dc didn't account for a
+known broken panel. Also relevant: the property had trees felled ~mid-August 2026,
 improving actual irradiance/shading from that point — not reflected in Solcast's site
 config at all (no shading model), and it complicates reading `estimate10`-vs-actual trend
-data across the felling date as one continuous baseline. **Recommended, not yet applied** (site geometry lives on the Solcast Rooftop portal,
-solcast.com — not in this repo, so this needs manual action there): azimuth → 0° (true
-north — the 2021 install/test report, `docs` PDF archive, explicitly documents the array
-as "north facing"; fine-tune with a satellite bearing/compass check if the roof turns out
-not to be exactly true-north-facing); capacity_dc → **9.89kW** (24 panels − 1 broken = 23
-× 430W nameplate, see PROJECT_STATE.md Hardware Summary "Solar PV Array" for the full
-panel/inverter/battery spec sourced from the install/CoC PDFs); tilt → **18.4°** (no
-pitch documented in the install PDFs; user phone-measured with the iOS Measure app's
-Level tool — two readings didn't mirror cleanly, -5°/-18° — then matched against
-PVWatts' standard roof-pitch conversion table and confirmed 4/12 pitch = 18.4°, well
-below the configured 26° and consistent with both raw readings). Re-run the
-`estimate10`-vs-actual comparison using only post-felling days once enough of them exist.
+data across the felling date as one continuous baseline.
+
+**✅ APPLIED 2026-08-21** (site geometry lives on the Solcast Rooftop portal, solcast.com
+— not this repo; confirmed live via the portal's Site Summary panel): azimuth 41°→**0°**
+(true north — matches the 2021 install/test report's "north facing" description);
+capacity_dc 10.8kW→**9.89kW** (24 panels − 1 broken = 23 × 430W nameplate, see
+PROJECT_STATE.md Hardware Summary "Solar PV Array" for the full panel/inverter/battery
+spec); tilt 26°→**18.4°** (no pitch documented in the install PDFs; user phone-measured
+with the iOS Measure app's Level tool — two readings didn't mirror cleanly, -5°/-18° —
+then matched against PVWatts' standard roof-pitch conversion table and confirmed 4/12
+pitch = 18.4°). AC capacity (10.2kW) left unchanged — no evidence it was wrong.
+
+**Monitoring plan (user decision 2026-08-21): keep `estimate10` as-is for now, watch
+whether the geometry corrections alone move the actual-vs-forecast ratio before deciding
+whether to revert the percentile field.** Re-run the same 91-day-style
+actual-vs-forecast comparison (`sensor.solcast_pv_forecast_forecast_today` vs. day-final
+`sensor.inverter_today_production`) after ~1-2 weeks of data on the corrected geometry —
+long enough to see the new bias direction/magnitude, but exclude pre-2026-08-21 days from
+that comparison since they're on the old (wrong) site config. Also keep excluding
+pre-tree-felling days (~before 2026-08-15) per the earlier note, so the comparison isn't
+mixing three different physical baselines (pre-felling+old-geometry,
+post-felling+old-geometry, post-felling+corrected-geometry) into one ratio.
 
 ### Issue 29 — ✅ FIXED 2026-08-14: BUG-PWR-DOCDRIFT01 — stale entity reference in
 Entity Reference table

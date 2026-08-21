@@ -1870,15 +1870,19 @@ files are authoritative for actual file inventory.
   from the fleet's 430W nameplate — confirm if it's a mismatched replacement or an
   approximation). Effective working DC nameplate: 23 × 430W = **9,890W (9.89kWp)**.
 - **Solcast site config** (`solcast_solar/solcast-sites.json`, "Home Biesie",
-  resource `a900-21df-4d5b-a523`, as of 2026-08-21): capacity 10.2kW AC / 10.8kW DC,
-  azimuth 41° (Solcast's own site-editor UI labels 41° as "North-West" — direct
-  mismatch against the documented "north facing" install), tilt 26°, loss_factor 0.9.
-  **Recommended correction** (via the Solcast Rooftop portal, solcast.com — not this
-  repo): azimuth → 0° (true north, matching install docs; fine-tune with a satellite
-  bearing/compass check if the roof turns out not to be exactly true-north-facing),
-  capacity_dc → 9.89kW (1 broken panel), **tilt 26° → 18.4°**. AC capacity (10.2kW) not
-  touched — no clear evidence it's wrong; if changed, check it against any grid export
-  limit/NRS097 approval cap rather than just the 11kW inverter nameplate.
+  resource `a900-21df-4d5b-a523`) — was miscalibrated (capacity 10.2kW AC / 10.8kW DC,
+  azimuth 41°, tilt 26°, loss_factor 0.9), **corrected 2026-08-21, confirmed live via
+  the Solcast portal's Site Summary panel: azimuth → 0°, capacity_dc → 9.89kW,
+  tilt → 18.4°.** AC capacity (10.2kW) left unchanged — no evidence it was wrong. Local
+  cache file above will show the old values until the integration's next site-data sync
+  (`solcast_solar.clear_all_solcast_data` action forces it immediately if wanted; forecast
+  data itself is computed server-side by Solcast, so it's already using the corrected
+  geometry regardless of local cache staleness). **Monitoring, not yet re-evaluated:**
+  user chose to keep `select.solcast_pv_forecast_use_forecast_field` at `estimate10` and
+  watch whether the geometry fix alone moves the actual-vs-forecast ratio before deciding
+  whether to revert to `estimate` — see POWER_CONTRACT.md Issue 28 for the comparison plan
+  (exclude pre-2026-08-21 days, corrected geometry; also exclude pre-~2026-08-15 days,
+  tree felling).
   **Tilt derivation (2026-08-21):** no roof pitch documented in the install/CoC PDFs
   (unlike azimuth's explicit "north facing"). User phone-measured the roof with the iOS
   Measure app's Level tool: +facing up-roof = -5°, facing down-roof = -18° — the two
