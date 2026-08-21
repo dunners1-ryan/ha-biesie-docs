@@ -138,13 +138,14 @@ NOTE: This is simpler than WATER_CONTEXT.md specifies — see Issue 7.
 
 ## 2. File Inventory
 
-**Package path:** `packages/water/` — 18 files (WATER_CONTEXT.md listed 8 — outdated)
+**Package path:** `packages/water/` — 17 files (18 before `water_policy_helpers.yaml` was
+deleted 2026-08-21, Issue 11; WATER_CONTEXT.md listed 8 — outdated)
 
 | File | Role | Layer |
 |---|---|---|
 | `a_water_lifecycle_contract.yaml` | Specification document — LOCKED hard rules | Contract |
-| `water_helpers.yaml` | Lifecycle flags, timestamps, depth thresholds, day demand selectors (7 input_select) | Helpers |
-| `water_policy_helpers.yaml` | Policy-driven threshold helpers (full/low/critical/empty) — ORPHANED, unused | Helpers |
+| `water_helpers.yaml` | Lifecycle flags, timestamps, depth thresholds, day demand selectors (7 input_select), degraded-rise-rate thresholds (added 2026-08-21) | Helpers |
+| ~~`water_policy_helpers.yaml`~~ | **Deleted 2026-08-21** (Issue 11) — orphaned duplicate threshold set, zero references anywhere, superseded by nothing (the real thresholds already lived in `water_helpers.yaml`) | — |
 | `water_sensor.yaml` | Derivative depth rate sensor (platform: derivative) | Core |
 | `water_templates.yaml` | Depth validation, tank level %, refill allowed, solar window, demand planning sensors | Templates |
 | `water_state_extensions.yaml` | Derived cycle state mirror binary_sensor | State |
@@ -296,7 +297,6 @@ input_number.water_depth_low                m  (live: 0.80) — "low" display st
 input_number.water_depth_minimum_safety     m  (live: 0.35) — safety state floor
 input_number.water_battery_soc_sufficient   %  (initial: 50)  — min SOC to start refill
 input_number.water_battery_soc_hard_stop    %  (initial: 40)  — absolute SOC floor (temp; lower to 20% after new batteries)
-input_number.water_refill_max_runtime_minutes min — DEFINED BUT UNUSED (Issue 5)
 input_number.water_target_depth_normal      m  (initial: 1.00) — stop depth for Normal days
 input_number.water_target_depth_partial     m  (initial: 1.20) — stop depth for Wash/Clean days (entity_id unchanged)
 input_number.water_target_depth_irrigation  m  (initial: 1.25) — stop depth for Irrigation days (NEW)
@@ -313,14 +313,15 @@ input_select.water_demand_monday … water_demand_sunday
 sensor.water_target_depth_tomorrow — reads tomorrow's input_select, maps to depth input_number
 sensor.water_demand_today          — today's demand type string (dashboard display)
 
-# From water_policy_helpers.yaml:
-input_number.water_depth_full_threshold     m  (initial: 1.98) — POLICY driven, NOT used in templates
-input_number.water_depth_low_threshold      m  (initial: 1.00) — POLICY driven, NOT used in templates
-input_number.water_depth_critical_threshold m  (initial: 0.50) — POLICY driven, NOT used in templates
-input_number.water_depth_empty_threshold    m  (initial: 0.10) — POLICY driven, NOT used in templates
+# Degraded-rise-rate protection (NEW 2026-08-21, WATER_CONTRACT Issue 5 — replaces the
+# old unused water_refill_max_runtime_minutes helper, deleted same day):
+input_number.water_refill_degraded_rate_threshold  m/h (initial: 0.05) — "healthy" rise floor
+input_number.water_refill_degraded_rate_minutes    min (initial: 60)   — sustained duration before stop
 ```
 
-**CRITICAL NOTE:** `water_policy_helpers.yaml` defines a second set of depth thresholds (`*_threshold`) that are NOT used by any template or automation. The actual templates hardcode values or use `water_helpers.yaml` thresholds. The policy helpers are orphaned.
+**Resolved 2026-08-21:** `water_policy_helpers.yaml` (the second, orphaned set of depth
+thresholds this note used to warn about) has been deleted — see the File Inventory table
+above and Issue 11.
 
 ### Counters
 
@@ -907,8 +908,13 @@ The lifecycle contract implies Idle → Running → Completed/Aborted. Currently
 
 ### Sprint 1 — Fix Safety Gaps (Issues 5 + 6)
 
-- [ ] Implement max runtime cutoff automation in `water_safety.yaml` using `input_number.water_refill_max_runtime_minutes`
-- [ ] Implement battery hard stop reactive automation in `water_safety.yaml` monitoring `sensor.battery_soc`
+- [✅] Redesigned, not a flat cutoff — `water_borehole_degraded_rise_rate_protection`
+      added to `water_protection_automations.yaml` 2026-08-21 (Issue 5). Rate-based
+      (`sensor.water_tank_depth_rate` vs `input_number.water_refill_degraded_rate_threshold`,
+      sustained for `input_number.water_refill_degraded_rate_minutes`), not the flat-minutes
+      `water_refill_max_runtime_minutes` this line originally specified — that helper was
+      deleted, judged arbitrary compared to a rate that self-scales with fill duration.
+- [✅] Implement battery hard stop reactive automation in `water_safety.yaml` monitoring `sensor.battery_soc` — `water_safety_battery_hard_stop` (already implemented, see Issue 6)
 
 ### Sprint 2 — Fix Trigger Integrity (Issues 4 + 9)
 
@@ -916,21 +922,21 @@ The lifecycle contract implies Idle → Running → Completed/Aborted. Currently
 - [✅] Add `from: "on"` to pump OFF triggers — `water_reconcile_cycle_state` fixed 2026-04-15 (E1)
 - [✅] Add stability window to `water_refill_visibility_guard` pump ON trigger — `for: "00:00:10"` added 2026-04-15 (E2)
 - [✅] Audit all `to: "on"` pump triggers — complete. `water_block_refill_when_not_allowed` already had `from: "off"`. `water_capture_refill_start` already had all constraints.
-- [ ] Uncomment `for: "00:01:00"` debounce in `water_stop_refill_at_max_depth` (optional — safety tradeoff)
+- [✅] Uncomment `for: "00:01:00"` debounce in `water_stop_refill_at_max_depth` — done 2026-08-21 (Issue 9)
 - [✅] E3 verified: `binary_sensor.water_refill_allowed` checked before pump start on critical+low paths. Safety/limited-critical paths intentionally bypass (emergency scenarios).
 
 ### Sprint 3 — Fix Data Integrity (Issues 1 + 2 + 3 + 8)
 
 - [✅] Add `sensor.water_refill_flow_rate` statistics sensor to `water_reporting.yaml` — DONE 2026-07-08 (Issue 1), plus `input_number.water_refill_avg_flow_last_week` + weekly snapshot automation for "last week"
-- [ ] Fix `water_tank_full_notification` — change trigger from `water_state = "full"` to `binary_sensor.water_tank_full_depth = on` OR add `"full"` state to `water_state`
+- [✅] Fix `water_tank_full_notification` — already triggers on `binary_sensor.water_tank_full_depth = on`, confirmed live 2026-08-21 (Issue 2, was doc-drift not a real bug)
 - [✅] Fix double-write to `water_refill_start_depth` — remove write from control automation — DONE 2026-07-08 (Issue 3), all 6 branches in `water_tank_refill_control.yaml`
 - [✅] Fix `counter.water_borehole_faults_week` → `counter.water_borehole_faults_this_week` in `water_notifications.yaml` — was already correct live, doc-drift closed 2026-07-08 (Issue 8)
 
 ### Sprint 4 — Design Clean-up (Issues 7 + 10 + 11)
 
 - [✅] Update `binary_sensor.water_refill_allowed` to include `water_tank_refill_enabled` check — fixed 2026-06-19
-- [ ] Remove direct Telegram calls from `water_tank_refill_control.yaml` (use central script only)
-- [ ] Decide: wire `water_policy_helpers.yaml` into templates OR delete file
+- [✅] Remove direct Telegram calls from `water_tank_refill_control.yaml` (use central script only) — done 2026-08-21 (Issue 10)
+- [✅] Decide: wire `water_policy_helpers.yaml` into templates OR delete file — deleted 2026-08-21 (Issue 11)
 
 ---
 
@@ -977,8 +983,8 @@ Five protections listed in `WATER_CONTEXT.md`. Each audited independently.
 - **Threshold used:** Hardcoded 1.95, NOT `input_number.water_target_depth_full` (initial: 1.85) and NOT `input_number.water_depth_full_threshold` (initial: 1.98)
 - **Independence:** ✅ Separate file, separate automation, does not check any refill flags
 - **Bypass possible?** Via spike filter — upward spikes > 0.35m are rejected by validated sensor; a genuine depth of 1.96m would trigger correctly
-- **Issue:** No debounce (Issue 9) — single spike above 1.95m triggers false abort
-- **Verdict:** IMPLEMENTED but with false-abort risk from spike interaction. Threshold mismatch: `water_target_depth_full` = 1.85m but stop fires at 1.95m.
+- **Fixed 2026-08-21 (Issue 9):** 1-minute debounce re-enabled — no longer a single-spike false-abort risk.
+- **Verdict:** ✅ IMPLEMENTED, debounced. Threshold mismatch: `water_target_depth_full` = 1.85m but stop fires at 1.95m.
 - **2026-05-06:** `water_refill_aborted_due_to_safety` no longer set by this automation. Max depth = successful completion, not a fault. Lifecycle now shows "Completed (Full)" instead of "Aborted (Safety)". Notification changed to "Tank Full" title with clear success message.
 
 ### Protection 2: Dry Run Protection
@@ -1006,11 +1012,22 @@ Five protections listed in `WATER_CONTEXT.md`. Each audited independently.
 - **Coverage:** No SAFETY-state exemption — applies even to emergency refills (unlike `water_borehole_mid_run_shutdown`). Sets `water_refill_aborted_due_to_safety`.
 - **Verdict:** ✅ IMPLEMENTED. See Issue 6 for full coverage details.
 
-### Protection 5: Max Runtime Cutoff
-- **Spec:** Pump on > `water_refill_max_runtime_minutes` → Stop pump  
-- **Implementation:** ❌ NOT IMPLEMENTED  
-- **What exists:** `input_number.water_refill_max_runtime_minutes` is defined (unused). Emergency case 3 has a hardcoded 10-minute limit but only for that mode.  
-- **Verdict:** ❌ MISSING — see Issue 5. Input helper exists but no automation uses it.
+### Protection 5: Degraded Rise Rate Protection (redesigned 2026-08-21, was "Max Runtime Cutoff")
+- **Original spec:** Pump on > `water_refill_max_runtime_minutes` → Stop pump
+- **Redesigned, not implemented as originally specified:** a flat wall-clock cutoff was
+  judged arbitrary (a fill from empty legitimately takes longer than a top-up) — see Issue
+  5. Replaced with a rate-based guard instead.
+- **Implementation:** ✅ `water_protection_automations.yaml` — `water_borehole_degraded_rise_rate_protection`
+- **Trigger:** Pump on, depth rate stays between the no-rise floor (0.01 m/h) and
+  `input_number.water_refill_degraded_rate_threshold` (default 0.05 m/h) continuously for
+  `input_number.water_refill_degraded_rate_minutes` (default 60 min)
+- **Coverage:** Catches a pump that's genuinely rising but too slowly — the gap between
+  Protection 3 (needs near-zero rate) and Protection 1 (needs overfill). The old
+  `input_number.water_refill_max_runtime_minutes` helper was deleted, superseded by the two
+  new rate-based helpers. Emergency case 3 still has its own hardcoded 10-minute limit,
+  unaffected by this change.
+- **Verdict:** ✅ IMPLEMENTED. Same noisy-sensor caveat as Protection 3 (untested at
+  scale — flag if it proves too trigger-happy or too lax in practice).
 
 ### Safety System Summary
 
