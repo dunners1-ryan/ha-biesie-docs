@@ -599,23 +599,36 @@ cycle_active`. `water_refill_capture.yaml` untouched (was already correct per th
 
 ---
 
-### Issue 5 — SAFETY GAP: Max runtime cutoff not implemented
-**Priority:** P2 → **downgraded to P3 2026-08-21** — reassessed, not fully redundant but lower urgency than originally scored
-**Files:** All water package files — not present in any
-**Root cause:** `input_number.water_refill_max_runtime_minutes` is defined in `water_helpers.yaml` but never referenced in any automation. The safety spec lists "Max runtime cutoff" as Protection 5, but there is no automation that uses this helper.
-**Exception:** The emergency survival mode (case 3) has a hardcoded 10-minute delay. This is NOT the max runtime cutoff — it is a specific emergency duration, not a general safety guard.
+### Issue 5 — ✅ FIXED 2026-08-21 (redesigned, not the originally-drafted fix): degraded-rise-rate protection
+**Priority:** was P2, "Max runtime cutoff not implemented"
+**Files:** `packages/water/water_protection_automations.yaml`, `packages/water/water_helpers.yaml`
+**Original root cause:** `input_number.water_refill_max_runtime_minutes` was defined in `water_helpers.yaml` but never referenced in any automation. The safety spec listed "Max runtime cutoff" as Protection 5, but there was no automation using this helper.
 **2026-08-21 re-assessment (user question: is this arbitrary given the existing depth
-hard-stop + no-rise protection?):** Not fully redundant. The 1.95m depth hard-stop
-(`water_stop_refill_at_max_depth`, Issue 9 above) catches overfill; the 15-minute
-`water_borehole_no_rise_protection` catches a pump that's running but not moving the
-level at all. Neither catches a **slow-but-genuinely-rising** fill — e.g. a partially
-blocked line or a degraded borehole yield — that never trips "no rise" and never reaches
-1.95m, but runs for hours longer than normal, wasting power and pump-hours. A max-runtime
-cutoff is the only guard that would catch that specific case. That said, it's a lower-risk
-failure mode than overfill or dry-run (nothing floods, nothing runs dry), so downgraded to
-P3 rather than closed. **Not implemented this session — awaiting the user's call** on
-whether the defense-in-depth is worth adding. Draft automation below still valid if/when
-they say yes:
+hard-stop + no-rise protection?):** Not fully redundant — real gap confirmed. The 1.95m
+depth hard-stop (`water_stop_refill_at_max_depth`, Issue 9 above) catches overfill; the
+15-minute `water_borehole_no_rise_protection` catches a pump running but not moving the
+level at all. Neither catches a **slow-but-genuinely-rising** fill — a partially blocked
+line or a degraded borehole yield — that never trips "no rise" and never reaches 1.95m,
+but runs for hours longer than normal.
+**User correctly rejected the original fix shape**: a flat wall-clock "max runtime
+minutes" is arbitrary — a fill from empty legitimately takes far longer than a top-up, so
+one fixed number either false-trips long normal fills or is set loose enough to miss real
+degradation. **Redesigned as rate-based instead**: reuses `sensor.water_tank_depth_rate`
+(m/h, the same sensor `water_borehole_no_rise_protection` already trusts) — new
+`water_borehole_degraded_rise_rate_protection` automation stops the pump if the rate stays
+continuously between the no-rise floor (0.01 m/h) and a tunable "healthy" floor
+(`input_number.water_refill_degraded_rate_threshold`, default 0.05 m/h) for a tunable
+sustained duration (`input_number.water_refill_degraded_rate_minutes`, default 60 min) —
+self-scales to whatever the fill actually needs instead of a fixed clock. The old
+`input_number.water_refill_max_runtime_minutes` helper (also unused/orphaned, same class
+of issue as Issue 11) was replaced by the two new rate-based helpers rather than kept
+alongside them.
+**Caveat carried forward, not fully mitigated:** `sensor.water_tank_depth_rate` is a raw
+`derivative` sensor with no smoothing (`time_window` not set) — a brief noise spike could
+in principle reset the sustained-`for` timer before it completes, same risk the existing
+no-rise protection already lives with. Not addressed here since the established pattern in
+this codebase already trusts this sensor as-is; revisit both automations together if noise
+turns out to be a practical problem.
 ```yaml
 - id: water_safety_max_runtime_cutoff
   alias: "Water Safety ▸ Max Runtime Cutoff"

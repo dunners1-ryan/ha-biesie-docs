@@ -2678,13 +2678,14 @@ east of north) — this alone is a plausible material contributor to the bias, i
 of the `estimate10` fix. Also relevant: the property had trees felled ~mid-August 2026,
 improving actual irradiance/shading from that point — not reflected in Solcast's site
 config at all (no shading model), and it complicates reading `estimate10`-vs-actual trend
-data across the felling date as one continuous baseline. **Recommended, not yet applied**
-(site geometry lives on the Solcast Rooftop portal, solcast.com — not in this repo, so
-this needs manual action there): re-verify true azimuth (compass/satellite check) and
-correct if it's really close to 0°; derate `capacity_dc` for the 1 known broken panel
-(reduce by that panel's rated watts — get exact wattage from the panel spec/count before
-computing); re-run the `estimate10`-vs-actual comparison using only post-felling days once
-enough of them exist.
+data across the felling date as one continuous baseline. **Recommended, not yet applied** (site geometry lives on the Solcast Rooftop portal,
+solcast.com — not in this repo, so this needs manual action there): azimuth → 0° (true
+north — the 2021 install/test report, `docs` PDF archive, explicitly documents the array
+as "north facing"; fine-tune with a satellite bearing/compass check if the roof turns out
+not to be exactly true-north-facing); capacity_dc → **9.89kW** (24 panels − 1 broken = 23
+× 430W nameplate, see PROJECT_STATE.md Hardware Summary "Solar PV Array" for the full
+panel/inverter/battery spec sourced from the install/CoC PDFs); re-run the
+`estimate10`-vs-actual comparison using only post-felling days once enough of them exist.
 
 ### Issue 29 — ✅ FIXED 2026-08-14: BUG-PWR-DOCDRIFT01 — stale entity reference in
 Entity Reference table

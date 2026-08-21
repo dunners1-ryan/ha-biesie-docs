@@ -5,6 +5,40 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-08-21 (2nd pass, same day) — WATER_CONTRACT Issue 5 redesigned per user
+      pushback, Solcast PV spec pinned down with exact numbers, BUG-S61 DNS theory
+      retracted, `ha core check` confirmed passing by user.** Follow-up to the audit
+      session below, addressing the user's direct corrections:
+      - **Issue 5 rebuilt, not the originally-drafted fix.** User pushed back on the
+        flat "max runtime minutes" idea as arbitrary (a fill from empty legitimately
+        takes longer than a top-up). Agreed and replaced it: new
+        `water_borehole_degraded_rise_rate_protection` automation
+        (`water_protection_automations.yaml`) stops the pump if
+        `sensor.water_tank_depth_rate` stays between the existing no-rise floor
+        (0.01 m/h) and a new tunable healthy floor
+        (`input_number.water_refill_degraded_rate_threshold`, default 0.05 m/h) for a
+        tunable sustained duration (`input_number.water_refill_degraded_rate_minutes`,
+        default 60 min) — rate-based and self-scaling, not wall-clock. Replaced the old
+        unused `water_refill_max_runtime_minutes` helper with the two new ones.
+      - **Solcast PV array spec resolved with real numbers**, sourced from the 2021
+        install test report + 2024 battery-upgrade CoC PDFs: 24× JA Solar 430W panels
+        (documented **"north facing"** at install), 2× SunSynk 5.5kW hybrid inverters,
+        2× 15kWh Freedom Won batteries. User confirmed the broken panel is rated 435W.
+        Recommended Solcast portal correction: azimuth 41°→0° (matches "north facing";
+        Solcast's own site editor UI labels 41° as "North-West", confirming the
+        mismatch), capacity_dc 10.8kW→**9.89kW** (23 working × 430W). Full spec now in
+        this file's Hardware Summary "Solar PV Array" entry; POWER_CONTRACT Issue 28
+        updated with the same numbers.
+      - **BUG-S61 (Telegram photo) root-cause theory retracted.** User confirmed local +
+        public + VPN access via `ha.dunners.tech` all work correctly — the
+        "resolves to 10.10.1.5, nothing listening" diagnosis was stale. Live DNS lookup
+        this session resolves correctly to Cloudflare. Told explicitly to stop guessing;
+        this bug needs a fresh live diagnostic (real error text from an actual
+        occurrence) next time it happens, not more theorizing from old notes.
+        SECURITY_CONTRACT.md BUG-S61 updated to record the retraction.
+      - **`ha core check` — user ran it, passed.** Closes the one open item from the
+        prior session's checklist (functional verification in the live HA UI).
+
 - [x] **2026-08-21 — Pool pump dashboard ghost-entity cleanup + prioritized doc/code audit
       pass across power + water (7 issues closed, 1 downgraded, 3 confirmed-already-fixed
       doc-drift corrections).** User flagged `sensor.pool_pump_solar_headroom` showing
@@ -989,13 +1023,16 @@
 - [x] **Security repeat reminders — base implementation shipped 2026-07-10.** `alert.security_alert`'s `notifiers: [STD_Alerts]` removed (was dead — same class as BUG-A11); a new `automation.security_alert_repeat_reminder` (`alerts_security.yaml`) now delivers the 5/15/30/60min reminders via `script.notify_security_event` directly, gated to fire only at those exact elapsed-minute marks so it structurally cannot duplicate the immediate first notification. Muted via the existing `input_boolean.security_alert_notify` toggle — does NOT yet hook the alert entity's native "Acknowledge" button (no template-readable ack state exposed by the `alert:` integration); that's a follow-up. **⚠️ Requires a full HA restart** (`alert:` entity `notifiers:` changed). See ALERTS_CONTRACT.md BUG-A10.
 - [x] **Follow-up from BUG-A10 — resolved 2026-07-13 (BUG-NET08).** `alerts_temperature.yaml`'s routing automations had NO reload guard at all (worse than network's pre-2026-07-06 state) — fixed same session as the repeat-reminder work below, see that entry. "Acknowledge" button on `alert.security_alert` still has no effect on repeat delivery — genuinely still open, out of scope for the 2026-07-13 repeat-reminder pass (that pass targeted the 16 domains still on dead `STD_Alerts`; `security_alert`/`camera_health` already have their own working repeat mechanism from BUG-A10/A11).
 - [x] **CORRECTED 2026-07-10, then actually fixed 2026-07-13:** the recurring `ServiceNotFound: notify.ryan_iphone16_mobile_app` / `ap_0223_1001` / `honor_10_dash_mobile_app` / `honor_x7_dash_mobile_app` / `telegram_bot_5527` errors are `notify.STD_Alerts` (`configuration.yaml`, `platform: group`) calling 5 dead bare `notify.<x>` services on every trigger AND every repeat, for all 16 domains still using `notifiers: [STD_Alerts]` (see NOTIFICATIONS_CONTRACT.md §7). The 2026-07-06 fix only ever covered the *initial* notification (via parallel one-shot routing automations); repeats kept silently failing — meaning an alert that stayed active for hours (e.g. a missing critical sensor) only ever notified once. **Fixed 2026-07-13**: added matching `for:`-duration repeat triggers (mirroring each domain's own dead `repeat:` schedule) to all 16 routing automations, reusing the existing message-building action code — no new automations needed except `alerts_doors.yaml` (door_alert has `skip_first: true`, so it had no one-shot routing automation to extend; added `route_door_alert_repeat_reminder`). `STD_Alerts` itself is still left broken-but-defined (unchanged, same as before) — only the working parallel path changed. See ALERTS_CONTRACT.md 2026-07-13 entry for full per-domain detail. `notifiers:` fields were NOT touched, so this is a pure `automation:` change — **no restart required, `Reload Automations` is sufficient.**
-- [ ] **Telegram photo attachment unreachable (infra, not YAML)** — `telegram_bot.send_photo`
-      fails with "Failed to load URL: All connection attempts failed" for
-      `https://ha.dunners.tech/...`. Root cause: `ha.dunners.tech` resolves internally to
-      `10.10.1.5`, but nothing is listening on port 443 there (connection refused, not a
-      timeout). Check reverse proxy container status and whether `10.10.1.5` is still the
-      correct LAN IP for it. Text/push notifications and Telegram message text + buttons are
-      unaffected — only the inline photo in Telegram fails. See SECURITY_CONTRACT.md BUG-S61.
+- [ ] **Telegram photo attachment unreachable (infra, not YAML) — old root-cause theory
+      retracted 2026-08-21, still open.** `telegram_bot.send_photo` fails with "Failed to
+      load URL: All connection attempts failed" for `https://ha.dunners.tech/...`. The
+      previously-recorded root cause ("resolves to 10.10.1.5, nothing listening") is stale
+      — live DNS lookup 2026-08-21 resolves correctly to Cloudflare, and the user confirmed
+      local + public + VPN access all work today; do not keep building on that theory.
+      **Needs a fresh live diagnostic** (exact HA log error text captured at the moment of
+      a real failure) next time it happens — not re-attempted this session. Text/push
+      notifications and Telegram message text + buttons are unaffected — only the inline
+      photo in Telegram fails. See SECURITY_CONTRACT.md BUG-S61.
 - [x] **Known-Problem Escalation feature (2026-07-10) — restart completed, live-verified same day,
       2 follow-up bugs found and fixed post-restart.** `.ha_run.lock` confirmed a real core restart at
       13:04. Verified via Supervisor API (`/core/api/states`, `/core/api/template`) that the registry
@@ -1820,6 +1857,29 @@ files are authoritative for actual file inventory.
 - **Dual Master/Slave Sunsynk** — Master: grid/losses/BMS, Slave: PV/load/battery
 - Aggregated in `power_core.yaml` into unified sensors
 - Solar forecast: Solcast, cached in `solcast_solar/`
+
+### Solar PV Array (physical spec — added 2026-08-21, sourced from install/COC PDFs)
+- **Panels:** 24× JA Solar 430W modules, 4 strings × 6 panels, installed 2021-07-01
+  (SANS10142/NRS097 test report, Order IN070721A, OPS360/Shabi Electrical) —
+  **documented "north facing"** at install.
+- **Inverters:** 2× SunSynk 5.5kW hybrid (48V) — 11kW combined nameplate AC.
+- **Batteries:** 2× Freedom Won lithium, 15kWh each (30kWh nameplate) — re-certified
+  2024-07-03 (Solar CoC No. 1526722, SHABI Trading) alongside a battery-system
+  re-wire; panel count/wattage unchanged from 2021 in that recertification.
+- **Known fault (2026-08):** 1 panel disconnected/broken, rated 435W (differs slightly
+  from the fleet's 430W nameplate — confirm if it's a mismatched replacement or an
+  approximation). Effective working DC nameplate: 23 × 430W = **9,890W (9.89kWp)**.
+- **Solcast site config** (`solcast_solar/solcast-sites.json`, "Home Biesie",
+  resource `a900-21df-4d5b-a523`, as of 2026-08-21): capacity 10.2kW AC / 10.8kW DC,
+  azimuth 41° (Solcast's own site-editor UI labels 41° as "North-West" — direct
+  mismatch against the documented "north facing" install), tilt 26°, loss_factor 0.9.
+  **Recommended correction** (via the Solcast Rooftop portal, solcast.com — not this
+  repo): azimuth → 0° (true north, matching install docs; fine-tune with a satellite
+  bearing/compass check if the roof turns out not to be exactly true-north-facing),
+  capacity_dc → 9.89kW (1 broken panel). AC capacity (10.2kW) not touched — no clear
+  evidence it's wrong; if changed, check it against any grid export limit/NRS097
+  approval cap rather than just the 11kW inverter nameplate. See POWER_CONTRACT.md
+  Issue 28 for the forecast-bias investigation this feeds into.
 
 ### Cameras (verified 2026-05-17 — 7 NVR + 5 IP active)
 - NVR: Hikvision DS-7116HGHI-F1 (16-channel hybrid DVR, analog 1080p, no AI)

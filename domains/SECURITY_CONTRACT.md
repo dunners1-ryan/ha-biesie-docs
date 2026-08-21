@@ -1685,13 +1685,19 @@ correctly.
 
 **Separately found, NOT fixed (infra, not YAML):** `telegram_bot.send_photo`
 fails with "Failed to load URL: All connection attempts failed" for
-`https://ha.dunners.tech/...`. `ha.dunners.tech` resolves internally to
-`10.10.1.5`, but nothing is listening on port 443 there right now (connection
-refused, not a timeout) — a local DNS/reverse-proxy issue. This was very
-likely masked until this session because the inline_keyboard crash above was
-aborting the script before execution ever reached the send_photo step.
-Needs infra-side investigation (reverse proxy container status / whether
-10.10.1.5 is still the correct LAN IP).
+`https://ha.dunners.tech/...`. This was very likely masked until this session
+because the inline_keyboard crash above was aborting the script before
+execution ever reached the send_photo step.
+
+**2026-08-21 — root-cause theory retracted, still genuinely open.** The
+original "`ha.dunners.tech` resolves to `10.10.1.5`, nothing listening"
+diagnosis is stale: live DNS lookup now resolves to a Cloudflare anycast
+address, and the user confirmed local + public + VPN access all work
+correctly today — the network/DNS layer is not the problem, and PROJECT_STATE
+guesses building on the old theory were wrong. **This bug needs re-diagnosis
+from a fresh live occurrence** (exact HA log error text at the moment
+`telegram_bot.send_photo` next fails) rather than more theorizing from stale
+notes — not attempted this session.
 
 ---
 
