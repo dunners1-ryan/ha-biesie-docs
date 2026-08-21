@@ -5,6 +5,29 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-08-21 (12th pass, same day) — GARDEN_CONTRACT.md deep drift sweep (8th of 9
+      domain contracts; WATER + ALERTS + SECURITY + PRESENCE + LIGHTING + CONTEXT +
+      NOTIFICATIONS + NETWORK already done same day).** Doc-only, but the biggest gap
+      found all session — this contract hadn't been touched since creation (2026-04-29)
+      despite `alerts_garden.yaml` growing from ~120 to 282 lines with real feature work
+      since, most recently 2026-08-18:
+      - **Real delivery path entirely undocumented.** `automation.route_garden_alert`
+        (added 2026-07-06) is the actual notification sender —
+        `script.notify_system_event` on a 20s/1h/2h schedule — not the
+        `alert.garden_alert → STD_Alerts` path this contract solely described. Added a
+        full Section 3 diagram + Section 4/5 rows.
+      - **Cancel Alert feature entirely undocumented.** `input_boolean.garden_alert_snoozed`
+        + `garden_alert_cancel_from_notification` + `garden_alert_snooze_reset` (BUG-A19
+        pattern, added 2026-08-18) were missing from every table. Added.
+      - **Surfaced, not fixed:** `alert.garden_alert`'s own `notifiers: [STD_Alerts]` is
+        live again (BUG-N16 fixed it 2026-08-09) and is now redundant alongside
+        `route_garden_alert` — this domain is very likely double-delivering every event.
+        This is exactly NOTIFICATIONS_CONTRACT.md's BUG-N18, already known to be one of
+        the 8 still-open files from this session's NOTIFICATIONS pass — cross-referenced
+        both ways, not actioned here (restart-batch fix, out of scope for a doc pass).
+      - File Inventory line count corrected (~120 → 282).
+      No `ha core check` needed — zero YAML touched, Markdown-only session.
+
 - [x] **2026-08-21 (11th pass, same day) — NETWORK_CONTRACT.md deep drift sweep (7th of 9
       domain contracts; WATER + ALERTS + SECURITY + PRESENCE + LIGHTING + CONTEXT +
       NOTIFICATIONS already done same day).** Doc-only, small domain (3 files +

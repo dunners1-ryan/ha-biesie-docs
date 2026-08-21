@@ -7,6 +7,18 @@
 #
 # This document is the ground-truth record of what the garden alert system
 # does, its entity interface, pipeline wiring, and design decisions.
+#
+# Last updated: 2026-08-21 (deep drift sweep) — this contract hadn't been touched since
+# creation (2026-04-29) despite alerts_garden.yaml growing from ~120 to 282 lines with
+# real feature work since (most recently 2026-08-18). Biggest gaps: the real delivery
+# path (automation.route_garden_alert, added 2026-07-06 — script.notify_system_event,
+# not the STD_Alerts notifier this doc solely described) and the entire Cancel Alert
+# feature (input_boolean.garden_alert_snoozed + 2 automations, added 2026-08-18, BUG-A19
+# pattern) were undocumented. Also surfaced — not fixed here — that alert.garden_alert's
+# STD_Alerts notifier is live again (BUG-N16, 2026-08-09) alongside route_garden_alert,
+# so this domain is very likely double-delivering every event; this is
+# NOTIFICATIONS_CONTRACT.md BUG-N18, still open for this file. Sections 3/4/5 rewritten
+# to match live code; File Inventory line count corrected.
 ###############################################################################
 
 ---
@@ -37,10 +49,16 @@ goes through `alert.garden_alert → STD_Alerts` and `script.notify_system_event
 
 | File | Lines | Purpose |
 |---|---|---|
-| `packages/alerts/alerts_garden.yaml` | ~120 | Full garden alert pipeline: binary sensor, context sensor, alert entity, mobile action automation |
+| `packages/alerts/alerts_garden.yaml` | 282 | Full garden alert pipeline: binary sensor, context sensor, alert entity, 4 automations (route/turn-off/cancel/snooze-reset — see Section 3) |
 
 No separate `packages/garden/` directory exists — garden is alert-only for now.
 If irrigation or pool chemistry is added, create `packages/garden/` then.
+
+*(Doc-drift correction 2026-08-21: line count was stale — `alerts_garden.yaml` grew from
+~120 to 282 lines since this contract was last touched 2026-04-29, gaining the delivery
+routing + Cancel Alert automations Section 3/4 below describe. This is the biggest gap
+found in this contract — the file predates ~4 months of real feature work on
+`alerts_garden.yaml`, most recently 2026-08-18.)*
 
 ---
 
@@ -62,9 +80,48 @@ sensor.alert_device_entities  (aggregator — alerts_summary.yaml)
 sensor.global_alert_context  → dashboard + notification scripts
 ```
 
-Mobile action response:
+**⚠️ Doc-drift correction 2026-08-21 — the diagram above is the config-level pipeline,
+not the actual delivery path, and this contract never documented the real one.** Live
+`alerts_garden.yaml` (2026-07-06 fix, unrelated to but same class as BUG-N16/BUG-A10 in
+NOTIFICATIONS_CONTRACT.md/ALERTS_CONTRACT.md) has a second, parallel delivery mechanism —
+`automation.route_garden_alert` — that fires `script.notify_system_event` directly on
+`binary_sensor.garden_alert_active` going on (20s reload-glitch guard) plus two bounded
+reminders at `for: 1h` and `for: 2h`:
+
 ```
-alert.garden_alert notification → user taps "Turn Off Pump"
+binary_sensor.garden_alert_active → on
+        ↓ (for: 20s, then for: 1h, then for: 2h — 3 total sends)
+automation.route_garden_alert
+        ↓ (gated: input_boolean.garden_alert_snoozed == off)
+script.notify_system_event (warning, actions: [TURN_OFF_POND_PUMP, CANCEL_GARDEN_ALERT],
+                             telegram_action: cancel_garden_alert)
+```
+
+**Known issue, not fixed here:** `alert.garden_alert` itself still has an active
+`notifiers: [STD_Alerts]` (confirmed live 2026-08-21) — this is one of the 8 files
+NOTIFICATIONS_CONTRACT.md's BUG-N18 lists as still carrying the redundant
+double-delivery pattern (water and network are the only 2 of the original 9 fixed so
+far, both 2026-08-18). In practice this domain likely sends **two** pushes per event
+today: one from `route_garden_alert`, one from `alert.garden_alert`'s own now-working
+`STD_Alerts` notifier (fixed 2026-08-09, BUG-N16). Flagged here and in
+NOTIFICATIONS_CONTRACT.md; not actioned (same restart-batch fix as the other 7 files).
+
+**Cancel Alert (added 2026-08-18, BUG-A19 pattern):**
+```
+route_garden_alert notification → user taps "Cancel Alert" (phone) or
+  "🔕 Cancel Alert" (Telegram /cancel_garden_alert)
+        ↓
+automation.garden_alert_cancel_from_notification
+        ↓
+input_boolean.garden_alert_snoozed = on   (mutes route_garden_alert's repeats
+                                            for the rest of this cycle only)
+        ↓ (binary_sensor.garden_alert_active returns to off)
+automation.garden_alert_snooze_reset  → input_boolean.garden_alert_snoozed = off
+```
+
+Mobile action response (Turn Off Pump):
+```
+notification → user taps "Turn Off Pump"
         ↓ (event: mobile_app_notification_action, action: TURN_OFF_POND_PUMP)
 automation.garden_alert_ack_turn_off_pond_pump
         ↓
@@ -88,6 +145,7 @@ script.notify_system_event (info: "Pond pump turned off via mobile action")
 | Entity | Type | Default | Purpose |
 |---|---|---|---|
 | `input_boolean.garden_alert_notify` | input_boolean | `true` | Suppress gate — OFF silences all garden alerts without HA restart |
+| `input_boolean.garden_alert_snoozed` | input_boolean | `false` | **Added 2026-08-18 (doc-drift correction 2026-08-21 — missing from this table).** Per-cycle Cancel Alert mute; auto-clears when `binary_sensor.garden_alert_active` returns to off (`garden_alert_snooze_reset`). Same BUG-A13 pattern as `gate_alert_snoozed` in `alerts_doors.yaml`. |
 
 ### Binary Sensors
 
@@ -109,9 +167,16 @@ script.notify_system_event (info: "Pond pump turned off via mobile action")
 
 ### Automations
 
+*(Doc-drift correction 2026-08-21: this table listed 1 of the 4 automations that actually
+exist live in `alerts_garden.yaml` — added the other 3, all part of the
+2026-07-06/2026-08-18 delivery + Cancel Alert work described in Section 3.)*
+
 | ID | Alias | Trigger | Action |
 |---|---|---|---|
-| `garden_alert_ack_turn_off_pond_pump` | Garden Alert: Turn Off Pond Pump | `mobile_app_notification_action` event, action: `TURN_OFF_POND_PUMP` | Turn off pump + notify info |
+| `route_garden_alert` | Garden: Route Pond Pump Alert | `binary_sensor.garden_alert_active` → on (`for: 20s`), then `for: 1h`, then `for: 2h` | Real delivery path — `script.notify_system_event` (warning), gated on `garden_alert_snoozed == off` |
+| `garden_alert_ack_turn_off_pond_pump` | Garden Alert: Turn Off Pond Pump (Mobile Action) | `mobile_app_notification_action` event, action: `TURN_OFF_POND_PUMP` | Turn off pump + notify info |
+| `garden_alert_cancel_from_notification` | Garden Alert: Cancel From Notification | `mobile_app_notification_action` (CANCEL_GARDEN_ALERT) or Telegram callback (`/cancel_garden_alert`) | Sets `garden_alert_snoozed` on, logs, answers Telegram callback, confirms via `script.notify_system_event` |
+| `garden_alert_snooze_reset` | Garden Alert: Snooze Reset | `binary_sensor.garden_alert_active` → off | Clears `garden_alert_snoozed` |
 
 ### Switch (hardware — not defined here)
 
@@ -128,11 +193,16 @@ script.notify_system_event (info: "Pond pump turned off via mobile action")
 | Suppress toggle | `input_boolean.garden_alert_notify` | ✅ |
 | Binary sensor | `binary_sensor.garden_alert_active` | ✅ delay_on 1 min, delay_off 5 min |
 | Context sensor | `sensor.garden_alert_context` | ✅ warning/normal, devices attribute |
-| Alert entity | `alert.garden_alert` | ✅ STD_Alerts, 60 min repeat |
+| Alert entity | `alert.garden_alert` | ⚠️ STD_Alerts, 60 min repeat — notifier is live again (fixed 2026-08-09, BUG-N16) but now redundant alongside `route_garden_alert`, see NOTIFICATIONS_CONTRACT.md BUG-N18 (still open for this file) |
+| Real delivery path | `automation.route_garden_alert` | ✅ added 2026-07-06 — `script.notify_system_event`, 20s/1h/2h sends |
 | In aggregator trigger | `alerts_summary.yaml` trigger list | ✅ added 2026-04-29 |
 | Mobile action handler | `garden_alert_ack_turn_off_pond_pump` | ✅ proper event trigger |
+| Cancel Alert | `garden_alert_snoozed` + `garden_alert_cancel_from_notification` + `garden_alert_snooze_reset` | ✅ added 2026-08-18 (BUG-A19 pattern) |
 
-**PASS.**
+**PASS with a known open issue (doc-drift correction 2026-08-21 — this Section previously
+said flat "PASS" and didn't mention the double-delivery risk or the Cancel Alert feature
+at all):** functionally sound, but likely double-delivering per event until
+NOTIFICATIONS_CONTRACT.md BUG-N18 is resolved for this file.
 
 ---
 
