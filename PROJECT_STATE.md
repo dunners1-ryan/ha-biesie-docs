@@ -5,6 +5,38 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-08-21 (13th pass, same day) — INFRA_CONTRACT.md deep drift sweep (9th and
+      FINAL domain of this session's multi-session audit; WATER + ALERTS + SECURITY +
+      PRESENCE + LIGHTING + CONTEXT + NOTIFICATIONS + NETWORK + GARDEN all done same
+      day — all 9 domain contracts now swept).** Doc-only. Findings:
+      - **Part 8 ("admin/ — Package Directory (Empty)")** — stale since as early as
+        2026-06-28. `packages/admin/tablets.yaml` (95 lines) is a real, actively-used file
+        managing dashboard tablet screen brightness (day/night, presence-gated). Rewrote
+        the section to document it.
+      - **IMP-IDS01 ("IDS Hyyp has no package file")** — stale since 2026-04-29.
+        `packages/security/security_alarm.yaml` was created that exact day, doing exactly
+        what the recommendation asked (a documented interface stub, automations
+        deliberately left in `automations.yaml` pending integration setup). Marked done;
+        also fixed 2 other "no package file" mentions for `ids_hyyp` in the Integration
+        Registry and Integration Notes to match. (This file was separately found missing
+        from SECURITY_CONTRACT.md's own File Inventory earlier in this session — fixed
+        there too.)
+      - **Integration Registry table (Part 7)** — versions re-verified against every
+        `custom_components/*/manifest.json` live. 6 of 15 were stale: `solcast_solar`
+        v4.5.2→v4.6.1, `sonoff` 3.11.1→3.12.2, `load_shedding` 1.5.2→1.7.0, `pyscript`
+        1.7.0→**2.1.0** (a major version bump — flagged for a changelog check next time
+        pyscript is touched, not investigated further here), `alarmo` 1.10.18→1.10.19,
+        `openweathermaphistory` 2026.04.03→2026.05.03. The other 9 (solarman,
+        hikvision_next, tuya, localtuya, ids_hyyp, hacs, watchman,
+        met_next_6_hours_forecast, metnowcast) matched exactly.
+      - Parts 1-6 (core/, backup/, office/, weather/, sensors/, integrations/) — file
+        lists, entity names, and Known Bugs sections all re-verified live and found
+        already accurate/well-maintained; no changes needed.
+      No `ha core check` needed — zero YAML touched, Markdown-only session.
+      **This completes the 9-domain deep drift audit requested at session start.** See
+      the closing summary at the top of this session's work for the full cross-domain
+      tally.
+
 - [x] **2026-08-21 (12th pass, same day) — GARDEN_CONTRACT.md deep drift sweep (8th of 9
       domain contracts; WATER + ALERTS + SECURITY + PRESENCE + LIGHTING + CONTEXT +
       NOTIFICATIONS + NETWORK already done same day).** Doc-only, but the biggest gap

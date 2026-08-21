@@ -3,6 +3,18 @@
 # Covers: core/, backup/, admin/, office/, weather/,
 #         sensors/, integrations/, custom_components/
 # Generated: 2026-04-16
+# Updated: 2026-08-21 (deep drift sweep, 9th and final domain of this session's audit) —
+# Part 8 ("admin/ — Package Directory (Empty)") was stale since as early as 2026-06-28:
+# packages/admin/tablets.yaml exists and is a real, actively-used file (tablet screen
+# brightness management) — rewrote the section. IMP-IDS01 ("IDS Hyyp has no package
+# file") was stale since 2026-04-29: packages/security/security_alarm.yaml was created
+# that day doing exactly what the recommendation asked — marked done, and the two other
+# "no package file" mentions for ids_hyyp in Part 7 corrected to match (also added to
+# SECURITY_CONTRACT.md's own File Inventory this same session, where it was separately
+# missing). Integration Registry table versions re-verified against every
+# custom_components/*/manifest.json — 6 of 15 were stale (solcast_solar, sonoff,
+# load_shedding, pyscript — a major version bump, 1.7.0→2.1.0 — alarmo,
+# openweathermaphistory). No code changes — doc-only.
 ##########################################################
 
 This contract covers the utility/support packages that are too small to warrant
@@ -344,20 +356,26 @@ via HACS and must be updated manually or via HACS UI.
 | Integration | Version | Purpose | Config Location |
 |-------------|---------|---------|-----------------|
 | `solarman` | 25.08.16 | Dual inverter (Master/Slave) Modbus polling | `packages/power/power_core.yaml` |
-| `solcast_solar` | v4.5.2 | Solar PV forecast (Solcast API) | `solcast_solar/` cache dir + UI |
+| `solcast_solar` | v4.6.1 | Solar PV forecast (Solcast API) | `solcast_solar/` cache dir + UI |
 | `hikvision_next` | 1.1.1 | NVR cameras (16ch DS-7116HGHI-F1) | `packages/security/cameras_core.yaml` |
-| `sonoff` | 3.11.1 | EWElink smart switches (pumps, lights) | `packages/integrations/sonoff.yaml` |
+| `sonoff` | 3.12.2 | EWElink smart switches (pumps, lights) | `packages/integrations/sonoff.yaml` |
 | `tuya` | (cloud) | Tuya Cloud devices: geyser heat pump switch, pool pump, pond filter pump, water tank depth sensor | UI-only (no YAML config) |
 | `localtuya` | 5.2.3 | Installed, unused — zero entities registered as of 2026-07-13 | UI-only (no YAML config) |
-| `load_shedding` | 1.5.2 | Eskom load shedding schedule | `packages/power/load_shedding.yaml` |
-| `pyscript` | 1.7.0 | Python scripting in HA | `pyscript/sync_power_groups.py` |
-| `alarmo` | 1.10.18 | Software alarm panel (DSC/zone interface target) | ⚠️ UI-only — no package YAML; `alarm_control_panel.dsc_partition_1` stub referenced in `security_automations.yaml` |
-| `ids_hyyp` | 1.9.0 | IDS alarm system (hawkMod fork) | ⚠️ UI-only — NO package file |
+| `load_shedding` | 1.7.0 | Eskom load shedding schedule | `packages/power/load_shedding.yaml` |
+| `pyscript` | 2.1.0 | Python scripting in HA | `pyscript/sync_power_groups.py` |
+| `alarmo` | 1.10.19 | Software alarm panel (DSC/zone interface target) | ⚠️ UI-only — no package YAML; `alarm_control_panel.dsc_partition_1` stub referenced in `security_automations.yaml` |
+| `ids_hyyp` | 1.9.0 | IDS alarm system (hawkMod fork) | Integration config is UI-only, but a package interface stub exists — `packages/security/security_alarm.yaml` (added 2026-04-29, doc-drift correction 2026-08-21, see IMP-IDS01) |
 | `hacs` | 2.0.5 | HACS integration manager | UI-only |
 | `watchman` | 0.8.4 | Missing entity/service detection | `alerts/alerts_system_health.yaml` |
 | `met_next_6_hours_forecast` | v1.1.2 | Met.no 6-hour forecast | UI-only |
 | `metnowcast` | v2.3.6 | Met.no nowcast radar | UI-only |
-| `openweathermaphistory` | 2026.04.03 | OWM historical weather data | UI-only |
+| `openweathermaphistory` | 2026.05.03 | OWM historical weather data | UI-only |
+
+*(Versions re-verified against `custom_components/*/manifest.json` 2026-08-21 — 6 of 15
+were stale: `solcast_solar` v4.5.2→v4.6.1, `sonoff` 3.11.1→3.12.2, `load_shedding`
+1.5.2→1.7.0, `pyscript` 1.7.0→**2.1.0** (major version — worth a changelog check next time
+pyscript is touched), `alarmo` 1.10.18→1.10.19, `openweathermaphistory` 2026.04.03→2026.05.03.
+The other 9 matched exactly.)*
 
 ### Integration Notes
 
@@ -406,10 +424,13 @@ is manual per-device work, not done as part of this fix.
 
 **`alarmo`** — Software alarm panel (by nielsfaber). Installed and updated to 1.10.18 (2026-05-17). No active automations wired — referenced as comment stubs only in `security_automations.yaml` (`alarm_control_panel.dsc_partition_1` hook target for DSC physical alarm). Config is UI-only. No package YAML exists. Future use: DSC/IDS integration bridge when S6+ alarm wiring is done.
 
-**`ids_hyyp`** — IDS alarm system integration. **No package file exists.**
-Alarm states, zones, and arming automations are presumably in the legacy
-`automations.yaml` (3836-line UI file). This is the only hardware integration
-with no package-based config. See IMP-IDS01.
+**`ids_hyyp`** — IDS alarm system integration. **Doc-drift correction 2026-08-21:** this
+used to say "No package file exists" / "the only hardware integration with no
+package-based config" — stale since 2026-04-29, when `packages/security/security_alarm.yaml`
+was created as a documented interface stub (see IMP-IDS01, now marked done). Live alarm
+automations, if any exist, would still be in the legacy `automations.yaml` — the
+integration itself isn't wired to live automations yet either way — but the package-level
+documentation gap this item described is closed.
 
 **`watchman`** — Scans HA config for missing entity/service references.
 Feeds `sensor.watchman_missing_entities` which powers `alerts_system_health.yaml`.
@@ -647,11 +668,15 @@ has no separate verification script to extend evidence-checking into.
 `check_config` valid, `automation` domain reloaded live, confirmed
 `automation.pool_pump_solar_aware_daily_control` state `on` post-reload.
 
-**IMP-IDS01 [MEDIUM] — IDS Hyyp has no package file**
-The IDS alarm system has an integration installed but zero package-based config.
-Any alarm automations are buried in `automations.yaml`. Recommend creating
-`packages/security/security_alarm.yaml` to document the alarm's entity interface
-(armed states, zone sensors, event triggers) even if automations remain in the UI file.
+**~~IMP-IDS01~~ [MEDIUM] ✅ DONE — doc-drift correction 2026-08-21**
+`packages/security/security_alarm.yaml` was created 2026-04-29 — exactly the
+recommendation this item made. It's a documented interface stub (armed-state/zone/event
+interface for the IDS Hyyp panel), explicitly not yet wired to live automations pending
+the integration being connected (confirmed live: automations remain in `automations.yaml`
+for now, per the file's own header). Confirmed via SECURITY_CONTRACT.md's File Inventory,
+added to that contract's table this same session (was also missing there). This item and
+its two "No package file exists" references elsewhere in this Part were all stale —
+corrected.
 
 **IMP-IDS02 [LOW] — Multiple weather integrations with unclear canonical source**
 Three Met.no variants + OpenWeatherMap + OWM History are installed. Only
@@ -660,12 +685,25 @@ is canonical for which use case (forecast vs nowcast vs historical).
 
 ---
 
-## Part 8: admin/ — Package Directory (Empty)
+## Part 8: admin/ — Dashboard Tablet Screen Management
 
-The `packages/admin/` directory exists but contains no YAML files. It was likely
-created for future admin/system automation work. Either populate it or remove it.
-The `packages/notifications/admin_notifications.yaml` handles the admin-facing
-notifications (unknown AP, etc.) — so that work is done.
+**✅ No longer empty — doc-drift correction 2026-08-21.** `packages/admin/tablets.yaml`
+(95 lines) was created, first appearing in this repo's history no later than 2026-06-28
+(a bug-fix comment inside it references that date) — this contract's "Package Directory
+(Empty)" claim predates that file and was never updated.
+
+### Files
+- `packages/admin/tablets.yaml` — screen brightness management for the two wall-mounted
+  dashboard tablets (Honor 10 Dash, Honor X7 Dash): dims at night and when nobody is
+  home, restores on return to normal. Calls `notify.mobile_app_honor10_dash` /
+  `notify.mobile_app_honorx7_dash` directly with `command_screen_brightness_level` device
+  commands (0-255 scale) — an intentional, documented exception to routing through the
+  central notify scripts, since these are device control commands, not user alerts, and
+  the central scripts don't support companion-app device commands.
+
+`packages/notifications/admin_notifications.yaml` (Part 6/7-adjacent, actually lives in
+`packages/notifications/`, not `packages/admin/`) separately handles admin-facing
+*notifications* (unknown AP, etc.) — unrelated to this file, no overlap.
 
 ---
 
