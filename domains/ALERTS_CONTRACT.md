@@ -5,8 +5,18 @@
 # Date:         2026-04-13
 # Auditor:      Claude Code (claude-sonnet-4-6)
 #
-# Scope: All 14 packages/alerts/*.yaml files
+# Scope: All 16 packages/alerts/*.yaml files
 #        Plus cross-domain aggregation in alerts_summary.yaml
+# Last updated: 2026-08-21 (deep drift sweep) — File Inventory line counts were all
+# stale (2026-04-13 baseline, never refreshed as files grew) — corrected all 16
+# against live `wc -l`, including the "14 files" scope note above (now 16). Network
+# Domain's "In aggregator trigger: Missing" cell was stale doc-drift contradicting
+# this same file's own Section 3/9/10 — `alert.network_alert` has been wired in since
+# BUG-A05 (2026-04-14). BUG-A04/A05/A06 detail entries (Section 8) were missing their
+# own Status lines despite being fixed and already reflected in the Section 10 summary
+# table — added. `alert.security_alert`'s Section 5 row still described the pre-BUG-A19
+# global-mute workaround — updated to the Cancel Alert button. No code changes — this
+# was doc-only drift, all findings cross-checked against live packages/alerts/.
 # Last updated: 2026-08-21 — New domain `alerts_device_batteries.yaml`: battery
 # monitoring for every device NOT already covered (door/gate sensors, gate
 # doorbell, phones, watches, laptops) — excludes inverter/UPS (Power) and the
@@ -102,22 +112,24 @@ fully correct. All domains route through the central notification script.
 
 | File | Lines | Status | Purpose |
 |---|---|---|---|
-| `alerts_helper.yaml` | 9 | ✅ Active | `active_alert_entities` sensor |
-| `alerts_summary.yaml` | 435 | ✅ Active | `alert_device_entities`, `global_alert_context`, all count sensors |
-| `alerts_doors.yaml` | 639 | ✅ Active | Door/gate tiered severity, `alert.door_alert` |
-| `alerts_network.yaml` | 812 | ✅ Active | WAN/LAN/device down, degraded, restart |
-| `alerts_power.yaml` | 318 | ✅ Active | Grid offline, battery low, excess load, prepaid drift |
-| `alerts_temperature.yaml` | ~1100 | ✅ Active (with violations) | WAN/LAN/device/storage temps |
-| `alerts_device_power.yaml` | 325 | ✅ Active | Device power fault (RPi, UPS) — BUG-A04 fixed 2026-04-14 |
-| `alerts_media.yaml` | 179 | ✅ Active | Media server downtime |
-| `alerts_system_health.yaml` | 265 | ✅ Active | Critical sensor watchman monitoring |
-| `alerts_presence.yaml` | ~158 | ✅ Active | Unknown AP + occupancy anomaly — implemented 2026-04-16 |
-| `alerts_water.yaml` | 123 | ✅ Active | Water alert pipeline — implemented 2026-04-14 |
-| `alerts_security.yaml` | 109 | ✅ Active | Security alert pipeline — implemented 2026-04-14 |
-| `alerts_garden.yaml` | ~120 | ✅ Active | Garden/pond pump unscheduled alert — implemented 2026-04-29 |
-| `alerts_batteries.yaml` | ~250 | ✅ Active | Dashboard tablet battery low/overcharge alert — implemented 2026-05-27 |
-| `alerts_device_batteries.yaml` | ~330 | ✅ Active | All OTHER battery devices (door/gate sensors, doorbell, phones, watches, laptops) — label-onboarded (`battery_monitor`), excludes inverter/UPS/dash-tablets — implemented 2026-08-21 |
-| `alerts_camera_health.yaml` | ~300 | ✅ Active | Camera fleet health (`alert.camera_health`) — missing from this inventory until 2026-07-06 |
+| `alerts_helper.yaml` | 154 | ✅ Active | `active_alert_entities` sensor |
+| `alerts_summary.yaml` | 772 | ✅ Active | `alert_device_entities`, `global_alert_context`, all count sensors |
+| `alerts_doors.yaml` | 1103 | ✅ Active | Door/gate tiered severity, `alert.door_alert` |
+| `alerts_network.yaml` | 1365 | ✅ Active | WAN/LAN/device down, degraded, restart |
+| `alerts_power.yaml` | 496 | ✅ Active | Grid offline, battery low, excess load, prepaid drift |
+| `alerts_temperature.yaml` | 1523 | ✅ Active | WAN/LAN/device/storage temps |
+| `alerts_device_power.yaml` | 438 | ✅ Active | Device power fault (RPi, UPS) — BUG-A04 fixed 2026-04-14 |
+| `alerts_media.yaml` | 307 | ✅ Active | Media server downtime |
+| `alerts_system_health.yaml` | 450 | ✅ Active | Critical sensor watchman monitoring |
+| `alerts_presence.yaml` | 288 | ✅ Active | Unknown AP + occupancy anomaly — implemented 2026-04-16 |
+| `alerts_water.yaml` | 614 | ✅ Active | Water alert pipeline — implemented 2026-04-14 |
+| `alerts_security.yaml` | 253 | ✅ Active | Security alert pipeline — implemented 2026-04-14 |
+| `alerts_garden.yaml` | 282 | ✅ Active | Garden/pond pump unscheduled alert — implemented 2026-04-29 |
+| `alerts_batteries.yaml` | 446 | ✅ Active | Dashboard tablet battery low/overcharge alert — implemented 2026-05-27 |
+| `alerts_device_batteries.yaml` | 418 | ✅ Active | All OTHER battery devices (door/gate sensors, doorbell, phones, watches, laptops) — label-onboarded (`battery_monitor`), excludes inverter/UPS/dash-tablets — implemented 2026-08-21 |
+| `alerts_camera_health.yaml` | 316 | ✅ Active | Camera fleet health (`alert.camera_health`) — missing from this inventory until 2026-07-06 |
+
+*Line counts re-verified against `wc -l packages/alerts/*.yaml` 2026-08-21 — every count above was stale (the 2026-04-13 baseline never got updated as files grew with subsequent bug fixes/features); all 16 corrected to live values, none were placeholders (`~N`) any more.*
 
 **Note:** ALERTS_CONTEXT.md lists `alerts_core.yaml` and `alerts_device.yaml` — neither
 exists. That context file is stale; this contract is authoritative.
@@ -254,10 +266,14 @@ only indirectly. Only grid-offline data appears in the `devices` attribute.
 | Binary sensors | 4 (device_down, WAN_down, degraded, restart) | ✅ |
 | Context sensor | `sensor.network_alert_context` | ✅ with devices list |
 | Alert entity | `alert.network_alert` | ✅ |
-| In aggregator trigger | **Missing** | ⚠️ 60s lag |
+| In aggregator trigger | Yes | ✅ fixed 2026-04-14 (BUG-A05) |
 | Notification | Via `alert.network_alert` → `STD_Alerts` | ✅ |
 
-**PASS with caveat.** Network alert misses from aggregator trigger list; 60s update lag.
+**PASS.** *(Doc-drift correction 2026-08-21: this row previously said "Missing/60s lag" —
+stale. `alert.network_alert` has been in `alerts_summary.yaml`'s aggregator trigger
+`entity_id:` list since BUG-A05 was fixed 2026-04-14 — confirmed live at
+`alerts_summary.yaml:410`, and Section 3/Section 9/Section 10 of this same file already
+say so. Only this one table cell had never been updated.)*
 
 ### Doors Domain — `alerts_doors.yaml`
 
@@ -718,7 +734,7 @@ investigation session.
 | `alert.dash_battery_alert` | `binary_sensor.dash_battery_alert_active` | 30/60 min | `STD_Alerts` | ✅ |
 | `alert.device_battery_alert` | `binary_sensor.device_battery_alert_active` | 30/60 min | `STD_Alerts` | ✅ |
 | `alert.camera_health` | (camera fleet health) | 60/240 min | none (removed 2026-07-06, BUG-A11) | ✅ |
-| `alert.security_alert` | `binary_sensor.security_alert_active` | 5/15/30/60 min | none (removed 2026-07-10, BUG-A10) — repeats delivered by `automation.security_alert_repeat_reminder` instead | ✅ (UI button not yet wired to the repeat automation — see BUG-A10) |
+| `alert.security_alert` | `binary_sensor.security_alert_active` | 5/15/30/60 min | none (removed 2026-07-10, BUG-A10) — repeats delivered by `automation.security_alert_repeat_reminder` instead | ✅ Cancel Alert button (phone + Telegram) wired 2026-08-18, BUG-A19 — replaced the earlier global-mute workaround this row used to flag as missing |
 
 All active alert entities are still nominally configured with `STD_Alerts` as
 `notifiers:` (except `alert.camera_health`, see BUG-A11) — **but `STD_Alerts` itself has
@@ -837,7 +853,14 @@ calls with appropriate severity.
 
 ### BUG-A04 — Device Power domain bypasses central notification script (duplicate delivery)
 **Severity:** High  
-**File:** `packages/alerts/alerts_device_power.yaml` (lines 213–231)
+**File:** `packages/alerts/alerts_device_power.yaml` (lines 213–231)  
+**Status:** ✅ Fixed 2026-04-14 — `route_device_power_alert`'s direct `notify.STD_*` calls
+removed (Section 4's Device Power Domain audit + Section 10 already recorded this; only
+this entry's own Status line was missing). Re-verified live 2026-08-21: the automation ID
+`route_device_power_alert` was reintroduced 2026-07-06 as part of BUG-A10's fix, but it now
+calls `script.notify_power_event`/`script.notify_system_event` directly — not the dead
+`notify.STD_*` services — and the file's own comment at that call site explicitly notes
+this does not reintroduce the duplicate-delivery bug.
 
 `route_device_power_alert` automation calls `notify.STD_Critical`/`notify.STD_Warning`
 directly AND `alert.device_power_fault` also notifies via `STD_Alerts`.
@@ -860,7 +883,10 @@ Let the alert entity handle delivery only.
 
 ### BUG-A05 — `alert.network_alert` and `alert.media_alert` missing from aggregator trigger list
 **Severity:** Medium  
-**File:** `packages/alerts/alerts_summary.yaml` (trigger list, line ~292)
+**File:** `packages/alerts/alerts_summary.yaml` (trigger list, line ~292)  
+**Status:** ✅ Fixed 2026-04-14 — both entities added to the trigger `entity_id:` list
+(confirmed live 2026-08-21 at `alerts_summary.yaml:410-411`; Section 3 and Section 10 of
+this file already recorded the fix, only this entry's own Status line was missing).
 
 ```yaml
 # Missing from trigger entity_id list:
@@ -878,7 +904,12 @@ reflects it.
 
 ### BUG-A06 — `sensor.doors_open_alert_severity` and `sensor.door_alert_context` can diverge
 **Severity:** Medium  
-**File:** `packages/alerts/alerts_doors.yaml`
+**File:** `packages/alerts/alerts_doors.yaml`  
+**Status:** ✅ Fixed 2026-04-16 — `sensor.doors_open_alert_severity` deleted and merged into
+`sensor.door_alert_context`, the single unified source (Section 4's Doors Domain audit +
+Section 10 already recorded this; only this entry's own Status line was missing). Confirmed
+live 2026-08-21 — `alerts_doors.yaml` has no `doors_open_alert_severity` sensor definition,
+only comments noting where it used to be.
 
 Two independent severity engines for doors:
 

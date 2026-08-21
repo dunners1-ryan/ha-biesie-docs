@@ -5,6 +5,43 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-08-21 (5th pass, same day) — ALERTS_CONTRACT.md deep drift sweep (1st of 9
+      domain contracts in this multi-session audit; WATER already done same day, GARDEN/
+      PRESENCE/LIGHTING/SECURITY/NETWORK/NOTIFICATIONS/CONTEXT/INFRA remain).** Doc-only —
+      no code changes, ALERTS pipeline itself needed none. Findings, all cross-checked
+      against live `packages/alerts/`:
+      - **File Inventory (Section 2) line counts** — every single one of the 16 rows was
+        stale (2026-04-13 baseline never refreshed as files grew via bug fixes/features
+        since); corrected all 16 against live `wc -l` (e.g. `alerts_water.yaml` doc said
+        123 lines, live is 614; `alerts_doors.yaml` doc said 639, live is 1103). Also fixed
+        the header's "Scope: All 14 packages/alerts/*.yaml files" → 16.
+      - **Network Domain "In aggregator trigger: Missing / 60s lag"** — stale, and
+        self-contradicting: this same file's Section 3 and Section 10 already record
+        `alert.network_alert` fixed into the aggregator trigger list 2026-04-14 (BUG-A05);
+        confirmed live at `alerts_summary.yaml:410`. Only this one table cell had never
+        been updated to match.
+      - **BUG-A04, BUG-A05, BUG-A06 detail entries (Section 8) had no Status line** —
+        unlike BUG-A01/A02/A03/A07/A08 which each say "✅ Doc-drift correction... already
+        fixed", these three read as still-open even though Section 10's summary table
+        already correctly listed all three as Fixed (with dates). Added matching Status
+        lines, re-verified each fix live (route_device_power_alert no longer calls
+        notify.STD_*; alert.network_alert/alert.media_alert both in the trigger list;
+        sensor.doors_open_alert_severity confirmed deleted).
+      - **Section 5 entity table, `alert.security_alert` row** — still described the
+        pre-BUG-A19 state ("UI button not yet wired... see BUG-A10"); BUG-A19 (2026-08-18)
+        already wired a Cancel Alert button (`CANCEL_SECURITY_ALERT`, confirmed live in
+        `alerts_security.yaml`) — updated the row.
+      - **Confirmed accurate, no change needed:** Section 6 (Threshold Configuration) —
+        all 17 `input_number` helpers exist (most are UI-managed, in `core.entity_registry`
+        not YAML, consistent with CODING_STANDARDS Rule 4). Section 7 (Cross-Domain
+        Dependencies) — all referenced entities/groups exist live. Camera Health's
+        `sensor.camera_health_context` naming-mismatch finding (doesn't match the
+        `_alert_context` substring the flattened aggregator filters on) — re-verified live,
+        still true, correctly documented already.
+      Validated: no YAML changed this pass (docs-only), so no `ha core check` needed.
+      Pacing: user chose "one domain, then check in" — reporting this one before starting
+      the next.
+
 - [x] **2026-08-21 (4th pass, same day) — WATER_CONTRACT Recommendations 3-5 actioned.**
       Evaluated all three open Recommendations against live `packages/water/` code
       rather than implementing blindly:
