@@ -100,7 +100,7 @@
 | Inverter 1 (Master) | Sunsynk — measures grid, losses, BMS |
 | Inverter 2 (Slave) | Sunsynk — measures PV, load, battery |
 | PV strings | 4× MPPT (2 per inverter), max ~10.8 kW |
-| Panels | 24× 435W JA Solar, installed 2021, north-facing (9.89 kWp nameplate). 1 unit damaged → 23 usable. Temporarily fully disconnected 2025-09-09→13 for roof maintenance (string reconnect confirmed via recorder data — see `private_docs/POWER_SYSTEM_AUDIT_2026.md` §3.2); still within panel warranty (2021 install) at time of writing |
+| Panels | 24× JA Solar, installed 2021, north-facing (9.89 kWp nameplate — reconciles with 23×430W, not 23×435W; **wattage label unresolved**, see `private_docs/POWER_SYSTEM_AUDIT_2026.md` §9). 1 unit damaged → 23 usable. Temporarily fully disconnected 2025-09-09→13 for roof maintenance (string reconnect confirmed via recorder data — see `private_docs/POWER_SYSTEM_AUDIT_2026.md` §3.2); still within panel warranty (2021 install) at time of writing |
 | Battery bank | ~48,230 Wh total (48.2 kWh) — 3× Greenrich AF1600 (314Ah, 51.2V, 16S1P). Replaced 2× Freedom Won units 2026-06-17 (see Cost History below) — those units had suffered BMS damage from a 2025-05-16 lightning event (inverter offline 2025-05-22→06-03, ran on a 5kW loan battery in the interim; fully stable again 2025-06-05) |
 | Grid | Eskom prepaid meter — **Empire CIU EV-KP**, Johannesburg City Power Area 3-11 Weltevredenpark |
 | Solar forecast | Solcast integration |
