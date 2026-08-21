@@ -5,6 +5,50 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-08-21 (16th pass, same day) — SYSTEM_CONTRACT.md deep drift sweep (3rd
+      follow-up after the 9-domain audit + POWER_CONTRACT.md + PROJECT_STATE.md's own
+      master tables; user said "carry on").** Doc-only, but this was the most-drifted
+      single document all session — dated 2026-04-13/16, essentially untouched since,
+      while describing a system state that changed almost immediately after (most of its
+      "critical" findings were fixed within days). Re-verified all 6 Interface
+      Violations (Section 4) + all 8 Missing Interfaces (Section 5) + the Section 6 risk
+      tables + Section 7 execution plan + Section 8 architecture violations +
+      spot-checked Sections 2/3 live:
+      - **10 of 14 IV/MI items were already resolved**, most within days of the document
+        being written (IV-01/02/03/05, MI-01/02/03/04/05/08 — dates 2026-04-14 through
+        05-17). **3 are genuinely still open, confirmed live, not stale claims:
+        IV-04** (`alerts_power.yaml` reads `sensor.inverter_1_battery`, not the
+        published aggregate `sensor.inverter_battery_soc`), **IV-06** (water
+        notifications read raw Tuya %, not validated depth), **MI-06** (no
+        `binary_sensor.anyone_probably_home` reconciliation sensor exists — AP-based and
+        Mobile-App-based home detection can still disagree). **MI-07 done via a
+        different mechanism** than literally described (an `energy_saving_mode` boolean
+        intermediary, not lighting reading `sensor.power_state` directly).
+      - Section 6's "Most Fragile Shared Helpers" and "Highest-Risk Failure Scenario"
+        both described risks already closed (notifications_enabled now in YAML; water
+        finally has an alert pipeline). Section 7's "Safe to Do Immediately" table was
+        7/8 done, only the IV-04 fix (`E1`) still outstanding — a genuine 2-minute fix
+        that's been sitting untouched since April.
+      - Section 8 (Architecture Violations) had 3 of 8 rows stale: trust-model-in-context/
+        and power_helpers.yaml layering both already fixed elsewhere; "Lighting bugs (9
+        open)" is actually 0 open (all L01-L19 fixed, confirmed during today's LIGHTING
+        sweep).
+      - Section 2/3 spot-checks found 4 more: `home_context`'s stale "depends on
+        security_mode" note (already fixed, BUG-CTX03); `printer_cartridge_state`'s
+        stale "broken" flag (BUG-INF01 fixed 2026-06-19); the Context Domain published-
+        interface list still named `guest_mode`/`holiday_mode`/`entertaining_mode` as
+        Context outputs (moved to `presence_trust.yaml`, BUG-P11); and
+        `sensor.global_house_state`, listed as a Context output, doesn't exist anywhere
+        in `packages/` (grep-confirmed) — likely a naming confusion with the real
+        `sensor.home_context`, corrected.
+      - Appendix (Bug Cross-Reference) doesn't claim status (relationship index only) so
+        wasn't rewritten, but added a note warning most rows are closed while
+        **SEC-BUG-02 is confirmed still open** — don't assume every row is resolved.
+      - **Not actioned:** IV-04/IV-06/MI-06 are real code gaps surfaced by this doc
+        audit, not fixed — flagging for the user to decide whether to action as a
+        follow-up, since they're runtime-behavior changes, not doc corrections.
+      No `ha core check` needed — zero YAML touched, Markdown-only session.
+
 - [x] **2026-08-21 (15th pass, same day) — PROJECT_STATE.md's own master tables swept
       (2nd follow-up after the 9-domain audit; POWER_CONTRACT.md was the 1st).** User
       asked "anything else to audit?" a second time after POWER — pointed at this file's
