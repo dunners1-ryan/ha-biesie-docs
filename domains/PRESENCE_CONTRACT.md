@@ -6,12 +6,22 @@
 # Auditor:      Claude Code (claude-sonnet-4-6)
 #
 # Scope:
-#   All 5 packages/presence/*.yaml files, plus cross-domain presence
+#   All 6 packages/presence/*.yaml files, plus cross-domain presence
 #   consumption in context/, security/, lighting/, and alerts/
 #
 # This document is the ground-truth record of what the presence system
 # actually does vs what it is designed to do. It identifies every
 # deviation, missing wire, and broken entity chain.
+#
+# Last updated: 2026-08-21 (deep drift sweep) — File Inventory line counts corrected
+# (all 6 stale/approximate). Section 7 (Cross-Domain Dependencies), Section 8 (Unknown AP
+# entity-name note), and Section 9 (presence_test_arrival trigger row) all still described
+# pre-fix broken states (BUG-P01/P02/P03/P07/P08) as current — rewritten to match live
+# code. Section 11 (Trust Model Design) was an 8-item migration plan that's fully
+# complete — banner added so it's not read as an open TODO. Section 13 summary table was
+# missing BUG-P14/P18 (both already Fixed in Section 10) — added, count corrected 15→17.
+# Scope line above corrected 5→6 files. No code changes — presence pipeline needed none,
+# this was 100% doc drift (the Bug Catalog itself, Section 10, was already accurate).
 ###############################################################################
 
 ---
@@ -39,12 +49,15 @@ correlation, threat scoring) silently ignore staff presence.
 
 | File | Lines | Purpose |
 |---|---|---|
-| `presence_helpers.yaml` | 84 | Arrival/departure booleans, last-event timestamps |
-| `presence_core.yaml` | 245 | AP→room map, per-person location, RAW occupancy, groups |
-| `presence_confidence.yaml` | ~280 | Confidence scoring + binary occupied (per room) + `family_arriving`, `family_departing`, `all_family_home` (added S2 2026-05-17; `family_arriving`/`departing` logic updated S8 2026-05-19 — snapshot-delta replaces recency-only) |
-| `presence_boundary.yaml` | ~660 | Boundary resolver (gate-based arrival/departure), `presence_clear_arrival_flag` auto-clear (added S1.4 2026-05-17), `presence_snapshot_who_home` rolling snapshot (added S8 2026-05-19) |
-| `presence_validation.yaml` | 114 | Unknown AP detection, AP sanity sensors |
-| `presence_trust.yaml` | ~220 | Trust model: all trust input_booleans, derived binary sensors, maid/gardener schedule automations, **startup state sync** (`sync_staff_state_on_startup` — restores maid + gardener booleans on HA restart). Migrated from `context/context_presence.yaml` 2026-04-30 (BUG-CTX01/P11 fix). |
+| `presence_helpers.yaml` | 105 | Arrival/departure booleans, last-event timestamps |
+| `presence_core.yaml` | 264 | AP→room map, per-person location, RAW occupancy, groups |
+| `presence_confidence.yaml` | 276 | Confidence scoring + binary occupied (per room) + `family_arriving`, `family_departing`, `all_family_home` (added S2 2026-05-17; `family_arriving`/`departing` logic updated S8 2026-05-19 — snapshot-delta replaces recency-only) |
+| `presence_boundary.yaml` | 703 | Boundary resolver (gate-based arrival/departure), `presence_clear_arrival_flag` auto-clear (added S1.4 2026-05-17), `presence_snapshot_who_home` rolling snapshot (added S8 2026-05-19) |
+| `presence_validation.yaml` | 115 | Unknown AP detection, AP sanity sensors |
+| `presence_trust.yaml` | 279 | Trust model: all trust input_booleans, derived binary sensors, maid/gardener schedule automations, **startup state sync** (`sync_staff_state_on_startup` — restores maid + gardener booleans on HA restart). Migrated from `context/context_presence.yaml` 2026-04-30 (BUG-CTX01/P11 fix). |
+
+*Line counts re-verified against `wc -l packages/presence/*.yaml` 2026-08-21 — all 6 were
+stale/approximate, corrected to live exact values.*
 
 **Startup sync owner:** `presence_trust.yaml` — `sync_staff_state_on_startup` automation. Do NOT look in `presence_boundary.yaml` for trust-state restoration logic.
 
@@ -349,35 +362,39 @@ This is good design. But until real sensors exist:
 
 ### Presence → Security
 
+**✅ Doc-drift correction 2026-08-21 — this whole section described the pre-BUG-P01/P02/P03
+broken state (input_boolean-based trust, "always off"/"always false") as current. All four
+subsections below re-verified live and rewritten to match.**
+
 | Entity consumed by security | Source | Status |
 |---|---|---|
 | `binary_sensor.anyone_connected_home` | presence_core.yaml | ✅ Correct |
-| `sensor.security_trust_mode` | security_core.yaml (reads input_boolean trust) | ⚠️ Reads wrong entity |
-| `binary_sensor.security_low_trust_active` | security_core.yaml (reads input_boolean trust) | ⚠️ Reads wrong entity |
-| `binary_sensor.boundary_permissive_window` | security_core.yaml (reads orphaned entities) | ❌ Always false |
-| `input_boolean.low_trust_present` | context_presence.yaml (manual, never auto-set) | ❌ Always off |
-| `input_boolean.staff_on_site` | context_presence.yaml (manual, never auto-set) | ❌ Always off |
+| `sensor.security_trust_mode` | security_core.yaml — now reads `binary_sensor.low_trust_present` / `binary_sensor.staff_on_site` (derived), not the input_booleans | ✅ Fixed (BUG-P01/P02) |
+| `binary_sensor.security_low_trust_active` | security_core.yaml — same derived-sensor sources | ✅ Fixed (BUG-P01/P02) |
+| `binary_sensor.boundary_permissive_window` | security_core.yaml — `binary_sensor.low_trust_present OR input_boolean.guest_mode OR input_boolean.boundary_permissive_override` | ✅ Fixed (BUG-P03) |
 
 ### Presence → Lighting
 
 | Entity | File | Status |
 |---|---|---|
 | `binary_sensor.anyone_connected_home` | lighting_departure.yaml | ✅ Correct |
-| `input_boolean.low_trust_present` | lighting_departure.yaml (manual) | ❌ Never auto-set |
+| `binary_sensor.low_trust_present` | lighting_departure.yaml (2 uses) — confirmed reading the derived binary_sensor, not the orphaned input_boolean | ✅ Fixed |
 | `input_boolean.holiday_mode` | lighting_bedtime.yaml | ✅ Manual — user sets |
 
 ### Presence → Alerts
 
-| Entity | File | Status |
-|---|---|---|
-| `sensor.security_trust_mode` | alerts_doors.yaml:324 | ⚠️ Derived from wrong entities |
+**Correction:** `alerts_doors.yaml` no longer references `sensor.security_trust_mode` at
+all (confirmed live, zero matches) — this dependency has been removed, not just fixed.
+Door alert severity now derives from `sensor.security_mode` /
+`input_boolean.security_trust_mode`-adjacent logic documented in ALERTS_CONTRACT.md's
+Doors Domain section instead; nothing to list here.
 
 ### Presence → Context
 
 | Entity | File | Status |
 |---|---|---|
 | `binary_sensor.staff_on_site` | context_global.yaml:68 | ✅ Uses derived binary_sensor |
-| `sensor.security_trust_mode` | context_global.yaml (attr) | ⚠️ Derived from wrong entities |
+| `sensor.security_trust_mode` | context_global.yaml (comment/attr reference only) | ✅ Fixed — sensor itself now derived correctly (see above) |
 
 ---
 
@@ -395,21 +412,11 @@ This is good design. But until real sensors exist:
 | `binary_sensor.luke_unknown_ap` | per-person |
 | `binary_sensor.tayla_unknown_ap` | per-person |
 
-**Entity name inconsistency:** Per-room AP location sensors use
-`device_tracker.*_iphone_tracker` (with `_tracker` suffix).
-Unknown AP sensors use `device_tracker.*_iphone` (without suffix):
-
-```yaml
-# AP Location (presence_core.yaml):
-state_attr('device_tracker.ryan_iphone_tracker', 'ap_mac')
-
-# Unknown AP (presence_validation.yaml):
-state_attr('device_tracker.ryan_iphone', 'ap_mac')
-```
-
-If these are the same physical tracker with two registered names, both work.
-If they are different entities, the unknown AP sensor will never detect the
-right MAC. The discrepancy should be verified.
+**Entity name inconsistency — ✅ FIXED 2026-07-10 (BUG-P08), doc-drift correction
+2026-08-21:** this section still described the pre-fix state as current. Confirmed live
+— `presence_validation.yaml` now uses `device_tracker.*_iphone_tracker` (with `_tracker`
+suffix) consistently, matching `presence_core.yaml`'s AP Location sensors, for all 4
+family members. See BUG-P08 in Section 10 for the fix writeup.
 
 ---
 
@@ -426,14 +433,14 @@ right MAC. The discrepancy should be verified.
 | `gardener_schedule_start` | `time at: input_datetime.gardener_start` | N/A | ✅ Time trigger |
 | `sync_staff_state_on_startup` | `homeassistant: start` | N/A | ✅ Event trigger |
 | `suppress_security_after_restart` | `homeassistant: start` | N/A | ✅ Event trigger |
-| `presence_test_arrival` | `main_gate_sensor → on` | None | **⚠️ TEST AUTOMATION** |
+| ~~`presence_test_arrival`~~ | ~~`main_gate_sensor → on`~~ | — | ✅ **REMOVED** (BUG-P07, fixed 2026-04-15) — confirmed gone from `packages/presence/` 2026-08-21, row kept struck through for history |
 | `presence_debug_logger` | multiple state changes | None | Low (logging only) |
 | `presence_marker_reset` | `input_text.* state` | None | Low (mode: restart, BUG-P18 2026-07-10) |
 | `presence_snapshot_who_home` | `time_pattern /1` + `homeassistant: start` | N/A | ✅ **Added S8 2026-05-19** — low risk, idempotent write |
 
-No critical `from:` violations for binary safety triggers. However
-`presence_test_arrival` lacks any conditions and runs on every gate event —
-it should be removed.
+No critical `from:` violations for binary safety triggers. *(Doc-drift correction
+2026-08-21: this used to end with "`presence_test_arrival` lacks any conditions... it
+should be removed" — stale, the automation was removed 2026-04-15 per BUG-P07.)*
 
 ---
 
@@ -999,6 +1006,18 @@ root-cause fix above but shipped in the same session.
 
 ## Section 11: Trust Model Design
 
+**✅ RESOLVED 2026-08-21 (doc-drift correction) — this entire section describes a
+pre-2026-05-17 broken state and an 8-item migration plan that is now fully complete.**
+Every item below maps to a bug already marked FIXED in Section 10 and re-verified live
+this session: (1) `low_trust_present` migration → BUG-P01; (2) `staff_on_site` migration
+→ BUG-P02; (3) `boundary_permissive_window` rebuild → BUG-P03; (4) trust conditions
+re-enabled → BUG-P04; (5) `holiday_mode` wired → BUG-P05; (6) `presence_test_arrival`
+removed → BUG-P07; (7) orphaned `input_datetime.low_trust_start`/`_end` — confirmed gone
+from `core.entity_registry` (0 matches, re-checked 2026-08-21); (8) `arrival_detected`
+wired → BUG-P06. Kept below as historical design record (the "Intended Architecture"
+diagram is still accurate as the target state, now achieved) — do not read the "Current
+Broken State" / "Migration Path" subsections as an open TODO list.
+
 ### Intended Architecture (Three-Entity Chain)
 
 ```
@@ -1153,14 +1172,19 @@ brief hallway trips at night. This is well-calibrated for the use case.
 | BUG-P11 | **Low** | ✅ Fixed 2026-04-30 | Trust model lives in `context/` not `presence/` (architecture violation) | presence_trust.yaml |
 | BUG-P12 | **Low** | ✅ Fixed 2026-05-17 | Startup sync gap: gardener not restored on HA restart | presence_trust.yaml |
 | BUG-P13 | **Medium** | ✅ Fixed 2026-05-17 | `all_family_home` missing — classifier can't distinguish visitor from family arrival | presence_confidence.yaml |
+| BUG-P14 | **High** | ✅ Fixed 2026-06-28 | `staff_on_site_override` had no automation to ever clear it — found stuck ON 24+ hours | presence_trust.yaml |
 | BUG-P15 | **High** | ✅ Fixed 2026-07-06 | Duplicate top-level `template:` key silently dropped 10 presence-confidence/occupied sensors since 2026-05-17 | presence_confidence.yaml |
 | BUG-P16 | **High** | ✅ Fixed 2026-07-06 | `notify_presence_events.yaml` critical branch silently failing + presence anomaly alert had zero delivery | notify_presence_events.yaml, alerts_presence.yaml |
 | BUG-P17 | **High** | ✅ Fixed 2026-07-08 | `house_entry_event` never set `arrival_detected` — pedestrian front-gate/door arrivals got no arrival lighting | presence_boundary.yaml |
+| BUG-P18 | **Low** | ✅ Fixed 2026-07-10 | `presence_marker_reset` missing `mode: restart`, dropping clears on overlapping arrivals/departures | presence_boundary.yaml |
 | BUG-P19 | **Medium** | ✅ Fixed 2026-07-10 | Unknown AP sensors case-mismatch false positive | presence_validation.yaml |
 | BUG-P20 | **Critical** | ✅ Fixed 2026-07-17 | `arrival_detected` permanently stuck ON since creation (2026-05-17) — auto-clear trigger deadlock killed all night-arrival lighting for ~4 months | presence_boundary.yaml |
 
 **Open: 0 issues**  
-**Fixed/closed: 15 issues (S1 closed P01/P02/P03/P06/P10/P11/P12; S2 closed P13; S2/S3 router closed P04/P05 — confirmed 2026-07-10; P08/P09/P19 fixed 2026-07-10; P20 fixed 2026-07-17)**
+**Fixed/closed: 17 issues (S1 closed P01/P02/P03/P06/P10/P11/P12; S2 closed P13; S2/S3 router closed P04/P05 — confirmed 2026-07-10; P08/P09/P19 fixed 2026-07-10; P14 fixed 2026-06-28; P18 fixed 2026-07-10; P20 fixed 2026-07-17)**
+*(Doc-drift correction 2026-08-21: BUG-P14 and BUG-P18 both had full detailed entries in
+Section 10, marked Fixed with dates, but were missing from this summary table — the
+"Fixed/closed" count was undercounting by 2. Added both rows.)*
 
 The trust model chain is now structurally sound. BUG-P04 (commented-out
 trust conditions) was addressed by the S2/S3 classifier rebuild — confirmed live 2026-07-10,

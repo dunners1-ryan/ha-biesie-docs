@@ -5,6 +5,43 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-08-21 (7th pass, same day) — PRESENCE_CONTRACT.md deep drift sweep (3rd of 9
+      domain contracts; WATER + ALERTS + SECURITY already done same day).** Doc-only — no
+      code changes, the presence pipeline needed none (Bug Catalog, Section 10, was
+      already fully accurate — every BUG-P entry correctly marked Fixed with a date).
+      The drift was entirely in the *other* sections describing pre-fix states as current:
+      - **File Inventory (Section 2)** — all 6 line counts were stale/approximate
+        (`~220`, `~280` etc.) — corrected to live exact values. Header's "Scope: All 5
+        packages/presence/*.yaml files" corrected to 6 (matches Section 2's own heading,
+        which already said 6 — only the top banner disagreed).
+      - **Section 7 (Cross-Domain Dependencies)** — the entire section described the
+        pre-BUG-P01/P02/P03 broken trust chain ("⚠️ Reads wrong entity", "❌ Always
+        false/off") as the current state, even though those three bugs are marked Fixed
+        earlier in the same document. Re-verified live: `security_trust_mode` and
+        `security_low_trust_active` both now read the derived `binary_sensor.*`, not the
+        orphaned `input_boolean.*`; `boundary_permissive_window` is the S1.3 OR-chain, not
+        always-false. Also found `alerts_doors.yaml` no longer references
+        `sensor.security_trust_mode` at all (uses `sensor.security_mode` +
+        `binary_sensor.security_night_mode`/`_nobody_home` instead) — updated that
+        subsection to match.
+      - **Section 8 (Unknown AP Detection)** — described the `*_iphone` vs
+        `*_iphone_tracker` entity-name mismatch as unverified/current; it's BUG-P08, fixed
+        2026-07-10 — confirmed live, both `presence_core.yaml` and `presence_validation.yaml`
+        consistently use the `_tracker` suffix now.
+      - **Section 9 (Trigger Integrity Audit)** — still listed `presence_test_arrival` as
+        a live "⚠️ TEST AUTOMATION" risk with "it should be removed"; it was removed
+        2026-04-15 (BUG-P07) — confirmed gone from `packages/presence/`, row struck
+        through.
+      - **Section 11 (Trust Model Design)** — an 8-item "Migration Path (Priority Order)"
+        that is now fully complete (every item maps 1:1 to an already-Fixed BUG-P entry,
+        including the orphaned `input_datetime.low_trust_start/end` — confirmed 0 matches
+        in `core.entity_registry`). Added a resolved-banner so it stops reading as an open
+        TODO; kept the content as historical design record.
+      - **Section 13 (Summary of Issues) undercounted** — BUG-P14 and BUG-P18 both have
+        full Fixed writeups in Section 10 but were missing from this summary table;
+        "Fixed/closed: 15" corrected to 17.
+      No `ha core check` needed — zero YAML touched, Markdown-only session.
+
 - [x] **2026-08-21 (6th pass, same day) — SECURITY_CONTRACT.md deep drift sweep (2nd of 9
       domain contracts; WATER + ALERTS already done same day).** One tiny code fix (a stale
       misleading comment, not behavior); rest doc-only. Findings, all cross-checked against
