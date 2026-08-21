@@ -5,8 +5,18 @@
 # Date:         2026-04-13
 # Auditor:      Claude Code (claude-sonnet-4-6)
 #
-# Scope: All 13 packages/alerts/*.yaml files
+# Scope: All 14 packages/alerts/*.yaml files
 #        Plus cross-domain aggregation in alerts_summary.yaml
+# Last updated: 2026-08-21 — New domain `alerts_device_batteries.yaml`: battery
+# monitoring for every device NOT already covered (door/gate sensors, gate
+# doorbell, phones, watches, laptops) — excludes inverter/UPS (Power) and the
+# wall-mounted Honor dashboards (alerts_batteries.yaml, unchanged). New
+# `battery_monitor` label is the onboarding mechanism — no per-device YAML.
+# New "Batteries" dashboard view (packages/alerts side: sensor.device_battery_fleet
+# feeds it directly). See Section 3's Dashboard Battery Domain entry's sibling
+# "Device Battery Domain" section below for the full pipeline and initial
+# 15-entity rollout list. Also added `alert.device_battery_alert` to the
+# aggregator trigger list (Section 3 Aggregator Trigger List / alerts_summary.yaml).
 # Last updated: 2026-07-17 (BUG-A13) — Gate alerts (main gate + front security
 # gate) gained camera evidence and a cancel control. `notify_gate_opened`,
 # `route_door_sustained_open_escalation`, and `route_door_alert_repeat_reminder`
@@ -106,6 +116,7 @@ fully correct. All domains route through the central notification script.
 | `alerts_security.yaml` | 109 | ✅ Active | Security alert pipeline — implemented 2026-04-14 |
 | `alerts_garden.yaml` | ~120 | ✅ Active | Garden/pond pump unscheduled alert — implemented 2026-04-29 |
 | `alerts_batteries.yaml` | ~250 | ✅ Active | Dashboard tablet battery low/overcharge alert — implemented 2026-05-27 |
+| `alerts_device_batteries.yaml` | ~330 | ✅ Active | All OTHER battery devices (door/gate sensors, doorbell, phones, watches, laptops) — label-onboarded (`battery_monitor`), excludes inverter/UPS/dash-tablets — implemented 2026-08-21 |
 | `alerts_camera_health.yaml` | ~300 | ✅ Active | Camera fleet health (`alert.camera_health`) — missing from this inventory until 2026-07-06 |
 
 **Note:** ALERTS_CONTEXT.md lists `alerts_core.yaml` and `alerts_device.yaml` — neither
@@ -349,6 +360,55 @@ prevents spurious watchman alerts.
 | In aggregator trigger | ✅ (triggered) | Added 2026-05-27 |
 
 **PASS.** Severity: critical when any device < `dash_battery_critical_threshold` (15%) AND discharging; warning for low (<30%) or overcharge. Screen brightness management lives in `packages/admin/tablets.yaml`.
+
+### Device Battery Domain — `alerts_device_batteries.yaml`
+
+**IMPLEMENTED 2026-08-21.** Covers every OTHER battery-powered sensor/tracker in the
+house — door/gate sensors (zha + one sonoff wifi), the ezviz gate doorbell, phones,
+watches, and laptops. Deliberately excludes inverter SOC / UPS (tracked in Power — see
+POWER_CONTRACT.md / NETWORK_CONTRACT.md's EcoFlow section) and the wall-mounted Honor
+dashboards (tracked separately by `alerts_batteries.yaml` above — not duplicated here).
+
+**Label-onboarded, not hand-wired per device.** Unlike every other alert domain in this
+file, this one has no fixed device list in YAML. A new device is added by applying the
+`battery_monitor` label (Settings → Devices & Services → Entities, or Labels) to its
+battery entity (or its device — `label_entities()` picks up both, matching how
+`www/community/lovelace-auto-entities` already resolves entity- and device-level labels).
+No YAML/dashboard edit or restart needed to onboard a device — only this package's own
+code changes need the standard `alert:` restart.
+
+| Stage | Entity | Status |
+|---|---|---|
+| Toggle | `input_boolean.device_battery_alert_notify` | ✅ suppress gate |
+| Daily snapshot log | `sensor.device_battery_history_log` | ✅ self-referencing trigger template (`this.attributes.get('log')`), 14-day rolling window per entity, restores across restarts (template entity state restore, no recorder dependency) |
+| Fleet roster (source of truth) | `sensor.device_battery_fleet` | ✅ every labelled entity, every 5 min — full roster (not just abnormal ones), feeds the Batteries dashboard directly |
+| Context sensor | `sensor.device_battery_alert_context` | ✅ critical/warning/normal; `devices[]` filtered to non-normal only, matching every other domain's convention |
+| Master binary sensor | `binary_sensor.device_battery_alert_active` | ✅ delay_on 1 min, gated by notify toggle |
+| Alert entity | `alert.device_battery_alert` | ✅ 30/60 min repeat, Cancel Alert button (phone + Telegram), BUG-A13 snooze pattern |
+| In aggregator trigger | ✅ | Added 2026-08-21 |
+
+**Severity per device:** critical when SOC < `device_battery_critical_threshold` (5%) OR
+the fitted drain-rate projects < `device_battery_critical_days_remaining` (1 day) to
+empty; warning when SOC < `device_battery_warning_threshold` (10%). The days-remaining
+projection needs ≥2 days of history and a measurable drop before it shows anything —
+before that it reports "gathering data" rather than guessing from one sample.
+
+**Initial onboarding (2026-08-21):** 15 entities labelled — 6 door/gate sensors
+(`bar_door_sensor_battery`, `front_door_sensor_battery`,
+`front_security_gate_sensor_battery`, `gate_sensor_battery`,
+`lounge_door_sensor_battery`, `garage_door_sensor_battery`), 1 doorbell
+(`ezviz_main_gate_doorbell_battery`), 4 iPhones, 2 Apple Watches, 2 laptops
+(`ap_0223_1001_internal_battery_level`, `ryan_macbook_pro_mobile_app_internal_battery_level`
+— both registered under device name "AP-0223-1001"; flagged, not deduped, since it's
+unclear from the registry alone whether these are one Mac re-registered or two). No
+non-dashboard tablet currently has a battery entity — the two known iPads
+(`device_tracker.tayla_ipadair5th`, `device_tracker.ipadpro_luke`) are network-presence
+trackers only (unifi), no HA Companion App installed, so the dashboard's Tablets section
+shows empty with an onboarding hint until one is added. `sensor.ha_system_monitor_battery`
+(the HA host's own systemmonitor battery sensor — a Raspberry Pi has no battery) was
+deliberately NOT labelled.
+
+**PASS.**
 
 ### Camera Health Domain — `alerts_camera_health.yaml`
 
@@ -656,6 +716,7 @@ investigation session.
 | `alert.media_alert` | `binary_sensor.media_devices_down_alert_active` | 3/10/30/60 min | `STD_Alerts` | Implicit |
 | `alert.garden_alert` | `binary_sensor.garden_alert_active` | 60 min | `STD_Alerts` | ✅ |
 | `alert.dash_battery_alert` | `binary_sensor.dash_battery_alert_active` | 30/60 min | `STD_Alerts` | ✅ |
+| `alert.device_battery_alert` | `binary_sensor.device_battery_alert_active` | 30/60 min | `STD_Alerts` | ✅ |
 | `alert.camera_health` | (camera fleet health) | 60/240 min | none (removed 2026-07-06, BUG-A11) | ✅ |
 | `alert.security_alert` | `binary_sensor.security_alert_active` | 5/15/30/60 min | none (removed 2026-07-10, BUG-A10) — repeats delivered by `automation.security_alert_repeat_reminder` instead | ✅ (UI button not yet wired to the repeat automation — see BUG-A10) |
 
@@ -688,6 +749,9 @@ All thresholds are `input_number` entities:
 | `input_number.dash_battery_overcharge_threshold` | 95% | alerts_batteries — overcharge trigger |
 | `input_number.honor10_dash_battery_capacity_wh` | 39.1 Wh | alerts_batteries — runtime calc (Honor Pad 10: 10100 mAh × 3.87V) |
 | `input_number.honorx7_dash_battery_capacity_wh` | 27.2 Wh | alerts_batteries — runtime calc (Honor Pad X7: 7020 mAh × 3.87V) |
+| `input_number.device_battery_warning_threshold` | 10% | alerts_device_batteries — low alert trigger, applies to every `battery_monitor`-labelled device |
+| `input_number.device_battery_critical_threshold` | 5% | alerts_device_batteries — critical severity |
+| `input_number.device_battery_critical_days_remaining` | 1 day | alerts_device_batteries — rate-based critical trigger (fitted drain rate projects empty within this many days) |
 | `input_number.storage_temp_high_trigger` | 55°C | alerts_temperature |
 | `input_number.perimeter_open_escalation_minutes` | 10 min | alerts_doors |
 | `input_number.door_warning_escalation_minutes` | 15 min | alerts_doors |

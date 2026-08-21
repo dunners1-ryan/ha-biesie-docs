@@ -470,6 +470,53 @@ require the `filter.include`/`filter.exclude` static-attribute-matching form ins
 
 ---
 
+## 🏷️ Label-Based Dynamic Device Groups (added 2026-08-21)
+
+For an open-ended device fleet (batteries, or anything else where "which devices" grows
+over time) — do **not** hand-list entity IDs in YAML. Every existing example of that
+pattern (`alerts_batteries.yaml`'s two hardcoded Honor tablets) requires a YAML edit +
+restart per device added. Instead:
+
+1. **Create a label** (`.storage/core.label_registry` or Settings → Labels) — e.g.
+   `battery_monitor`. Onboarding a device = applying the label to its entity (or its
+   device — both resolve, see point 2). No YAML edit.
+2. **Read it with `label_entities('label_id')`** in a template sensor — this is a stock
+   HA Jinja global (2024.4+) and, importantly, it resolves entities that carry the label
+   directly *and* entities whose **device** carries it — same resolution the vendored
+   `custom:auto-entities` card's own `filter.include: [{label: ...}]` uses (confirmed
+   against `www/community/lovelace-auto-entities/auto-entities.js`), so template sensors
+   and dashboard card filters agree on membership without extra plumbing.
+3. **One roster sensor is the source of truth.** Compute the full per-device list (name,
+   category, severity, whatever) once, in one template sensor's attribute (a list of
+   dicts). Every consumer — alert context sensor, dashboard markdown cards — reads that
+   attribute instead of re-deriving the list, so there's exactly one place that knows how
+   to categorise/score a device. See `sensor.device_battery_fleet` in
+   `alerts_device_batteries.yaml`.
+4. **Dashboard rendering: one markdown card per section, not one card per device.** A
+   markdown card's `content:` can loop a Jinja list (`{% for d in devs %}`) to render an
+   arbitrary number of rows — HA's template render-tracking subscribes to whatever
+   entities/labels get touched during evaluation, so it stays reactive even though the
+   entity list isn't known at YAML-authoring time. This is unrelated to (and unaffected
+   by) the `custom:auto-entities` `filter.template` limitation above — that's a quirk of
+   the vendored card's own JS, not of markdown cards or HA's own templating.
+5. **Time-series estimates without a recorder query:** HA templates have no stock
+   "value N days ago" lookup. For a slow-moving metric (battery drain, etc.) build a
+   small **self-referencing trigger-based template sensor** instead: `trigger: time_pattern`
+   (once/day is enough) reading `this.attributes.get('log', {})` (its own previous value —
+   template sensors restore state+attributes across restarts, no recorder dependency),
+   appending today's reading per entity, capped to a rolling window. A second sensor
+   fits a rate from that log against the live current value. See
+   `sensor.device_battery_history_log` in `alerts_device_batteries.yaml` for the full
+   pattern, including the entity-not-a-mapping pitfall below.
+
+**Pitfall — `rejectattr`/`selectattr` on plain lists, not dicts:** `rejectattr('0', 'eq', x)`
+does **not** mean "index 0" — Jinja's `attribute` resolution tries `getattr` then
+`obj['0']` (string key), which raises `TypeError` against a plain `[date, value]` list.
+Filtering list-of-lists by position needs an explicit `{% for %}` + `{% if p[0] == x %}`
+loop, not `select`/`rejectattr`.
+
+---
+
 ## 🐍 Pyscript Rules
 
 Pyscript restricts its execution environment in ways that differ from standard Python. All three of the following patterns **fail at runtime** and must never be used:
@@ -591,5 +638,7 @@ Before saving and applying any change:
 
 ---
 
+*Last updated: 2026-08-21*  
+*Updated by: Added "Label-Based Dynamic Device Groups" section (label_entities(), one-roster-sensor-as-source-of-truth, markdown-card-per-section rendering, self-referencing trigger template for time-series estimates without a recorder query, and the rejectattr-on-plain-lists pitfall) — new pattern introduced by `alerts_device_batteries.yaml` / the Batteries dashboard view (2026-08-21).*
 *Last updated: 2026-04-29*  
 *Updated by: Added Rule 6 (Jinja2 block tags cannot emit YAML keys) + pyscript rules (2026-04-22). Fixed Rule 6 example (was showing broken data.data pattern). Added notify.send_message data.data rule + pre-commit checklist entry (2026-04-29).*

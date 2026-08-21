@@ -5,6 +5,54 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-08-21 (3rd pass, same day) — New Device Battery Monitor domain: dashboard +
+      alert pipeline for every battery device NOT already tracked.** User asked for a
+      battery dashboard covering all sensors/trackers with batteries (door/gate sensors,
+      security gate sensors, etc.), excluding inverter SOC and UPS (already on Power),
+      with dedicated sections for iPhones/Watches/non-dashboard tablets, a critical/warning
+      alert (critical under 5% OR <1 day left, warning under 10%, with a Cancel Alert
+      button), and — key requirement — devices added to a monitoring group at onboarding
+      time rather than hand-edited into the dashboard/alerts per device.
+      **New `battery_monitor` label** (`.storage/core.label_registry`) is the onboarding
+      mechanism: apply it to a device's battery entity (or the device itself — HA's
+      `label_entities()` resolves both, same as the vendored auto-entities card's own
+      label filter) and it flows into everything below with zero YAML/dashboard edit,
+      picked up within 5 minutes. Applied it now to the 15 existing candidates found via
+      `original_device_class == 'battery'` in the entity registry — full list in this
+      file's "Device Battery Alert Entities" locked-entity block below.
+      **New `packages/alerts/alerts_device_batteries.yaml`** (~330 lines), same canonical
+      shape as every other alerts_*.yaml domain: `sensor.device_battery_history_log`
+      (self-referencing trigger template, one daily snapshot per labelled entity, 14-day
+      window — feeds the "estimated time to expiry based on usage patterns" requirement
+      via a fitted %/day drain rate, not a guess from a single reading) →
+      `sensor.device_battery_fleet` (full roster every 5 min, the actual source of truth
+      the dashboard reads) → `sensor.device_battery_alert_context` (thin severity filter,
+      matches the `_alert_context` naming convention so `alerts_summary.yaml`'s
+      aggregator auto-discovers it with zero wiring) → `binary_sensor.device_battery_alert_active`
+      → `alert.device_battery_alert` (30/60 min repeat, BUG-A13 Cancel Alert pattern
+      reused verbatim). Added `alert.device_battery_alert` to alerts_summary.yaml's
+      aggregator trigger list.
+      **New "Batteries" dashboard view** in `.storage/lovelace.dashboard_operations`
+      (storage-mode edit, backed up first — same risk class already established for
+      lovelace in this repo), inserted right after "Mobile Devices" per the user's
+      request, with iPhone / Watch / Tablet (non-dashboard) / Other Devices sections each
+      rendered as a single templated markdown card reading `sensor.device_battery_fleet` —
+      genuinely zero-touch onboarding, a new labelled device just appears.
+      **Findings surfaced, not silently fixed:** two laptop battery entities both
+      registered under device name "AP-0223-1001" (`sensor.ap_0223_1001_internal_battery_level`,
+      `sensor.ryan_macbook_pro_mobile_app_internal_battery_level`) — unclear from the
+      registry alone whether this is one Mac re-registered or two; left both labelled and
+      flagged for the user to check. No iPad currently has a battery entity (only unifi
+      presence trackers) — Tablets section will read empty with an onboarding hint until
+      one exists. `sensor.ha_system_monitor_battery` (HA host/Pi — no real battery)
+      deliberately excluded from the label.
+      **⚠️ Requires HA restart** — new `alert:` entity (can't be reloaded) + the two
+      direct `.storage/` edits (label registry + entity registry labels + lovelace
+      dashboard) all need one to take effect; batched into a single restart per
+      CODING_STANDARDS' "batch all alert changes into one session" rule. `ha core check`
+      not yet run this session — do that before/instead of trusting the local YAML parse
+      validation performed here.
+
 - [x] **2026-08-21 (2nd pass, same day) — WATER_CONTRACT Issue 5 redesigned per user
       pushback, Solcast PV spec pinned down with exact numbers, BUG-S61 DNS theory
       retracted, `ha core check` confirmed passing by user.** Follow-up to the audit
@@ -1821,7 +1869,7 @@ the object_id fix + entity registry cleanup + final restart.*
 packages/
   power/          # 25 files — dual inverter, solar, battery, prepaid, energy, automations, statistics
   water/          # 20 files — tank lifecycle, safety aborts, audit
-  alerts/         # 15 files — see ALERTS_CONTRACT.md for actual file list (alerts_batteries.yaml added 2026-05-27)
+  alerts/         # 16 files — see ALERTS_CONTRACT.md for actual file list (alerts_batteries.yaml added 2026-05-27, alerts_device_batteries.yaml added 2026-08-21)
   lighting/       # 14 files — presence-aware and time-based scenes
   notifications/  # 12 files — routing, quiet hours, severity (includes water/power/presence/security/system scripts)
   security/       # 7 files  — cameras_core, cameras_processing, security_helpers,
@@ -1862,13 +1910,11 @@ files are authoritative for actual file inventory.
 corrected same day against `private_docs/POWER_SYSTEM_AUDIT_2026.md` + `SOLAR_UPGRADE_ROI_2026.md`,
 which are the actually-authoritative, actively-maintained record for this hardware —
 check those (and this file's 2026-06-17 session log entry) before editing this block again)
-- **Panels:** 24 modules, 4 strings × 6 panels, installed 2021-07-01 (SANS10142/NRS097 test
-  report, Order IN070721A, OPS360/Shabi Electrical) — **documented "north facing"** at
-  install. **Wattage unresolved:** install PDF says 430W; `POWER_CONTRACT.md`'s hardware
-  table / private ROI docs say 435W — but the "9.89 kWp" nameplate figure everyone uses only
-  reconciles with 23×430W, not 23×435W. Likely 435W is only the specific damaged panel's own
-  rating (user-confirmed) mislabeled onto the whole fleet in an earlier session — see
-  `POWER_SYSTEM_AUDIT_2026.md` §9, not yet resolved with a physical nameplate check.
+- **Panels:** 24× 430W JA Solar, 4 strings × 6 panels, installed 2021-07-01 (SANS10142/
+  NRS097 test report, Order IN070721A, OPS360/Shabi Electrical) — **documented "north
+  facing"** at install. Wattage confirmed 2026-08-21: 430W is the fleet spec (matches the
+  install PDF and the "9.89 kWp" figure, 23×430W); 435W — previously mislabeled onto the
+  whole fleet in an earlier session — is specifically the one damaged panel's own rating.
 - **Inverters:** 2× SunSynk 5.5kW hybrid (48V), 11kW combined nameplate AC — **pending
   replacement 2026-08-28** with a single 12kW Deye + 12× 620W Canadian bifacial panels
   added (Vantage quote, confirmed install date; see `SOLAR_UPGRADE_ROI_2026.md`).
@@ -1877,8 +1923,8 @@ check those (and this file's 2026-06-17 session log entry) before editing this b
   which had 2 damaged cells traced back to a 2025-05-16 lightning/BMS event — do NOT use
   the Freedom Won spec, it's superseded. Full swap detail: this file's 2026-06-17 session
   log entry (further down) and `POWER_SYSTEM_AUDIT_2026.md` §3.3.
-- **Known fault (2026-08):** 1 panel disconnected/broken. Effective working DC nameplate:
-  23 × 430W = **9,890W (9.89kWp)** — see wattage caveat above.
+- **Known fault (2026-08):** 1 panel disconnected/broken (rated 435W, see wattage note
+  above). Effective working DC nameplate: 23 × 430W = **9,890W (9.89kWp)**.
 - **Solcast site config** (`solcast_solar/solcast-sites.json`, "Home Biesie",
   resource `a900-21df-4d5b-a523`) — was miscalibrated (capacity 10.2kW AC / 10.8kW DC,
   azimuth 41°, tilt 26°, loss_factor 0.9), **corrected 2026-08-21, confirmed live via
@@ -2126,6 +2172,59 @@ automation.tablets_brightness_return_restore      ← nobody_home OFF → day br
 #   binary_sensor.honor10_dash_interactive  — screen on/off (useful for future proximity logic)
 #   binary_sensor.honorx7_dash_interactive  — screen on/off
 #   binary_sensor.honorx7_dash_doze_mode    — device doze/sleep state
+```
+
+### Device Battery Alert Entities (added 2026-08-21)
+```
+# alerts_device_batteries.yaml — ALL other battery devices (door/gate sensors,
+# gate doorbell, phones, watches, laptops). Excludes inverter/UPS (Power domain)
+# and the Honor dashboards (alerts_batteries.yaml above — do not merge/duplicate).
+# Onboarding a new device = apply the "battery_monitor" label to its battery
+# entity — NOT a per-device YAML edit. See label_id below.
+input_boolean.device_battery_alert_notify              ← pipeline suppress toggle
+input_boolean.device_battery_alert_snoozed             ← BUG-A13 per-cycle Cancel Alert mute
+input_number.device_battery_warning_threshold          ← 10% low alert trigger (fleet-wide, not per-device)
+input_number.device_battery_critical_threshold         ← 5% critical severity
+input_number.device_battery_critical_days_remaining    ← 1 day — rate-based critical trigger
+sensor.device_battery_history_log                      ← self-referencing daily snapshot log, 14-day window per entity
+sensor.device_battery_fleet                             ← full roster (all severities) — dashboard reads this directly
+sensor.device_battery_alert_context                     ← canonical context sensor for aggregator (non-normal devices only)
+binary_sensor.device_battery_alert_active               ← master trigger, delay_on 1 min
+alert.device_battery_alert                               ← 30/60 min repeat, STD_Alerts, Cancel Alert button
+
+# core.label_registry
+label_id: battery_monitor   ← name "Battery Monitor" — apply to any new battery
+                               device's entity (or its device) to onboard it into
+                               both this alert pipeline and the Batteries dashboard
+                               view automatically, no restart needed for onboarding
+
+# Initial 2026-08-21 rollout (15 entities labelled battery_monitor):
+sensor.bar_door_sensor_battery
+sensor.front_door_sensor_battery
+sensor.front_security_gate_sensor_battery
+sensor.gate_sensor_battery
+sensor.lounge_door_sensor_battery
+sensor.garage_door_sensor_battery
+sensor.ezviz_main_gate_doorbell_battery
+sensor.ryan_iphone16_mobile_app_battery_level
+sensor.iphone13promax_vicky_battery_level
+sensor.tayla_iphone14_mobile_app_battery_level
+sensor.luke_iphone15_mobile_app_battery_level
+sensor.iphone16promax_ryan_watch_battery_level
+sensor.luke_iphone15_mobile_app_watch_battery_level
+sensor.ap_0223_1001_internal_battery_level
+sensor.ryan_macbook_pro_mobile_app_internal_battery_level
+# Deliberately NOT labelled: sensor.ha_system_monitor_battery (HA host/Pi has no
+# real battery). No iPad has a battery entity yet (device_tracker.tayla_ipadair5th
+# / device_tracker.ipadpro_luke are unifi presence trackers only, no HA app) —
+# the dashboard's Tablets section shows an onboarding hint until one exists.
+
+# Dashboard: packages/operations dashboard, new "Batteries" view
+# (.storage/lovelace.dashboard_operations, path battery-monitor, inserted right
+# after "Mobile Devices" at view index 12) — sections for iPhones / Watches /
+# Tablets (non-dashboard) / Other Devices, each a markdown card templated off
+# sensor.device_battery_fleet's `devices` attribute (auto-updates, no per-device
+# card edits ever needed).
 ```
 
 ### NAS Protection Entities (added 2026-05-28)
