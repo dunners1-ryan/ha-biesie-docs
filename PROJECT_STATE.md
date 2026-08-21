@@ -5,6 +5,36 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-08-21 (8th pass, same day) — LIGHTING_CONTRACT.md deep drift sweep (4th of 9
+      domain contracts; WATER + ALERTS + SECURITY + PRESENCE already done same day).**
+      Doc-only — the Bug Catalog (Section 7) was already fully accurate; drift was in the
+      surrounding sections:
+      - **File Inventory (Section 2)** — all 14 line counts were stale `~N` approximations,
+        corrected to live exact values (`lighting_morning.yaml` grew the most, ~120→257).
+      - **Section 3 "Known Scene Gap (BUG)"** — still described `scene.scene_night_away`
+        as missing `switch.entrance_down_lights` and citing BUG-L02 as an open gap; both
+        stale. `entrance_down_lights` is present live, and BUG-L02 itself is marked "Not a
+        bug" (main_entrance_light's exclusion from the scene is intentional design, per an
+        inline comment). Corrected the scene table row too — it listed `office_entrance`
+        turning on, which isn't part of the live scene at all.
+      - **Section 5 (Helper Inventory)** — `patio_second_wake_time` was listed twice with
+        contradictory status (once as "defined but not referenced — potential orphan",
+        once correctly as "REMOVED 2026-04-28, BUG-L08"); removed the stale duplicate.
+        Also two BUG-L09 references still described `lighting_entertainment.yaml`/
+        `lighting_energy_saving.yaml` as empty — both long populated (161/108 lines).
+      - **Section 8 (Cross-Domain Dependencies)** — 4 rows named `context_presence.yaml`/
+        `context_schedules.yaml` as providers for `low_trust_present`, `entertaining_mode`,
+        `holiday_mode`, `bedtime_mode` — neither file exists any more (migrated to
+        `presence_trust.yaml` 2026-04-30 per PRESENCE_CONTRACT.md BUG-P11, and to
+        `lighting_helpers.yaml` 2026-04-28 respectively). Also cross-referenced this
+        session's SECURITY_CONTRACT.md ISSUE 14 finding — `entertaining_mode`/
+        `holiday_mode` are now actively read by `sensor.security_correlation`, not just
+        "not consumed yet" as the row implied.
+      - **Section 10 (Implementation Checklist)** — one item flagged "still OPEN (M2
+        remainder)" for a power-domain SOC auto-trigger; confirmed shipped 2026-06-19
+        (`energy_saving_mode_auto_enable`/`_auto_disable` in `power_automations.yaml`).
+      No `ha core check` needed — zero YAML touched, Markdown-only session.
+
 - [x] **2026-08-21 (7th pass, same day) — PRESENCE_CONTRACT.md deep drift sweep (3rd of 9
       domain contracts; WATER + ALERTS + SECURITY already done same day).** Doc-only — no
       code changes, the presence pipeline needed none (Bug Catalog, Section 10, was

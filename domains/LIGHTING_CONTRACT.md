@@ -7,6 +7,21 @@
 #
 # This document is the ground-truth record of what the lighting system
 # actually does, its dependencies, known bugs, and design decisions.
+#
+# Last updated: 2026-08-21 (deep drift sweep) — File Inventory (Section 2) line counts
+# were all stale approximations, corrected to live exact values. Section 3's "Known Scene
+# Gap (BUG)" still described BUG-L02 as open and scene_night_away as missing
+# entrance_down_lights; both stale — BUG-L02 is "not a bug" (intentional design) and
+# entrance_down_lights is present live. Section 5 had a self-contradicting orphan-helper
+# line (patio_second_wake_time listed as both live and removed) and two BUG-L09
+# references describing lighting_entertainment.yaml/lighting_energy_saving.yaml as still
+# empty when both are long since populated. Section 8's Cross-Domain Dependencies table
+# still named `context_presence.yaml`/`context_schedules.yaml` as providers for
+# low_trust_present/entertaining_mode/holiday_mode/bedtime_mode — those files no longer
+# exist (migrated to presence_trust.yaml / lighting_helpers.yaml respectively, per
+# PRESENCE_CONTRACT.md BUG-P11 and this file's own Section 5). Section 10's checklist had
+# one stale "still OPEN" note for an item actually shipped 2026-06-19. The Bug Catalog
+# itself (Section 7) was already fully accurate. No code changes — doc-only.
 ###############################################################################
 
 ---
@@ -60,20 +75,24 @@ person.*                             ← HA mobile geo — UNRELIABLE for local 
 
 | File | Lines | Purpose |
 |---|---|---|
-| `lighting_helpers.yaml` | ~60 | All input_datetime, input_boolean, input_button helpers |
-| `lighting_scenes.yaml` | ~80 | All scene definitions |
-| `lighting_morning.yaml` | ~120 | Morning wake routine (presence + time triggered) |
-| `lighting_evening.yaml` | ~80 | Evening routine (civil night triggered) |
-| `lighting_arrival_night.yaml` | ~100 | Night arrival scenarios (3 modes) |
-| `lighting_departure.yaml` | ~86 | Departure light cleanup (day + night) |
-| `lighting_bedtime.yaml` | ~100 | Kids + full bedtime routines |
-| `lighting_boundary.yaml` | ~190 | Boundary/street security lighting + gate-open assist (2026-08-03) |
-| `lighting_security.yaml` | ~100 | Security event lighting engine |
-| `lighting_garage.yaml` | ~175 | Garage presence-aware lighting (door-gated since 2026-08-03) |
-| `lighting_office_presence.yaml` | ~90 | Office presence-aware lighting |
-| `lighting_bar_presence.yaml` | ~180 | Bar presence + Telegram confirmation |
-| `lighting_entertainment.yaml` | ~90 | Entertaining mode — wires button→input_boolean.entertaining_mode, applies/restores scene, 01:00 backstop clear (was 06:00, changed 2026-06-29) |
-| `lighting_energy_saving.yaml` | ~80 | Energy saving mode — button wiring, TIER 2 light suppression (pool, patio, back security) |
+| `lighting_helpers.yaml` | 82 | All input_datetime, input_boolean, input_button helpers |
+| `lighting_scenes.yaml` | 85 | All scene definitions |
+| `lighting_morning.yaml` | 257 | Morning wake routine (presence + time triggered) |
+| `lighting_evening.yaml` | 127 | Evening routine (civil night triggered) |
+| `lighting_arrival_night.yaml` | 167 | Night arrival scenarios (3 modes) |
+| `lighting_departure.yaml` | 91 | Departure light cleanup (day + night) |
+| `lighting_bedtime.yaml` | 217 | Kids + full bedtime routines |
+| `lighting_boundary.yaml` | 230 | Boundary/street security lighting + gate-open assist (2026-08-03) |
+| `lighting_security.yaml` | 145 | Security event lighting engine |
+| `lighting_garage.yaml` | 215 | Garage presence-aware lighting (door-gated since 2026-08-03) |
+| `lighting_office_presence.yaml` | 130 | Office presence-aware lighting |
+| `lighting_bar_presence.yaml` | 319 | Bar presence + Telegram confirmation |
+| `lighting_entertainment.yaml` | 161 | Entertaining mode — wires button→input_boolean.entertaining_mode, applies/restores scene, 01:00 backstop clear (was 06:00, changed 2026-06-29) |
+| `lighting_energy_saving.yaml` | 108 | Energy saving mode — button wiring, TIER 2 light suppression (pool, patio, back security) |
+
+*Line counts re-verified against `wc -l packages/lighting/*.yaml` 2026-08-21 — all 14 were
+stale approximations (`~N`), corrected to live exact values. `lighting_morning.yaml` had
+grown the most relative to its old estimate (~120 → 257).*
 
 ---
 
@@ -101,12 +120,20 @@ All scenes defined in `lighting_scenes.yaml`.
 | `scene.scene_entertainment_mode` | pool_light, back_house_security, entrance_down_lights, dining_room | — |
 | `scene.scene_kids_bedtime` | — | front_house_security, back_house_security, pool_light, entrance_down_lights, dining_room (updated 2026-04-16 — BUG-L05 fixed) |
 | `scene.scene_full_bedtime` | — | front_house_security, back_house_security, laundry, pool_light, office, dining_room |
-| `scene.scene_night_away` | laundry (deterrence), office_entrance | garage, main_entrance, dining_room, pool_light, pool_patio_down_lights, front_house_security, back_house_security |
+| `scene.scene_night_away` | laundry (deterrence) | front_house_security, back_house_security, garage, entrance_down_lights, dining_room, pool_light, pool_patio_down_lights |
 
-### Known Scene Gap (BUG)
-`scene.scene_night_away` is missing `switch.entrance_down_lights` and
-does not explicitly turn off `switch.main_entrance_light` when turned on
-by evening routine. See BUG-L02.
+*(Doc-drift correction 2026-08-21: row corrected against live `lighting_scenes.yaml` —
+`office_entrance` is not part of this scene and never turns on; `main_entrance` is not
+turned off by it either way, deliberately, see below.)*
+
+### Known Scene Gap — ✅ RESOLVED, doc-drift correction 2026-08-21
+This section used to claim `scene.scene_night_away` was missing
+`switch.entrance_down_lights` and didn't explicitly turn off `switch.main_entrance_light`,
+citing BUG-L02. Both claims are stale: `switch.entrance_down_lights: "off"` is present in
+the live scene, and BUG-L02 itself (Section 7) is marked "Not a bug" —
+`main_entrance_light` is *intentionally* excluded, per an inline comment in
+`lighting_scenes.yaml`: it stays on overnight as deterrence (same as the boundary
+lights) and only turns off via the morning wake routine. Nothing to fix here.
 
 ---
 
@@ -247,8 +274,14 @@ morning_second_wake_time      ← time after which patio/back light allowed in m
 morning_sleep_longer_time     ← WFH cleanup window start
 kids_week_bedtime             ← kids bedtime weekdays (Sun-Thu)
 kids_weekend_bedtime          ← kids bedtime weekends (Fri-Sat)
-patio_second_wake_time        ← (defined but not referenced — potential orphan)
 ```
+*(Doc-drift correction 2026-08-21: this list used to also carry `patio_second_wake_time`
+as "defined but not referenced — potential orphan", contradicting the "input_datetime
+(removed)" subsection two blocks down, which already correctly says it was removed
+2026-04-28 (BUG-L08). Removed the duplicate/contradictory line here. It still lingers as
+an orphaned entry in `core.entity_registry` — confirmed live 2026-08-21 — same as any
+YAML-removed helper; harmless, matches the pattern noted for `low_trust_start`/`_end` in
+PRESENCE_CONTRACT.md.)*
 
 ### input_boolean
 ```
@@ -266,9 +299,12 @@ evening_routine_on/off
 kids_bedtime_on
 kids_bedtime_cancel           ← cancel button for 30s bedtime confirmation window (added 2026-04-16)
 full_bedtime_on/off
-energy_saving_mode_on/off     ← no backing automation yet (BUG-L09)
+energy_saving_mode_on/off     ← backing automation now implemented, lighting_energy_saving.yaml
+                                 (108 lines) — BUG-L09 fixed 2026-07-10, doc-drift corrected here
+                                 2026-08-21 (this line still said "no backing automation yet")
 entertainment_mode_on         ← button name uses "entertainment" but backing boolean is input_boolean.entertaining_mode
-                                 (name mismatch); lighting_entertainment.yaml still empty (BUG-L09)
+                                 (name mismatch, cosmetic only); lighting_entertainment.yaml
+                                 (161 lines) now implemented — same BUG-L09 fix
 ```
 
 ### input_datetime (removed)
@@ -577,7 +613,7 @@ open.
 | `binary_sensor.civil_night` | context_night.yaml | evening routine, office presence |
 | `binary_sensor.anyone_connected_home` | presence_core.yaml | departure, arrival, boundary, morning |
 | `binary_sensor.quiet_arrival_mode` | context_night.yaml | arrival |
-| `binary_sensor.low_trust_present` | context_presence.yaml | departure (maid preservation) |
+| `binary_sensor.low_trust_present` | presence/presence_trust.yaml (moved from context_presence.yaml, 2026-04-30, BUG-P11 — see PRESENCE_CONTRACT.md) | departure (maid preservation) |
 | `binary_sensor.bedrooms_occupied` | presence_confidence.yaml | bar (quiet mode check) |
 | `binary_sensor.bar_occupied` | presence_confidence.yaml | arrival (5min patio delay gate), bar_bedtime_cutoff |
 | `binary_sensor.garage_occupied` | presence_confidence.yaml | garage lighting |
@@ -587,9 +623,9 @@ open.
 | `sensor.security_lighting_intent` | security_logic.yaml | security lighting engine |
 | `sensor.security_movement_path` | security_logic.yaml | security lighting engine area selection |
 | `binary_sensor.security_lighting_allowed` | security_core.yaml | security lighting hard block |
-| `input_boolean.bedtime_mode` | context_schedules.yaml | bar cutoff, bar wind-down |
-| `input_boolean.entertaining_mode` | context_presence.yaml | (consumed by door alerts, not directly by lighting yet) |
-| `input_boolean.holiday_mode` | context_presence.yaml | bedtime schedule selection |
+| `input_boolean.bedtime_mode` | lighting_helpers.yaml (moved from context_schedules.yaml, 2026-04-28 — matches Section 5's Helper Inventory note; `context_schedules.yaml` no longer exists) | bar cutoff, bar wind-down |
+| `input_boolean.entertaining_mode` | presence/presence_trust.yaml (moved from context_presence.yaml, 2026-04-30, BUG-P11) — also actively read by `sensor.security_correlation` (`security_logic.yaml`) to suppress grounds-motion classification, see SECURITY_CONTRACT.md ISSUE 14 | (consumed by security correlation + door alerts, not directly by lighting yet) |
+| `input_boolean.holiday_mode` | presence/presence_trust.yaml (moved from context_presence.yaml, 2026-04-30, BUG-P11) — also read by `sensor.security_correlation` to escalate to `intruder_high`, see SECURITY_CONTRACT.md ISSUE 14 | bedtime schedule selection |
 | `sensor.season` | HA built-in | evening routine pool light |
 | `binary_sensor.cam14_lounge_motion_valid` | cameras_processing.yaml | morning trigger (after BUG-L04 fix) |
 
@@ -673,7 +709,11 @@ DONE 2026-04-29 (M1/M2/M3)
               06:00 daily clear. entertaining_mode guard added to both kids bedtime automations in
               lighting_bedtime.yaml. M2/M3: energy_saving_mode helpers + lighting_energy_saving.yaml
               populated; manual override buttons wired; morning wake clears boolean.
-              NOTE: power_automations.yaml SOC auto-trigger for energy_saving_mode still OPEN (M2 remainder).
+              NOTE: power_automations.yaml SOC auto-trigger for energy_saving_mode —
+              ✅ this M2 remainder is DONE too, doc-drift correction 2026-08-21:
+              `energy_saving_mode_auto_enable`/`_auto_disable` added to
+              `power_automations.yaml` 2026-06-19 (confirmed live), this line just never
+              got updated to match.
 
 DONE 2026-05-10/11
 [✅] BUG-L10: security_lighting_reset was turning off front/back security lights at night after
