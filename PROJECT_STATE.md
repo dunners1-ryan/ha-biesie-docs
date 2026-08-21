@@ -5,6 +5,26 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-08-21 (9th pass, same day) — CONTEXT_CONTRACT.md deep drift sweep (5th of 9
+      domain contracts; WATER + ALERTS + SECURITY + PRESENCE + LIGHTING already done same
+      day).** Small, doc-only, otherwise well-maintained (2 files, 169 lines). Two findings:
+      - **Section 3's `home_context` note** still said `sensor.home_context` depends on
+        `sensor.security_mode` (a layering inversion), directly contradicting BUG-CTX03 a
+        few sections below in the same file, which already documents this fixed
+        2026-04-30. Confirmed live: `home_context` reads only `binary_sensor.
+        security_nobody_home` + `binary_sensor.night_confirmed`, both self-contained in
+        `context/` — the old security_mode-dependent block is commented out for history.
+      - **Section 5 (Published Outputs)** still listed `input_boolean.guest_mode`/
+        `holiday_mode`/`entertaining_mode` as context/-published outputs. All three
+        actually live in `presence/presence_trust.yaml` (moved 2026-04-30, same session as
+        BUG-CTX01 — Section 1's own note already said context/ no longer owns trust model
+        entities, this table just never got updated to match). Removed the 3 rows,
+        cross-referenced PRESENCE_CONTRACT.md; also noted `holiday_mode`/`entertaining_mode`
+        are now read by `sensor.security_correlation` (this session's SECURITY_CONTRACT.md
+        ISSUE 14 finding).
+      All other entities in Sections 3/5 re-verified live and confirmed accurate. No `ha
+      core check` needed — zero YAML touched.
+
 - [x] **2026-08-21 (8th pass, same day) — LIGHTING_CONTRACT.md deep drift sweep (4th of 9
       domain contracts; WATER + ALERTS + SECURITY + PRESENCE already done same day).**
       Doc-only — the Bug Catalog (Section 7) was already fully accurate; drift was in the

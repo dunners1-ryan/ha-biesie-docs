@@ -3,6 +3,14 @@
 # Domain Audit: Global Context / Shared State
 # Generated: 2026-04-16
 # Updated:   2026-04-30 — BUG-CTX01/02/03 fixed
+# Updated:   2026-08-21 (deep drift sweep) — Section 3's home_context note still
+#            described the pre-BUG-CTX03 security_mode dependency as current, contradicting
+#            BUG-CTX03's own fix a few sections down — corrected. Section 5 (Published
+#            Outputs) still listed guest_mode/holiday_mode/entertaining_mode as context/-
+#            published, but all three live in presence/presence_trust.yaml (moved
+#            2026-04-30, same session as BUG-CTX01) — removed those 3 rows, cross-referenced
+#            PRESENCE_CONTRACT.md. All entity names in Sections 3/5 re-verified live. No code
+#            changes — doc-only, this was otherwise an accurate, well-maintained contract.
 # Source: packages/context/context_global.yaml
 #         packages/context/context_night.yaml
 ##########################################################
@@ -65,9 +73,12 @@ binary_sensor.security_night_mode    — alias of binary_sensor.night_confirmed
 binary_sensor.security_nobody_home   — anyone_connected_home=off AND staff_on_site=off
 ```
 
-Note: `sensor.home_context` depends on `sensor.security_mode` (from security/).
-This is a layering inversion — context/ should not import from security/.
-See BUG-CTX03.
+**✅ FIXED — doc-drift correction 2026-08-21:** this note used to say `sensor.home_context`
+still depends on `sensor.security_mode` (a layering inversion) — stale, contradicts
+BUG-CTX03 (Section 6) which already documents this fixed 2026-04-30. Confirmed live:
+`home_context` in `context_global.yaml` reads only `binary_sensor.security_nobody_home`
+and `binary_sensor.night_confirmed` (both self-contained in `context/`); the old
+`security_mode`/`security_trust_mode`-based block is commented out, kept for history only.
 
 ### Trust Model — moved to `packages/presence/presence_trust.yaml` (2026-04-30)
 
@@ -126,11 +137,17 @@ gate on it — use `binary_sensor.night_confirmed` + occupancy sensors instead.
 | `binary_sensor.security_nobody_home` | lighting_security, dashboard |
 | `binary_sensor.staff_on_site` | security, context_global |
 | `binary_sensor.low_trust_present` | security, lighting_departure, alerts_doors |
-| `input_boolean.guest_mode` | security |
-| `input_boolean.holiday_mode` | security, lighting |
-| `input_boolean.entertaining_mode` | security |
 | `sensor.home_context` | dashboard, lighting (future) |
 | `sensor.night_confidence` | informational/dashboard |
+
+**Doc-drift correction 2026-08-21:** this table used to also list `input_boolean.guest_mode`,
+`input_boolean.holiday_mode`, and `input_boolean.entertaining_mode` as context/-published
+outputs. All three are actually defined in `presence/presence_trust.yaml` (confirmed live),
+not `context/` — consistent with Section 1's note that the 2026-04-30 trust-model move took
+context/ out of that business, this table just never got updated to match. Removed the three
+rows here; see PRESENCE_CONTRACT.md for their reference. Both `holiday_mode` and
+`entertaining_mode` are also actively read by `sensor.security_correlation`
+(`security/security_logic.yaml`) — see SECURITY_CONTRACT.md ISSUE 14 (2026-08-21).
 
 ---
 
