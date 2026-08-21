@@ -2,6 +2,19 @@
 # NOTIFICATIONS CONTRACT
 # HABiesie — Notifications Domain
 # Generated: 2026-04-13
+# Last updated: 2026-08-21 (deep drift sweep) — Files Audited table had 3 filename
+# mismatches (notify_security_event/notify_presence_event/notify_lighting_event → live
+# names all differ by plural/naming) and was missing power_notifications.yaml entirely
+# (a 0-byte empty stub, flagged not deleted). BUG-N18 still listed alerts_network.yaml as
+# open — it was fixed the same day as water (2026-08-18), the live YAML's own comment
+# said so, just never made it back here. Section 6's entire "Priority 1" bypass table
+# (presence_notifications.yaml, alerts_temperature.yaml, alerts_device_power.yaml)
+# described violations already fixed by BUG-N05/BUG-A03/BUG-A04 — corrected, all 3
+# re-verified live. Section 8 ("Water Notifications — Dead Trigger") described
+# water_tank_full_notification as triggering on a sensor.water_state value that can
+# never fire — live code (and WATER_CONTRACT.md Issue 2, corrected same day) shows it
+# already triggers on binary_sensor.water_tank_full_depth instead — corrected, with
+# Section 9's matching cross-domain-dependency row fixed too. No code changes — doc-only.
 # Last updated: 2026-08-18 — notify_power_event.yaml / notify_water_events.yaml /
 # notify_presence_events.yaml gained the same actions:/telegram_action: passthrough
 # notify_security_event already had (notify_system_event already had actions:,
@@ -60,13 +73,20 @@ with platform-independent script layer. It owns:
 | `notifications_helpers.yaml` | Input helpers for control |
 | `notify_power_event.yaml` | Solar, battery, grid events |
 | `notify_water_events.yaml` | Tank, pump, refill events |
-| `notify_security_event.yaml` | Camera, alarm, intrusion events |
-| `notify_presence_event.yaml` | Arrival, departure, occupancy events |
+| `notify_security_events.yaml` | Camera, alarm, intrusion events |
+| `notify_presence_events.yaml` | Arrival, departure, occupancy events |
 | `notify_system_event.yaml` | HA system & core notifications |
-| `notify_lighting_event.yaml` | Scene activation, presence-aware lighting |
+| `notify_light_events.yaml` | Scene activation, presence-aware lighting |
 | `admin_notifications.yaml` | Admin-only notifications |
 | `presence_notifications.yaml` | Per-person unknown AP alerts (legacy/supplementary) |
 | `water_notifications.yaml` | Water-specific notification automations |
+| `power_notifications.yaml` | **Empty stub — 0 bytes, unchanged since at least 2026-02-03.** Not a live script; `notify_power_event.yaml` is the real power notification handler. Flagged for a delete-or-populate decision, not actioned here (out of scope for a doc-drift pass). |
+
+*(Doc-drift correction 2026-08-21: 3 filenames in this table didn't match the live files —
+`notify_security_event.yaml` → `notify_security_events.yaml`, `notify_presence_event.yaml`
+→ `notify_presence_events.yaml`, `notify_lighting_event.yaml` → `notify_light_events.yaml`
+— corrected. `power_notifications.yaml`, the 13th file in `packages/notifications/`, was
+missing from this table entirely — added.)*
 
 ---
 
@@ -345,13 +365,23 @@ All the following locations bypass the canonical notification pipeline (script �
 → quiet hours). They call notify platforms directly, skipping quiet hours, Telegram mirroring,
 logbook, and escalation rules.
 
-### Priority 1 — High Volume / Always-On Bypasses
+### Priority 1 — High Volume / Always-On Bypasses — ✅ ALL THREE FIXED, doc-drift correction 2026-08-21
 
-| File | Line(s) | Violation | Impact |
+All three rows below described violations that are already fixed (BUG-N05, BUG-A03,
+BUG-A04 respectively — the last two already correctly marked Fixed in ALERTS_CONTRACT.md,
+re-verified there 2026-08-21 same session). Re-verified live here too:
+`presence_notifications.yaml`'s 4 automations all call `script.notify_presence_event`
+(not `notify.send_message`/`notify.STD_Information`); `alerts_temperature.yaml`'s routing
+automations all call `script.notify_system_event` (zero `notify.STD_*` matches);
+`alerts_device_power.yaml` likewise has zero direct `notify.STD_*` calls, only
+`script.notify_system_event`, with an inline comment documenting the BUG-A04 fix history.
+Kept below struck through for history — nothing currently in Priority 1.
+
+| File | Line(s) | Violation (historical) | Impact (historical) |
 |------|---------|-----------|--------|
-| `presence_notifications.yaml` | ~19, ~33, ~47, ~61 | 4 automations call `notify.send_message → notify.STD_Information` directly | No quiet hours, no Telegram, no script |
-| `alerts/alerts_temperature.yaml` | ~786,797,878,889,970,981,1066,1077 | 4 routing automations (WAN/LAN/Device/Storage) call `notify.STD_*` directly | No quiet hours, no Telegram, no logbook |
-| `alerts/alerts_device_power.yaml` | ~216, ~227 | Route automation calls `notify.STD_Critical/Warning` directly AND `alert.device_power_fault` also fires to `STD_Alerts` | Dual delivery on every fault |
+| ~~`presence_notifications.yaml`~~ | — | ~~4 automations called `notify.send_message → notify.STD_Information` directly~~ | ✅ Fixed (BUG-N05) |
+| ~~`alerts/alerts_temperature.yaml`~~ | — | ~~4 routing automations (WAN/LAN/Device/Storage) called `notify.STD_*` directly~~ | ✅ Fixed (BUG-A03) |
+| ~~`alerts/alerts_device_power.yaml`~~ | — | ~~Route automation called `notify.STD_Critical/Warning` directly AND `alert.device_power_fault` also fired to `STD_Alerts`~~ | ✅ Fixed (BUG-A04) |
 
 ### Priority 2 — Functional But Non-Standard
 
@@ -367,11 +397,14 @@ fires at `hours: /3` (hitting midnight after restart) before Telegram service is
 | `lighting/lighting_bar_presence.yaml` | ~76, ~112 | Bar presence events call notify directly | ✅ fixed | Low priority, presence-adjacent |
 | `power/solar_forecast.yaml` | ~175, ~229, ~276 | Solar mode change sends Telegram directly (not via script) | ✅ fixed | Fires at midnight on restart — was primary source of ServiceNotFound errors |
 
-### Migration Priority
+### Migration Priority — ✅ all 3 original items done, doc-drift correction 2026-08-21
 
-1. **`alerts_temperature.yaml`** — 8 direct notify calls, no quiet hours, high frequency alerts
-2. **`presence_notifications.yaml`** — 4 per-person automations, should route through `script.notify_presence_event`
-3. **`alerts_device_power.yaml`** — resolve dual delivery before migrating to script
+1. ~~**`alerts_temperature.yaml`** — 8 direct notify calls, no quiet hours, high frequency alerts~~ — done, routes through `script.notify_system_event` (BUG-A03)
+2. ~~**`presence_notifications.yaml`** — 4 per-person automations, should route through `script.notify_presence_event`~~ — done, exactly that (BUG-N05)
+3. ~~**`alerts_device_power.yaml`** — resolve dual delivery before migrating to script~~ — done (BUG-A04)
+
+Current highest-priority open item in this domain is BUG-N18 (Section 10) — 8 files still
+carry a redundant `notifiers: [STD_Alerts]` double-delivery.
 4. **`water_reporting.yaml`** — weekly summary, lower urgency
 5. Remaining files — low priority
 
@@ -571,17 +604,26 @@ until mobile_app exposes a controllable brightness entity or restores command su
 
 ---
 
-## 8. WATER NOTIFICATIONS AUTOMATION — DEAD TRIGGER
+## 8. WATER NOTIFICATIONS AUTOMATION — ✅ FIXED, doc-drift correction 2026-08-21
 
-`water_notifications.yaml` contains automation `water_tank_full_notification` which
-triggers on `sensor.water_state → "full"`.
+**This section described a stale, already-fixed state.** WATER_CONTRACT.md's Issue 2 was
+independently re-verified and corrected the same day, same session, as this file: the
+automation's own inline comment now reads `sensor.water_state never reaches "full" — that
+state does not exist`, and its trigger is `binary_sensor.water_tank_full_depth` (`from: "off"
+to: "on"`, fires at depth ≥ 1.95m) — not `sensor.water_state`. Confirmed live 2026-08-21 at
+`water_notifications.yaml:62-72`. Not clear when the code fix landed, but the doc is now
+correct in both contracts.
 
-Per the Water Domain Contract, `sensor.water_state` never produces the state `"full"`.
-The valid terminal state is `"idle"` (after a completed fill). This automation has never
-fired and cannot fire without a water state machine fix.
+**Original (stale) claim, kept for history:** `water_notifications.yaml` contains automation
+`water_tank_full_notification` which triggers on `sensor.water_state → "full"`. Per the Water
+Domain Contract, `sensor.water_state` never produces the state `"full"`. This automation has
+never fired and cannot fire without a water state machine fix.
 
 **Related:** `water_refill_never_reached_full` triggers on `binary_sensor.water_tank_refilling`
-for 3 hours — this is structurally sound as an escalation monitor.
+for 3 hours — this is structurally sound as an escalation monitor, and (per the same
+inline-comment fix above) now also correctly checks `binary_sensor.water_tank_full_depth`
+instead of the never-true `sensor.water_state == 'full'` condition it originally had —
+see WATER_CONTRACT.md Issue 12.
 
 ---
 
@@ -591,7 +633,7 @@ for 3 hours — this is structurally sound as an escalation monitor.
 |------------|----------|----------|--------|
 | `input_boolean.notifications_enabled` | water_notifications.yaml | notifications_helpers.yaml | ✅ YAML-only (storage removed 2026-04-21) |
 | `input_boolean.notifications_quiet_hours` | All scripts | notifications_quiet_hours.yaml | ✅ |
-| `sensor.water_state` | water_notifications.yaml | water package | ❌ Dead — state "full" never produced |
+| `binary_sensor.water_tank_full_depth` | water_notifications.yaml | water package | ✅ Fixed — doc-drift correction 2026-08-21, this row used to say `sensor.water_state` ("Dead — state 'full' never produced"); live trigger is this binary sensor, see Section 8 |
 | `binary_sensor.water_tank_refilling` | water_notifications.yaml | water package | ✅ |
 | `binary_sensor.ryan_unknown_ap` etc. | presence_notifications.yaml | presence package | ✅ |
 | `alert.power_alert` | alerts_power.yaml | alert entity | ✅ |
@@ -669,12 +711,18 @@ race and kept the `1` suffix after the rest of the entity set landed clean; rena
 updated to the final clean `mobile_app_iphone13promax_vicky` and live-tested — delivery
 confirmed with no errors. Section 3A per-person onboarding note updated to match.
 
-### BUG-N18 [MEDIUM] `alert:` entities with `notifiers: STD_Alerts` double-deliver alongside their `route_*` workaround automations — BUG-N16 follow-on, water fixed, others open
+### BUG-N18 [MEDIUM] `alert:` entities with `notifiers: STD_Alerts` double-deliver alongside their `route_*` workaround automations — BUG-N16 follow-on, water + network fixed, 8 others open
 
-**Files:** `alerts/alerts_water.yaml` (✅ fixed 2026-08-18); `alerts/alerts_temperature.yaml`,
-`alerts/alerts_doors.yaml`, `alerts/alerts_presence.yaml`, `alerts/alerts_device_power.yaml`,
-`alerts/alerts_power.yaml`, `alerts/alerts_media.yaml`, `alerts/alerts_batteries.yaml`,
-`alerts/alerts_garden.yaml`, `alerts/alerts_network.yaml` (still open)
+**Files:** `alerts/alerts_water.yaml` (✅ fixed 2026-08-18); `alerts/alerts_network.yaml`
+(✅ **fixed same day, 2026-08-18** — doc-drift correction 2026-08-21: this entry still
+listed it as open. Confirmed live: `notifiers: [STD_Alerts]` is commented out in
+`alerts_network.yaml`, with an inline comment explicitly citing this same BUG-N18 and
+listing the 8 files still outstanding — the fix just never made it back into this
+contract entry); `alerts/alerts_temperature.yaml`, `alerts/alerts_doors.yaml`,
+`alerts/alerts_presence.yaml`, `alerts/alerts_device_power.yaml`, `alerts/alerts_power.yaml`,
+`alerts/alerts_media.yaml`, `alerts/alerts_batteries.yaml`, `alerts/alerts_garden.yaml`
+(still open — all 8 re-verified live 2026-08-21, each still has an active, uncommented
+`notifiers: [STD_Alerts]` block)
 **Description:** While `notify.STD_Alerts` was dead (2026-06-28 → 2026-08-09), every domain
 built a `route_*` automation calling `script.notify_*_event` directly as the real delivery path,
 leaving the original `alert:` entity's own `notifiers: [STD_Alerts]` in place (harmless at the
@@ -693,7 +741,7 @@ separately-triggered push from `water_borehole_first_fault_notification` (fault-
 `security_alert` precedent (BUG-A10), which already keeps the `alert:` entity for
 dashboard/ack/`repeat:` visibility only and treats the route automation as the sole delivery
 path. **⚠️ Required full HA restart** (`alert:` entity change).
-**Not fixed:** the other 9 files listed above carry the identical pattern and are — as of
+**Not fixed:** the other 8 files listed above carry the identical pattern and are — as of
 2026-08-09 — almost certainly double-delivering the same way water was, one restart-batch of
 work for a future session. Section 6's Priority 1 table already flagged
 `alerts_device_power.yaml`'s "Dual delivery on every fault" for this reason before BUG-N16 even

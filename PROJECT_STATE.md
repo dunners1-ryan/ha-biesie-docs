@@ -5,6 +5,38 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-08-21 (10th pass, same day) — NOTIFICATIONS_CONTRACT.md deep drift sweep
+      (6th of 9 domain contracts; WATER + ALERTS + SECURITY + PRESENCE + LIGHTING +
+      CONTEXT already done same day).** Doc-only. Findings:
+      - **Files Audited table** — 3 filenames didn't match live files
+        (`notify_security_event.yaml`/`notify_presence_event.yaml`/
+        `notify_lighting_event.yaml` vs live `notify_security_events.yaml`/
+        `notify_presence_events.yaml`/`notify_light_events.yaml`), and
+        `power_notifications.yaml` (the domain's 13th file, a 0-byte empty stub
+        unchanged since at least 2026-02-03) was missing entirely — added, flagged as an
+        orphan needing a delete-or-populate decision (not actioned, out of scope for a
+        drift pass).
+      - **BUG-N18 (double-delivery via stale `notifiers: STD_Alerts`)** — still listed
+        `alerts_network.yaml` as one of 9 open files. Re-verified live: it was fixed the
+        same day as water (2026-08-18) — the live YAML's own comment explicitly says so
+        and even names this exact contract entry as needing an update that never
+        happened. Corrected to 2-fixed/8-open (temperature, doors, presence,
+        device_power, power, media, batteries, garden still carry an active
+        uncommented `notifiers: [STD_Alerts]` block, re-checked one by one).
+      - **Section 6 "Priority 1" bypass table** — all 3 rows (`presence_notifications.yaml`,
+        `alerts_temperature.yaml`, `alerts_device_power.yaml`) described violations
+        already fixed by BUG-N05/BUG-A03/BUG-A04 (the latter two already correctly
+        marked Fixed in this same session's ALERTS_CONTRACT.md pass). Re-verified live —
+        all 3 route through the correct `script.notify_*_event` calls now — and struck
+        through the table plus its "Migration Priority" list.
+      - **Section 8 ("Water Notifications — Dead Trigger")** — described
+        `water_tank_full_notification` as triggering on a `sensor.water_state` value
+        that can never fire. Live code — and this same day's WATER_CONTRACT.md Issue 2
+        re-verification — shows it already triggers on
+        `binary_sensor.water_tank_full_depth` instead. Corrected here plus the matching
+        Section 9 cross-domain-dependency row.
+      No `ha core check` needed — zero YAML touched, Markdown-only session.
+
 - [x] **2026-08-21 (9th pass, same day) — CONTEXT_CONTRACT.md deep drift sweep (5th of 9
       domain contracts; WATER + ALERTS + SECURITY + PRESENCE + LIGHTING already done same
       day).** Small, doc-only, otherwise well-maintained (2 files, 169 lines). Two findings:
