@@ -5,6 +5,37 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-08-21 (14th pass, same day) — POWER_CONTRACT.md deep drift sweep (follow-up
+      to the 9-domain audit — user asked "anything else to audit on docs?" after all 9
+      were done; POWER wasn't in the original list since it'd had targeted issue-closures
+      earlier the same day, but never the systematic sweep).** Doc-only, biggest contract
+      in the repo (3106 lines, 26-file domain). Findings:
+      - **File Inventory + "Layering Violation" section** both still described
+        `power_helpers.yaml` as mixing `group:`/`template:` content into the helpers
+        layer — stale. Issue 17 (same file's own Known Issues, resolved earlier the same
+        day) already documents this fixed; confirmed live — `power_helpers.yaml` now
+        contains only `input_boolean`/`input_select`/`input_number`/`input_datetime`.
+        Corrected both.
+      - **Section 13 (Optimization Recommendations) — 5 of 7 were stale, none marked:**
+        Rec 1 done (Issues 1-4 all resolved elsewhere in the same doc); Rec 2 done
+        (`sensor.prepaid_balance_confidence` exists live); Rec 3 superseded by a
+        different 4-factor Buy Score v2 design (Section 14's Implementation Checklist
+        already knew Buy Score v2 shipped 2026-06-15 — Section 13 didn't reflect it, and
+        the two sections actually disagreed on which factors it uses); Rec 5 done
+        (superseded by the modern alert pipeline, not migrated verbatim — also already
+        correctly recorded in the Sprint 3 checklist, just not in Section 13); Rec 6 done
+        (`automation.prepaid_auto_reconcile` exists live, does exactly this). Rec 4 was
+        moot (the sensor it proposed fixing was deleted outright per Issue 7). Rec 7
+        confirmed still genuinely open — not everything was stale.
+      - **Section 12 (Error Signatures)** had a stale `group.security_power_sensors`
+        "missing" row — actually a naming confusion (real group is
+        `group.house_security_power_sensors`) already resolved and explained in the
+        Sprint 2 checklist and Issue 8, just never reflected in this table.
+      - Known Issues (Section 11) itself was already accurate and current — same pattern
+        as every other domain today: the bug catalog gets maintained, everything else
+        (File Inventory, Recommendations, Error Signatures, cross-references) doesn't.
+      No `ha core check` needed — zero YAML touched, Markdown-only session.
+
 - [x] **2026-08-21 (13th pass, same day) — INFRA_CONTRACT.md deep drift sweep (9th and
       FINAL domain of this session's multi-session audit; WATER + ALERTS + SECURITY +
       PRESENCE + LIGHTING + CONTEXT + NOTIFICATIONS + NETWORK + GARDEN all done same

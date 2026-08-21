@@ -2,6 +2,19 @@
 > **Living contract.** Produced by deep audit on 2026-04-13.  
 > Update after every meaningful change to the power package.  
 > This document supersedes `POWER_CONTEXT.md` — keep both in sync.
+>
+> **2026-08-21 deep drift sweep** (following the same-day 9-domain audit; POWER wasn't in
+> that original list since it'd had targeted issue-closures earlier the same day, but
+> never the systematic sweep): File Inventory's `power_helpers.yaml` role and the
+> "Layering Violation" section both still described the pre-Issue-17 state (mixed
+> `group:`/`template:` content) even though Issue 17 (same file, Known Issues) already
+> documents it fixed — corrected. Section 13's Recommendations 1/2/5/6 were all already
+> done (confirmed live) and Recommendation 3 was superseded by a different 4-factor Buy
+> Score v2 design (Section 14's Implementation Checklist already knew this — Section 13
+> didn't) — none were marked. Section 12's Error Signatures table had a stale
+> `group.security_power_sensors` "missing" row for what's actually a naming confusion
+> already resolved and explained in the Sprint 2 checklist. No code changes — doc-only,
+> this domain's Known Issues catalog (Section 11) was already accurate and current.
 
 ---
 
@@ -129,7 +142,7 @@ Full ROI/payback analysis for both line items: `private_docs/POWER_SYSTEM_AUDIT_
 | File | Role | Layer |
 |---|---|---|
 | `power_core.yaml` | Dual-inverter aggregation — all unified sensors | Aggregation |
-| `power_helpers.yaml` | Load groups (groups) + area/load power templates + solar season factor helpers (P6) | Mixed (violates layering) |
+| `power_helpers.yaml` | `input_boolean`/`input_select`/`input_number`/`input_datetime` helpers only | Helpers |
 | `power_templates.yaml` | Per-inverter PV, battery, grid sub-sensors | Derived |
 | `power_state.yaml` | house_power_health, power_state, inverter health, freq/temp | State |
 | `power_statistics.yaml` | Rolling average sensors + solar forecast accuracy + 4-state weather correlation + season factor (P6 2026-06-14) | Derived |
@@ -161,9 +174,16 @@ Full ROI/payback analysis for both line items: `private_docs/POWER_SYSTEM_AUDIT_
 |---|---|
 | `load_shedding_templates.yaml` | Status card, active binary_sensor, severity, minutes countdown |
 
-### Layering Violation
+### Layering Violation — ✅ RESOLVED 2026-08-21, doc-drift correction (this section was stale)
 
-`power_helpers.yaml` contains both `group:` definitions (helpers layer) and `template: sensor:` blocks (templates layer). This violates the `*_helpers.yaml` convention but is functional. Flag for eventual split into `power_groups.yaml` + `power_templates.yaml` addition, but do not split unless refactoring.
+This section used to say `power_helpers.yaml` mixed `group:` and `template: sensor:`
+blocks into the helpers layer. That's the same fact already marked resolved in Known
+Issues (Issue 17 below) — the `group:` block (11 inverter comparison groups) and
+`template:` block (~30 combined-inverter sensors) were moved into `power_templates.yaml`
+that same day. Confirmed live 2026-08-21: `power_helpers.yaml` now contains only
+`input_boolean`/`input_select`/`input_number`/`input_datetime` keys — no `group:` or
+`template:` at all. File Inventory row above corrected to match. This is exactly the
+"Known Issues accurate, rest of the doc not" pattern — see `/update-docs` step 3a.
 
 ---
 
@@ -2744,7 +2764,7 @@ These entities appear in watchman_report.txt as missing or unavailable. Map thes
 | `sensor.grid_power` | ✅ FIXED 2026-04-16 | replaced with sensor.house_grid_power | Issue 2 |
 | `sensor.battery_charge_power` | ✅ FIXED 2026-04-16 | replaced with sensor.grid_to_battery_power | Issue 2 |
 | `sensor.prepaid_units_left` | ✅ FIXED 2026-04-16 | replaced with sensor.prepaid_units_left_safe | Issue 3 |
-| `group.security_power_sensors` | missing | power_templates.yaml:182 | Issue 8 |
+| `group.security_power_sensors` | ✅ Not a real gap, doc-drift correction 2026-08-21 | — | Naming confusion, not a missing entity — the real group is `group.house_security_power_sensors`, already correctly used in `power_templates.yaml` and confirmed to have a real member (`sensor.electric_fence_plug_power`) by Issue 8 and by the Sprint 2 checklist ("group is `house_security_power_sensors`; template uses it correctly", verified 2026-06-14). This row's "missing" status and line reference were stale. |
 | `sensor.solcast_forecast_forecast_today` | ✅ fixed | solar_forecast.yaml | Issue 10 — RESOLVED 2026-06-19; now uses `solcast_pv_forecast_forecast_today` |
 | `sensor.inverter_1_device_since_last_update` | missing | power_state.yaml:279 | Solarman entity name change |
 | `sensor.inverter_2_device_since_last_update` | missing | power_state.yaml (similar) | Solarman entity name change |
@@ -2793,32 +2813,58 @@ These are all from `automations.yaml:770` — a single legacy automation referen
 
 ## 13. Optimization Recommendations
 
-### Recommendation 1 — Fix broken strategy sensors first (Issues 1-4)
-The buy decision notification (Issue 4), battery night survival (Issue 1), and grid charging detection (Issue 2) are strategy layer features that are entirely non-functional. These should be fixed before any new strategy features are added, as they create false confidence that the system is monitoring things it isn't.
+### Recommendation 1 — ✅ DONE, doc-drift correction 2026-08-21 (was: Fix broken strategy sensors first (Issues 1-4))
+Issues 1, 2, 3, and 4 — the exact set this recommendation named — are all marked
+✅ RESOLVED in Section 11 above (2026-06-19/04-21/04-16/04-16 respectively). Nothing
+left to action.
 
-### Recommendation 2 — Add Confidence Scoring to Prepaid Balance
-`POWER_CONTEXT.md` already identifies this as next step. The current binary switch (drift > 1% → use manual) is fragile. A graduated confidence score (0-100%) would allow dashboard UI to reflect uncertainty without hard switching. Implement as `sensor.prepaid_balance_confidence` before adding new prepaid features.
+### Recommendation 2 — ✅ DONE, doc-drift correction 2026-08-21 (was: Add Confidence Scoring to Prepaid Balance)
+`sensor.prepaid_balance_confidence` (`prepaid_core.yaml`, `unique_id: prepaid_balance_confidence`)
+exists live and matches this recommendation exactly — confirmed 2026-08-21. Not dated
+elsewhere in this contract, so unclear exactly when it landed; flagging so a future
+session backfills the implementation date if known.
 
-### Recommendation 3 — Implement Buy Score v2 with Net Position
-`sensor.prepaid_buy_score` currently uses a heuristic composite. The `sensor.prepaid_net_position_this_month` sensor exists but is unavailable. Fix and incorporate net position into the buy score formula — a negative net position month should lower the score even when days remaining are high.
+### Recommendation 3 — ✅ SUPERSEDED BY A DIFFERENT DESIGN, doc-drift correction 2026-08-21 (was: Implement Buy Score v2 with Net Position)
+Section 14's Implementation Checklist (Sprint 4, verified 2026-06-15) already marks
+"Build Buy Score v2" done — but this recommendation and that checklist item, describing
+what sounds like the same initiative, actually diverged: `sensor.prepaid_buy_score`
+(`prepaid_strategy.yaml`) is genuinely a multi-factor v2 formula, confirmed live, but its
+four factors are `prepaid_estimated_days_remaining`, `solcast_pv_forecast_forecast_remaining_today`,
+`prepaid_adaptive_burn_rate`, and `prepaid_fixed_cost_remaining` — **not**
+`prepaid_net_position_this_month`, which this recommendation specifically asked to be
+incorporated (grep-confirmed zero references to it in the buy-score formula). Also,
+`prepaid_net_position_this_month` itself is not unavailable as this recommendation
+claimed — both its dependencies (`sensor.solar_savings_this_month`,
+`sensor.prepaid_spend_this_month`) exist and it resolves normally. So: Buy Score v2
+shipped, just via a different 4-factor design that deliberately doesn't use net position
+— treating this as superseded rather than open, since re-litigating which factor set is
+better wasn't asked for here. If net-position-as-a-factor is still wanted, it'd be a new
+ask against the current formula, not a gap in it.
 
-### Recommendation 4 — Replace `inverter_today_energy_import` Workaround
-The `* 2` doubling is a time bomb. When Inverter 2 Solarman polling stabilizes, energy import will double overnight. Add a conditional:
-```yaml
-{% set inv2 = states('sensor.inverter_2_today_energy_import') | float(-1) %}
-{% if inv2 > 0 %}
-  {{ inv1 + inv2 }}
-{% else %}
-  {{ inv1 * 2 }}
-{% endif %}
-```
-And add a watchdog sensor that alerts when inv2 suddenly starts reporting.
+### Recommendation 4 — ✅ MOOT, doc-drift correction 2026-08-21 (was: Replace `inverter_today_energy_import` Workaround)
+Overtaken by events — see Issue 7 above (resolved same day). `sensor.inverter_today_energy_import`
+and its `* 2` doubling workaround were deleted outright as dead code (zero consumers
+repo-wide, confirmed live 2026-08-21), not fixed with the conditional this recommendation
+proposed. There's nothing left to replace. The real authoritative daily grid-import figure
+is `sensor.grid_energy_import_today` (a UI-defined `utility_meter` helper), unaffected by
+Inverter 2's Solarman polling reliability either way. No watchdog needed for a sensor that
+no longer exists.
 
-### Recommendation 5 — Migrate legacy grid automations
-`automations.yaml` grid monitoring automations are silently broken (`sensor.inverter_power` doesn't exist). The package files already have better state sensors (`sensor.house_power_health`, `sensor.grid_state_health`). Migrate `grid_status_monitoring` and `inverter_pwer_monitoring` to package files using the central notify script pattern.
+### Recommendation 5 — ✅ DONE (superseded, not migrated verbatim), doc-drift correction 2026-08-21 (was: Migrate legacy grid automations)
+`grid_status_monitoring` and `inverter_pwer_monitoring` no longer exist in
+`automations.yaml` (grep-confirmed zero matches). `power_automations.yaml`'s own header
+comment documents why: both were superseded by the modern alert pipeline —
+`grid_status_monitoring` → `alert.power_alert` (escalating repeats), `inverter_pwer_monitoring`
+→ `binary_sensor.power_excess_load_alert_active` — rather than migrated line-for-line.
+Functionally equivalent (better, even — routes through the central notify script this
+recommendation asked for), just not literally "migrated". Nothing left to action.
 
-### Recommendation 6 — Auto-reconciliation trigger
-When `prepaid_drift_percentage` exceeds threshold and user has entered a new meter reading, automatically trigger `script.prepaid_realign_offset` and notify. Currently the reconciliation suggestion is shown in UI but never auto-applied — the script exists, just needs an automation trigger.
+### Recommendation 6 — ✅ DONE, doc-drift correction 2026-08-21 (was: Auto-reconciliation trigger)
+`automation.prepaid_auto_reconcile` (`prepaid_core.yaml`) exists live and does exactly
+this: triggers on a new `input_number.prepaid_meter_lifetime_import` reading, checks
+drift against `input_number.prepaid_drift_threshold`, and calls
+`script.prepaid_realign_offset` + `script.notify_power_event` automatically. Not dated
+elsewhere in this contract; flagging so a future session backfills the date if known.
 
 ### Recommendation 7 — pyscript load group health check
 Add a binary_sensor that checks if `group.known_power_loads` has any members. If it's empty (unknown), trigger the pyscript to re-sync. Current state: if pyscript fails silently at startup, all load visibility sensors return 0/unknown indefinitely.
