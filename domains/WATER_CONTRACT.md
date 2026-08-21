@@ -873,13 +873,11 @@ by a meaningful amount.
 
 ## 8. Optimization Recommendations
 
-### Recommendation 1 — Unify start_depth ownership (Issues 3)
-Control automation and capture automation both write to `water_refill_start_depth`. Assign ownership to ONE of them. The capture automation should own this (it's the designated data recorder per the contract). Remove the pre-pump write from `water_tank_refill_control.yaml`.
+### Recommendation 1 — ✅ DONE 2026-07-08 (Issue 3): Unify start_depth ownership
+Control automation and capture automation both wrote to `water_refill_start_depth`. Resolved per the contract's own "RAW sensor, validation analytics-only" invariant — capture automation is sole owner, the pre-pump write removed from `water_tank_refill_control.yaml`.
 
-### Recommendation 2 — Wire `water_policy_helpers.yaml` into templates
-The policy helpers were designed to replace hardcoded thresholds. Either complete the wiring:
-- `water_templates.yaml` `water_state` sensor should use `input_number.water_depth_critical_threshold` instead of `input_number.water_depth_critical`
-- OR delete `water_policy_helpers.yaml` to eliminate confusion
+### Recommendation 2 — ✅ DONE 2026-08-21 (Issue 11): `water_policy_helpers.yaml` deleted
+The policy helpers were designed to replace hardcoded thresholds but never got wired in. Resolved by deleting the file (option 2) rather than wiring it — the real thresholds already lived in `water_helpers.yaml`, so there was no in-progress consumer to preserve.
 
 There are two competing threshold systems right now. Pick one.
 
