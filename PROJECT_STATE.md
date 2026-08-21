@@ -5,6 +5,50 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-08-21 (6th pass, same day) — SECURITY_CONTRACT.md deep drift sweep (2nd of 9
+      domain contracts; WATER + ALERTS already done same day).** One tiny code fix (a stale
+      misleading comment, not behavior); rest doc-only. Findings, all cross-checked against
+      live `packages/security/`:
+      - **File Inventory (Section 2)** was missing 2 of the 9 live files —
+        `security_alarm.yaml` (IDS Hyyp alarm stub, not yet wired) and
+        `security_history_cleanup.yaml` (one-shot manual cleanup script) — added both.
+        Noted CLAUDE.md's "security/ (7 files)" is the same stale count, flagged not fixed
+        (out of scope for this contract).
+      - **ISSUE 1 (duplicate snapshot files, HIGH) — found already fixed, never marked.**
+        `security_capture_best_snapshot`'s `filename_cam` has no `security_` prefix
+        (Option A implemented); confirmed 0 orphan `security_cam*.jpg` files live. Sprint 2
+        checklist boxes ticked to match. www/ retention cleanup (the one still-open part)
+        tracked under ISSUE 10.
+      - **ISSUE 10 (www/ snapshot retention) — still open, worse than documented.** File
+        count grew from the doc's 1,871 to **31,812** live; no cleanup mechanism exists
+        anywhere in `packages/`. Flagged as worth re-prioritizing above MEDIUM given the
+        ~17x growth, not changed unilaterally.
+      - **ISSUE 11 (duplicate condition block) and ISSUE 13
+        (`sensor.security_intruder_level`) — both already fixed, never marked.** The
+        duplicate condition is gone; the sensor was removed outright (not just given a
+        unique_id) — Section 3's Entity Reference table still listed it as a live LOCKED
+        core sensor, corrected.
+      - **ISSUE 14 (`intruder_high` state) — downgraded, not closed.** Now confirmed
+        consumed (`binary_sensor.security_intruder_active` treats it same as plain
+        `intruder`) but still not given the distinct escalated severity the issue actually
+        asked for — left open with corrected status.
+      - **Recommendations 8.3 (Telegram photo) and 8.4 (cam14/cam15 priority) — both
+        already implemented, never marked done.** 8.1 (last-active-camera coverage)
+        corrected to current camera names (9/11 sources, cam09/14/15 still missing) — the
+        doc's camera list (cam01/06/11) predated the ipcam* rename. 8.5's "mode: restart"
+        claim was stale — live is `mode: single`; left open with the corrected mechanism
+        noted since the underlying risk is different but not eliminated. 8.7 (EZVIZ
+        doorbell) — confirmed still disabled by user choice, but noted the doorbell
+        hardware itself is confirmed in use (new device-battery monitoring, see ALERTS
+        entry above) so the doc's "if removed, delete" branch no longer applies.
+      - **One live code fix:** `security_automations.yaml`'s header "Toggles" comment
+        table claimed `holiday_mode` "❌ DOES NOTHING" and `entertaining_mode` "❌ NOT
+        USED" — both false, both are read in `sensor.security_correlation`
+        (`security_logic.yaml`) to produce `intruder_high`/`ignore` respectively. Comment
+        corrected in place; no behavioural change.
+      Validated: local YAML parse + `ha core check` both pass (only file touched with real
+      YAML content was the one comment fix; docs are Markdown).
+
 - [x] **2026-08-21 (5th pass, same day) — ALERTS_CONTRACT.md deep drift sweep (1st of 9
       domain contracts in this multi-session audit; WATER already done same day, GARDEN/
       PRESENCE/LIGHTING/SECURITY/NETWORK/NOTIFICATIONS/CONTEXT/INFRA remain).** Doc-only —

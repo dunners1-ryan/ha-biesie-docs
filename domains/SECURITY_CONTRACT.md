@@ -2,6 +2,17 @@
 > **Authoritative reference.** Produced by deep audit 2026-04-13.  
 > Update after every structural change to the security package.  
 > Read alongside `PROJECT_STATE.md` when working on security.
+>
+> **2026-08-21 deep drift sweep:** File Inventory (Section 2) was missing 2 of 9 live
+> files (`security_alarm.yaml`, `security_history_cleanup.yaml`) — added. Entity
+> Reference (Section 3) still listed `sensor.security_intruder_level`, which has been
+> removed from live code — corrected. Six issues/recommendations found already fixed but
+> never marked done (ISSUE 1, 11, 13; 8.3, 8.4; Sprint checklist Issues 7/8/11/13), one
+> found worse than documented (ISSUE 10 — www/ snapshot count grew from 1,871 to 31,812),
+> one downgraded from "not consumed" to "consumed but not escalated" (ISSUE 14). A stale
+> header comment in `security_automations.yaml` claiming `holiday_mode`/`entertaining_mode`
+> "do nothing" (both are actually wired into `sensor.security_correlation`) was also fixed
+> in the live YAML. No functional/behavioural code changes — doc-and-comment drift only.
 
 ---
 
@@ -291,6 +302,14 @@ Once `regionentrance` is primary:
 | `security_logic.yaml` | Core logic sensors: event classification, trigger camera selection, correlation engine, movement confidence/path, intruder level, threat score and threat level |
 | `security_zones.yaml` | Zone aggregation binary sensors: perimeter front/rear/combined, grounds, external, inside house |
 | `security_automations.yaml` | All automations: snapshot capture (×2 overlapping), movement path tracking, event lifecycle start/end, event router, visitor detection, arrival detection, grounds/rear/house motion, rear perimeter, gate open action |
+| `security_alarm.yaml` | Interface stub for the IDS Hyyp alarm panel integration — documents the expected entity interface, migration target for IDS automations once the integration is wired to HA. Not yet live (IMP-IDS01) — no IDS automations exist anywhere in the repo yet. |
+| `security_history_cleanup.yaml` | `script.security_history_cleanup` — one-shot manual utility to purge stale bare-filename/`security_`-prefixed camera history `input_text` entries left over from a pre-2026-05-17 automation format. Run manually via Developer Tools; safe to delete once no longer needed. |
+
+*(Added 2026-08-21: both files existed already but were missing from this table —
+9 files live in `packages/security/`, this table previously listed only 7. Also note
+`CLAUDE.md`'s package summary table says "security/ (7 files)" — same stale count,
+not fixed here since that file is out of scope for this contract, flagging for
+awareness.)*
 
 ### No legacy automations in `automations.yaml`
 
@@ -346,8 +365,8 @@ No security-domain helpers were found to be UI-created. All are YAML-defined in
 | `sensor.security_threat_score` | template sensor | security_logic.yaml | 0–100 | security_threat_level |
 | `sensor.security_movement_confidence` | template sensor | security_logic.yaml | none, low, medium, high | security_grounds_motion condition, security_correlation |
 | `sensor.security_movement_path` | template sensor | security_logic.yaml | street, driveway, front_door, side_entry, rear_left, rear_center, rear_right, none | lighting_security.yaml, security_event_router |
-| `sensor.security_correlation` | template sensor (no unique_id!) | security_logic.yaml | family_arrival, visitor, service_visit, intruder, house_intrusion, intruder_high, ignore, none | security_grounds_motion, security_rear_grounds_motion, security_house_motion |
-| `sensor.security_intruder_level` | template sensor (no unique_id!) | security_logic.yaml | critical, warning, info, none | Possibly UI only — partially redundant to threat_level |
+| `sensor.security_correlation` | template sensor, `unique_id: security_correlation` (fixed 2026-04-15, ISSUE 12) | security_logic.yaml | family_arrival, visitor, service_visit, intruder, house_intrusion, intruder_high, ignore, none | security_grounds_motion, security_rear_grounds_motion, security_house_motion, `binary_sensor.security_intruder_active` |
+| ~~`sensor.security_intruder_level`~~ | **REMOVED** (2026-08-21 doc-drift correction — sensor does not exist in `security_logic.yaml` or anywhere else live; no consumers found repo-wide either. Was already redundant to `sensor.security_threat_level` per ISSUE 13 — the "remove if unused" branch of that issue's fix was evidently taken at some point without a matching doc update.) | — | — | — |
 | `sensor.security_mode` | template sensor | security_core.yaml | away, night, home | notify_security_events.yaml |
 | `sensor.security_trust_mode` | template sensor | security_core.yaml | scheduled_staff, detected_staff, normal | UI only |
 | `sensor.security_lighting_intent` | template sensor | security_core.yaml | ignore, full, area, perimeter | lighting_security.yaml |
@@ -653,7 +672,15 @@ security_event_end
 ---
 
 ### ISSUE 1 — Duplicate snapshot files (confirmed)
-**Priority: HIGH | Risk to fix: LOW**
+**Priority: HIGH | Risk to fix: LOW | ✅ FIXED (Option A) — doc-drift correction 2026-08-21**
+
+**Confirmed live:** `security_capture_best_snapshot`'s `filename_cam` in
+`security_automations.yaml` is now `/config/www/{{ cam_id }}_{{ timestamp }}.jpg` — no
+`security_` prefix. The old `security_{{ cam_id }}...` lines are present only as
+commented-out remnants. `ls www/ | grep -c '^security_cam'` → **0** live — the orphan
+duplicate-file class this issue was about no longer exists. This was Option A from the
+Fix section below, not Option B. The retention/cleanup follow-up ("Also needed") is
+still open — tracked separately as ISSUE 10, now at 31,812 files (see that entry).
 
 **Symptom:** Every motion event creates two snapshot files:
 - `security_cam05_front_driveway_TIMESTAMP.jpg` (security_ prefix)
@@ -857,7 +884,7 @@ object or split into 3 discrete fixed-size `input_text` entities
 ---
 
 ### ISSUE 10 — www/ snapshots accumulate without cleanup
-**Priority: MEDIUM | Risk to fix: LOW**
+**Priority: MEDIUM | Risk to fix: LOW | ❌ STILL OPEN — re-verified 2026-08-21, has gotten worse**
 
 **Symptom:** 1,871 snapshot files in `/config/www/`. No retention policy. Disk will fill
 over time.
@@ -868,10 +895,23 @@ over time.
 **Fix:** Add a pyscript or shell_command that runs daily to delete snapshot files older
 than 7 days from `/config/www/`, excluding `avatars/` and static images.
 
+**Re-verified 2026-08-21:** `ls www/*.jpg | wc -l` → **31,812 files**, ~17x the 1,871
+count this issue was originally filed against. Confirmed no cleanup mechanism exists
+anywhere in `packages/` (`security/`, `core/`, `backup/`) — grep for
+`shell_command`/pyscript snapshot-cleanup patterns found nothing. Still open, and the
+growth trend argues for prioritizing it over its current MEDIUM label.
+
 ---
 
 ### ISSUE 11 — Duplicate condition check in `security_capture_best_snapshot`
-**Priority: LOW | Risk to fix: LOW**
+**Priority: LOW | Risk to fix: LOW | ✅ FIXED — doc-drift correction 2026-08-21**
+
+**Confirmed live:** `security_capture_best_snapshot`'s `condition:` block in
+`security_automations.yaml` now has exactly one
+`{{ trigger.to_state.state != trigger.from_state.state }}` check, not two — no code
+change needed this session, only this entry was stale. (The automation gained two more
+conditions since this issue was filed — system-enabled + confidence gating — unrelated
+to the duplicate that was here.)
 
 **Symptom:** The same condition appears twice at lines 57–60 of `security_automations.yaml`:
 ```yaml
@@ -898,18 +938,22 @@ than 7 days from `/config/www/`, excluding `avatars/` and static images.
 ---
 
 ### ISSUE 13 — `sensor.security_intruder_level` has no `unique_id` and is redundant
-**Priority: LOW | Risk to fix: LOW**
+**Priority: LOW | Risk to fix: LOW | ✅ FIXED (removed) — doc-drift correction 2026-08-21**
 
 **Symptom:** Partially duplicates `sensor.security_threat_level` (critical/warning/info/none
 vs critical/warning/elevated/low). Nothing appears to consume `security_intruder_level`
 in any automation.
 
-**Fix:** Add unique_id, or remove if unused after confirming no dashboard dependency.
+**Fix:** ~~Add unique_id, or remove if unused after confirming no dashboard dependency.~~
+Confirmed live 2026-08-21: the sensor was removed outright at some point (not present in
+`security_logic.yaml` or anywhere else in `packages/`, no consumers repo-wide) — the
+"remove if unused" branch of this fix was taken, just never reflected here. Section 3's
+Entity Reference table corrected to match.
 
 ---
 
 ### ISSUE 14 — `intruder_high` state produced but never consumed
-**Priority: LOW | Risk to fix: LOW**
+**Priority: LOW | Risk to fix: LOW | ⚠️ PARTIALLY FIXED — re-verified 2026-08-21**
 
 **Symptom:** `sensor.security_correlation` produces `intruder_high` when `holiday_mode`
 is on, but no automation has a trigger or condition for this state.
@@ -917,6 +961,19 @@ is on, but no automation has a trigger or condition for this state.
 **Fix:** Add a condition branch in `security_event_router` to handle `intruder_high`
 with escalated notification (critical severity), OR escalate threat score when holiday_mode
 is on (change threat scoring to add bonus points).
+
+**Status as of 2026-08-21:** `intruder_high` IS now consumed —
+`binary_sensor.security_intruder_active` (security_logic.yaml) treats
+`security_correlation in ['intruder', 'intruder_high']` identically, so it does feed the
+intruder dedup gate and downstream automations/notifications. What's still missing is the
+*escalation* this issue asked for: `intruder_high` gets no distinct treatment from a plain
+`intruder` anywhere downstream — same severity, same notification. Also found: the
+`security_automations.yaml` header comment block (top of file, "Toggles" table) still
+claimed `holiday_mode` "❌ DOES NOTHING — BROKEN" and `entertaining_mode` "❌ NOT USED —
+DEAD" — both stale (both are read in `sensor.security_correlation`, lines ~520/535); fixed
+that comment this session. Downgrading this issue from "not consumed" to "consumed but not
+escalated" — leaving open, not closing, since the original ask (distinct critical-severity
+treatment) is still unimplemented.
 
 ---
 
@@ -2357,9 +2414,13 @@ MISSING IN DASHBOARD: sensor.cam11_last_seen_seconds (lovelace:2733)
 These work but could be improved. Do NOT mix with the bugs above.
 
 ### 8.1 — `sensor.security_last_active_camera` only covers 5 cameras
-
-Currently tracks cam01, cam05, cam06, cam07, cam11. Does not include cam04, cam09, cam10,
-cam14, cam15. Add the missing cameras to the list.
+**Status (re-verified 2026-08-21): PARTIALLY FIXED, doc was stale on the camera set.**
+The original camera names this item was filed against (cam01, cam06, cam11) predate the
+ipcam* rename/cleanup and no longer exist. Live (`cameras_processing.yaml:372-398`) the
+sensor now tracks 9 sources — `ipcam01/02/03/04/05` + `cam04/05/07/12` — matching Section
+3's Entity Reference table. Still genuinely missing: `cam09` (rear bedroom NVR) and the
+two inside-house cameras `cam14`/`cam15` — the same gap 8.4 below identifies for the
+trigger-camera priority list. Worth fixing together with 8.4 in one pass.
 
 ### 8.2 — `security_event_router` reads sensor path, not stored path
 
@@ -2368,22 +2429,29 @@ rather than `input_text.security_last_path` (accumulated zone history). Notifica
 show single zone. Consider using `security_last_path` for richer movement context.
 
 ### 8.3 — No Telegram photo attachment in notifications
-
-`notify_security_events.yaml:196-199` has the Telegram photo block commented out.
-The image is included in HA mobile app notifications but not Telegram. Uncomment when
-Telegram file URL approach is confirmed working.
+**Status: ✅ FIXED — doc-drift correction 2026-08-21.** `notify_security_events.yaml` now
+sends `telegram_bot.send_photo` (line ~509, `continue_on_error: true`) whenever an image
+is available, guarded by `img is not none and img != 'None'`. Landed as part of the
+BUG-S59/S60/S61/S62 series (Telegram image delivery bugs) — this recommendation's ask
+was satisfied along the way but never marked done here.
 
 ### 8.4 — `sensor.security_trigger_camera` camera priority list excludes cam14/cam15
-
-The priority list in `security_logic.yaml:72-82` omits cam14 and cam15 (inside house).
-These would only fire during a house intrusion — highest-priority event — and should be
-added at the TOP of the priority list.
+**Status: ✅ FIXED 2026-06-20 — doc-drift correction 2026-08-21.** Confirmed live in
+`security_logic.yaml` (`security_trigger_camera`, ~line 410): cam14 (lounge) and cam15
+(passage) are now items 1-2 of the priority list, ranked *above* every outdoor camera —
+exactly what this item asked for, plus the file's own comment block documents the
+2026-06-20 fix and cites this contract. Only this recommendation's status was never
+updated to match.
 
 ### 8.5 — `security_capture_best_snapshot` mode: restart loses frames
-
-With `mode: restart`, if two cameras trigger rapidly, the second restart cancels the
-first, potentially missing the initial frame. Consider `mode: queued` with a max_runs
-limit or `mode: parallel` with a per-camera semaphore.
+**Status (re-verified 2026-08-21): claim is stale — the automation now uses `mode: single`
+with `max_exceeded: silent`, not `mode: restart`.** That's a different trade-off than the
+one this item describes (a `single`-mode retrigger while busy is dropped/logged silently
+rather than cancelling an in-progress run), so the specific "restart cancels the first
+frame" failure mode no longer applies — but a rapid-retrigger frame could still be
+silently dropped under `single`. Leaving open with the corrected mode noted, since the
+underlying "could a fast second trigger lose a frame" question is still live, just via a
+different mechanism than originally described.
 
 ### 8.6 — Movement path sensors are redundant
 
@@ -2401,6 +2469,14 @@ different roles (one for UI display, one for automation conditions).
 EZVIZ doorbell is still in use, re-enable the integration. If removed, delete
 `sensor.doorbell_last_image_safe` from cameras_processing.yaml.
 
+**Re-verified 2026-08-21:** Still `disabled_by: "user"` in `core.entity_registry` — no
+code change since this was filed. The "if removed, delete" branch no longer applies
+either way: the EZVIZ doorbell hardware is confirmed still in use as of this same day —
+`ezviz_main_gate_doorbell_battery` was onboarded into the new device-battery monitoring
+domain (`alerts_device_batteries.yaml`, see ALERTS_CONTRACT.md). So the doorbell device
+itself is live; only this one derived picture-URL sensor is deliberately disabled — a
+user re-enable decision, not something to action without asking.
+
 ---
 
 ## Section 9: Implementation Checklist
@@ -2417,7 +2493,9 @@ SPRINT 1 — Fix Silent Failures (no risk, immediate value)
                   cam10_pool_bar_motion_images → cam10_pool_bar_images
 [✅] Fix Issue 12: add unique_id to sensor.security_correlation — DONE 2026-04-15
 [✅] D5: remove presence_test_arrival test automation from production — DONE 2026-04-15
-[ ] Fix Issue 11: remove duplicate condition block in security_capture_best_snapshot
+[✅] Fix Issue 11: remove duplicate condition block in security_capture_best_snapshot
+                 — doc-drift correction 2026-08-21, found already fixed live (only one
+                 `trigger.to_state.state != trigger.from_state.state` check remains)
 [✅] Fix Issue 3 — DONE 2026-05-17 (S1.3 rebuild, not this checklist's original A/B
                  proposal): boundary_permissive_window rewritten to use
                  low_trust_present OR guest_mode OR boundary_permissive_override.
@@ -2425,10 +2503,13 @@ SPRINT 1 — Fix Silent Failures (no risk, immediate value)
                  as PRESENCE_CONTRACT.md BUG-P17.
 
 SPRINT 2 — Snapshot Deduplication (Issue 1)
-[ ] Decide on Option A or Option B (see Issue 1)
-[ ] Implement chosen option
-[ ] Add www/ retention cleanup (daily cron via pyscript or shell_command)
-[ ] Validate no dashboard cards break
+[✅] Decide on Option A or Option B (see Issue 1) — Option A chosen
+[✅] Implement chosen option — DONE, doc-drift correction 2026-08-21 (found already fixed
+                 live — filename_cam has no security_ prefix, 0 orphan files in www/)
+[ ] Add www/ retention cleanup (daily cron via pyscript or shell_command) — still open,
+                 see ISSUE 10 (31,812 files as of 2026-08-21)
+[ ] Validate no dashboard cards break — not re-validated this session (doc-only pass);
+                 worth a quick dashboard check next time www/ or snapshot paths are touched
 
 SPRINT 3 — Notification Architecture (Issues 2 + 8)
 [✅] Fix Issue 2 — DONE 2026-05-17, but via a more thorough path than this checklist
@@ -2443,9 +2524,17 @@ SPRINT 3 — Notification Architecture (Issues 2 + 8)
                  security_automations.yaml or automations.yaml) — closed same session as
                  PRESENCE_CONTRACT.md BUG-P17. See Section 6 ISSUE 2 (already marked
                  RESOLVED) for the original incident writeup.
-[ ] Fix Issue 7: add from: "off" to all motion triggers
-[ ] Fix Issue 8: re-enable low_trust_present and guest_mode conditions
-                 after trigger changes are validated
+[✅] Fix Issue 7: add from: "off" to all motion triggers — DONE 2026-07-10, doc-drift
+                 correction 2026-08-21 (checklist line found unmarked; Section 6 ISSUE 7
+                 already documented this fix, just this checkbox never got ticked)
+[✅] Fix Issue 8 — DONE via the S2/S3 classifier rebuild, not this checklist's original
+                 literal ask. Doc-drift correction 2026-08-21: this line still read
+                 "re-enable low_trust_present and guest_mode conditions", but Section 6
+                 ISSUE 8 already explicitly rejected that literal fix back in 2026-05-17
+                 (S1 session note — uncommenting the old per-automation conditions would
+                 restore a broken trust path referencing a deprecated helper). The actual
+                 fix routes trust filtering through sensor.security_correlation /
+                 security_event_router instead — checkbox never got updated to match.
 
 SPRINT 4 — Session State Machine (Issue 9)
 [ ] Design pyscript state object for event session OR 3-slot fixed entities
@@ -2454,9 +2543,16 @@ SPRINT 4 — Session State Machine (Issue 9)
 
 SPRINT 5 — Optimisations (Section 8)
 [✅] Add cam14/cam15 to security_trigger_camera priority list (top) — DONE 2026-05-18
-[ ] Add missing cameras to security_last_active_camera sensor
-[ ] Add intruder_high handling in event router or threat score
-[ ] Resolve/remove sensor.security_intruder_level if unused
+[ ] Add missing cameras to security_last_active_camera sensor — PARTIAL: 9/11 cameras
+                 now tracked (re-verified 2026-08-21, see 8.1); cam09/cam14/cam15 still
+                 missing
+[ ] Add intruder_high handling in event router or threat score — PARTIAL: intruder_high
+                 is consumed now (binary_sensor.security_intruder_active treats it like
+                 plain `intruder`, re-verified 2026-08-21, see ISSUE 14) but still gets no
+                 distinct escalated severity/notification, which was the actual ask
+[✅] Resolve/remove sensor.security_intruder_level if unused — DONE (removed), doc-drift
+                 correction 2026-08-21: sensor no longer exists anywhere in packages/,
+                 confirmed no consumers repo-wide; see ISSUE 13
 
 SPRINT 6 — 2026-05-10/11/12/14 changes (done)
 [✅] Warning branch made zone-aware: perimeter-only events say "Perimeter Activity", not "Intruder on Property"
