@@ -881,24 +881,85 @@ The policy helpers were designed to replace hardcoded thresholds but never got w
 
 There are two competing threshold systems right now. Pick one.
 
-### Recommendation 3 — Add explicit `"full"` state to `sensor.water_state`
-Currently `water_state` goes from `refilling` to `ok` as the pump stops. There is no `"full"` state. Adding one would:
-- Fix the tank full notification (Issue 2)
-- Make dashboards clearer
-- Align `sensor.water_state` with the lifecycle spec
+### Recommendation 3 — ❌ EVALUATED, NOT IMPLEMENTED 2026-08-21: Add explicit `"full"` state to `sensor.water_state`
+**Decision: do not implement.** The practical need this recommendation targeted is
+already covered by `binary_sensor.water_tank_full_depth` (fires at depth ≥ 1.95m,
+drives `water_tank_full_notification` — see Issue 2's 2026-08-21 resolution, which
+found the notification already working off that binary sensor, not off
+`sensor.water_state`) and by `sensor.borehole_control_status`'s "Tank full" status
+line (`water_state == 'ok' and level >= 90`, `water_state_extensions.yaml`).
 
-```yaml
-{% elif d >= states('input_number.water_target_depth_full') | float(1.85) %}
-  full
-{% elif is_state('switch.borehole_pump','on') %}
-  refilling
-```
+Adding `"full"` as a new `sensor.water_state` value is not a safe drop-in — it would
+be a **breaking change** to existing consumers that treat `'ok'` as the sole "nothing
+wrong" state:
+- `alerts_water.yaml`'s `binary_sensor.water_alert_active` and
+  `sensor.water_alert_context` both gate on
+  `states('sensor.water_state') not in ['ok', 'unknown', 'unavailable']` to decide
+  whether the tank is in a bad state. A tank reaching `'full'` would newly satisfy
+  that condition and could false-fire a `warning`/`critical` water alert (e.g.
+  combined with a stuck `water_refill_aborted_due_to_safety` flag) for the one
+  state that is least worth alerting on.
+- `sensor.borehole_control_status`'s own "Tank full" branch already tests
+  `water_st == 'ok'` — it would silently stop matching and fall through to a
+  different status line.
 
-### Recommendation 4 — Formalize state machine as an explicit sensor
-The lifecycle contract implies Idle → Running → Completed/Aborted. Currently these states are spread across `sensor.water_refill_cycle` and `input_boolean.water_refill_cycle_active`. A single `sensor.water_lifecycle_state` (idle/running/completed/aborted) would make dashboards and automations more reliable.
+Making this change safely would mean auditing and updating every `== 'ok'` /
+`not in ['ok', ...]` check across `alerts_water.yaml`, `water_state_extensions.yaml`,
+and any dashboard cards — for a feature whose only stated benefits (tank-full
+notification, dashboard clarity) are already delivered by the binary sensor and the
+control-status sensor. Not a clear win; closing as evaluated-and-declined rather than
+leaving it open indefinitely.
 
-### Recommendation 5 — Rate-limit spike notifications
-`water_protection_automations.yaml` fires a notification every time a spike > 1.0m is rejected. If the Tuya sensor enters a glitch loop, this produces a notification storm. Add a `rate_limit_minutes: 30` or use a `delay` + `mode: single` to suppress repeat spikes within a window.
+### Recommendation 4 — ❌ EVALUATED, NOT IMPLEMENTED 2026-08-21: Formalize state machine as an explicit sensor
+**Decision: do not implement as specified.** `sensor.water_refill_cycle_summary`
+(`water_refill_cycle.yaml`) already substantially satisfies this recommendation's
+intent — its own header comment calls it "Single source of truth for completed
+refill cycles. Dashboards, reports, and audits read ONLY from here." It already
+merges `input_boolean.water_refill_cycle_active` +
+`input_boolean.water_refill_aborted_due_to_safety` into one state
+(`active`/`aborted`/`completed`) with full attributes (start/end depth, timing,
+avg flow, `aborted_due_to_safety`, `manual_run`), and is already consumed
+elsewhere (`water_templates.yaml:192`, referenced in `water_safety.yaml`).
+`sensor.water_refill_cycle` separately gives `idle`/`refilling`/`completed`.
+
+Adding a third sensor (`sensor.water_lifecycle_state`, idle/running/completed/aborted)
+would not consolidate anything — it would be a **third** representation of the same
+underlying flags, the exact kind of drift-prone duplication this contract's
+Recommendation 2 (deleted `water_policy_helpers.yaml`) and the 2026-08-21 dashboard
+recalibration note (§7) both already flagged as a pattern to avoid.
+
+It would also brush up against `a_water_lifecycle_contract.yaml`'s (locked, read-only)
+"REQUIRED FLAGS" section, which names
+`water_refill_cycle_active`/`water_refill_manual_run`/`water_refill_aborted_due_to_safety`
+as the source of truth — a new sensor claiming to be *the* lifecycle state risks being
+read as a second, competing source of truth rather than a pure derived view.
+
+**Minor gap noted, not actioned:** `sensor.water_refill_cycle_summary` has no true
+"idle" state — before any cycle has ever run, or between cycles, it falls through to
+`completed` (since it only distinguishes `active` vs `aborted`, defaulting to
+`completed` otherwise). This is cosmetic (matters only fresh off a first-ever install)
+and not worth a new sensor to fix; flagging here in case a future session wants to add
+an explicit idle branch to the existing sensor instead of creating a new one.
+
+### Recommendation 5 — ✅ DONE 2026-08-21: Rate-limit spike notifications
+Implemented as a cooldown gate, not the `rate_limit_minutes: 30` shorthand originally
+suggested — that field doesn't exist on `script.notify_water_event`
+(`packages/notifications/notify_water_events.yaml` has no `rate_limit_minutes` field
+and no logic for it; the two `rate_limit_minutes: 60` call-sites already in
+`water_tank_refill_control.yaml`'s emergency-refill branches are themselves silently
+inert extra data, unrelated to this fix). Instead used this repo's existing
+`input_datetime.<x>_last_alert` cooldown-gate idiom (same pattern as
+`unknown_draw_warning` in `power_automations.yaml`):
+- New `input_datetime.water_spike_notify_last_sent` +
+  `input_number.water_spike_notify_cooldown_minutes` (default 30) in
+  `water_helpers.yaml`.
+- `water_depth_spike_rejected` (`water_protection_automations.yaml`) now wraps the
+  `script.notify_water_event` call in an `if:` gated on elapsed time since
+  `water_spike_notify_last_sent` ≥ the cooldown, stamping the timestamp *before*
+  notifying (blocks re-entrant fires during the notify call itself). `logbook.log`
+  stays unconditional — every rejection is still in the audit trail, only the
+  push/Telegram notify is throttled.
+- Validated: local YAML parse + `ha core check` both pass.
 
 ---
 

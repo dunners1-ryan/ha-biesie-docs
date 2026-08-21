@@ -5,6 +5,44 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-08-21 (4th pass, same day) — WATER_CONTRACT Recommendations 3-5 actioned.**
+      Evaluated all three open Recommendations against live `packages/water/` code
+      rather than implementing blindly:
+      - **Recommendation 3 (explicit `"full"` state on `sensor.water_state`) —
+        evaluated, declined.** The practical need is already covered by
+        `binary_sensor.water_tank_full_depth` (Issue 2's 2026-08-21 resolution) and
+        `sensor.borehole_control_status`'s "Tank full" line. Adding `"full"` would be
+        a breaking change to every `== 'ok'` / `not in ['ok', ...]` check in
+        `alerts_water.yaml` (would newly treat a full tank as alert-worthy) and
+        `water_state_extensions.yaml` — not a clear win for the stated benefit.
+      - **Recommendation 4 (single `sensor.water_lifecycle_state`) — evaluated,
+        declined.** `sensor.water_refill_cycle_summary` already is the documented
+        single source of truth for cycle state (own header comment says so),
+        already merges the two flags into one state + full attributes, already
+        consumed elsewhere. A new sensor would be a third, drift-prone
+        representation, not a consolidation, and risks reading as a second source
+        of truth competing with `a_water_lifecycle_contract.yaml`'s locked
+        "REQUIRED FLAGS". Minor gap noted (no true "idle" state on the existing
+        summary sensor) but not worth a new sensor to fix.
+      - **Recommendation 5 (rate-limit spike-rejection notification) — implemented.**
+        `water_depth_spike_rejected` (`water_protection_automations.yaml`) now gates
+        its `script.notify_water_event` call behind a cooldown
+        (`input_datetime.water_spike_notify_last_sent` +
+        `input_number.water_spike_notify_cooldown_minutes`, default 30 — new helpers
+        in `water_helpers.yaml`), same `input_datetime.<x>_last_alert` idiom already
+        used by `unknown_draw_warning` in `power_automations.yaml`. `logbook.log`
+        stays unconditional (audit trail intact); only the push/Telegram notify is
+        throttled. **Finding along the way:** the `rate_limit_minutes: 60` data key
+        already present at 2 call sites in `water_tank_refill_control.yaml`'s
+        emergency-refill branches is a no-op — `script.notify_water_event`
+        (`notify_water_events.yaml`) has no such field and no rate-limit logic; not
+        fixed this session (out of scope for Recommendation 5), flagged in
+        WATER_CONTRACT.md for awareness.
+      Full writeups in WATER_CONTRACT.md §8 (Recommendations 3/4/5). Validated via
+      local YAML parse + `ha core check` (both pass). No entities added need dashboard
+      wiring (cooldown helpers are internal-only). No restart required — helpers and
+      automations reload via Developer Tools.
+
 - [x] **2026-08-21 (3rd pass, same day) — New Device Battery Monitor domain: dashboard +
       alert pipeline for every battery device NOT already tracked.** User asked for a
       battery dashboard covering all sensors/trackers with batteries (door/gate sensors,
