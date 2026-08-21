@@ -1,6 +1,14 @@
 # HABiesie — Presence Domain Context
 > **Living document.** Update after every change to the presence package.  
 > Paste alongside `PROJECT_STATE.md` when working on presence.
+>
+> **⚠️ Superseded by `docs/domains/PRESENCE_CONTRACT.md` — use the contract for real
+> work.** This file is a quick-reference summary, dated 2026-04-13/14, essentially
+> untouched since while the presence domain absorbed months of fixes (BUG-P01 through
+> BUG-P20, all closed). Corrected 2026-08-21: the Package Files list named 3 files that
+> don't exist (already flagged stale in the contract); Known Problems #2 (security not
+> consuming trust model) is fixed. The rest of Known Problems was not individually
+> re-verified this pass — don't trust it over the contract's Bug Catalog.
 
 ---
 
@@ -18,13 +26,21 @@ Layer 3: Security Engine ──→ ignore/notify/alert/alarm
 
 ## 📁 Package Files
 
+**⚠️ Corrected 2026-08-21 — this list named 3 files that don't exist
+(`presence_templates.yaml`, `presence_state.yaml`, `presence_automations.yaml`), already
+flagged as stale in PRESENCE_CONTRACT.md. Replaced with the live 6-file inventory.**
+
 ```
 packages/presence/
-  presence_helpers.yaml       # person helpers, mode flags, timestamps
-  presence_templates.yaml     # AP location, confidence, room occupancy sensors
-  presence_state.yaml         # room occupied aggregation, home/away state
-  presence_automations.yaml   # arrival/departure resolver, trust scheduling
-  presence_core.yaml          # device_tracker and zone config
+  presence_helpers.yaml       # arrival/departure booleans, last-event timestamps
+  presence_core.yaml          # AP→room map, per-person location, RAW occupancy, groups
+  presence_confidence.yaml    # confidence scoring, binary occupied per room,
+                               # family_arriving/departing/all_family_home
+  presence_boundary.yaml      # boundary resolver (gate-based arrival/departure)
+  presence_validation.yaml    # unknown AP detection, AP sanity sensors
+  presence_trust.yaml         # trust model: booleans, derived binary sensors,
+                               # maid/gardener schedules, startup state sync
+                               # (migrated from context/context_presence.yaml, 2026-04-30)
 ```
 
 ---
@@ -136,16 +152,27 @@ sensor.unknown_unifi_ap_details
 
 ## ⚠️ Known Problems
 
+**⚠️ Not individually re-verified 2026-08-21 except #2 (confirmed fixed) — this whole
+section is from April and PRESENCE_CONTRACT.md's Bug Catalog (all BUG-P01–P20, fully
+re-verified this session and already accurate) is the current source of truth. Treat #1,
+#3, #4 below as unconfirmed, not necessarily still open.**
+
 ### 1. Duplicate Trust Concepts
 - `input_boolean.staff_on_site` (manual) vs `binary_sensor.staff_on_site` (derived)
 - These overlap and create confusion about which is authoritative
 - **Rule:** Always use the derived `binary_sensor.staff_on_site` in automations — never the boolean directly
 - **Fix needed:** Rename or remove `input_boolean.staff_on_site` to eliminate ambiguity
+  — not done as of 2026-08-21 (confirmed both entities still exist, orphaned per
+  PRESENCE_CONTRACT.md's File Inventory), but low-impact — every consumer already uses
+  the derived sensor correctly, this is cosmetic cleanup only.
 
-### 2. Security Not Consuming Trust Model
-- Classification logic had trust filtering commented out during testing
-- Security system currently makes decisions without knowing who is home
-- **Fix needed:** Re-enable trust conditions in `security_automations.yaml` classification
+### 2. ✅ FIXED — Security Not Consuming Trust Model
+Confirmed fixed 2026-08-21 (BUG-P01/P04, PRESENCE_CONTRACT.md, fixed 2026-04-15 and
+2026-05-17 respectively). Security now reads the derived `binary_sensor.low_trust_present`/
+`staff_on_site` via `sensor.security_correlation`, not commented-out conditions.
+- ~~Classification logic had trust filtering commented out during testing~~
+- ~~Security system currently makes decisions without knowing who is home~~
+- ~~**Fix needed:** Re-enable trust conditions in `security_automations.yaml` classification~~
 
 ### 3. No Clean Override Model
 - Can't easily say "ignore staff schedule for today"

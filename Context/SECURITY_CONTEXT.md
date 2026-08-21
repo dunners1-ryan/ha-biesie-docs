@@ -1,6 +1,14 @@
 # HABiesie — Security Domain Context
 > **Living document.** Update after every change to the security package.  
 > Paste alongside `PROJECT_STATE.md` when working on security.
+>
+> **⚠️ Superseded by `docs/domains/SECURITY_CONTRACT.md` — use the contract for real
+> work.** This file is a quick-reference summary, dated 2026-04-13, essentially
+> untouched since while the security domain absorbed 75+ tracked bugs (BUG-S01 through
+> BUG-S75+) and a full deep-drift sweep earlier the same session as this correction
+> (2026-08-21). Package Files listed 4 nonexistent files; Known Problems #4 (trust model
+> not wired) was fixed months ago via the S2/S3 classifier rebuild. #1/#3/#5 not
+> individually re-verified this pass.
 
 ---
 
@@ -28,15 +36,23 @@ Camera Motion → Trigger → Classify → Snapshot → Path Build → Notify
 
 ## 📁 Package Files
 
+**⚠️ Corrected 2026-08-21 — this list named 4 files that don't exist
+(`security_templates.yaml`, `security_state.yaml`, `security_cameras.yaml`,
+`security_notifications.yaml`). Replaced with the live 9-file inventory (was also
+missing 2 files in SECURITY_CONTRACT.md's own table until this session — see that
+contract's File Inventory for full descriptions).**
+
 ```
-packages/security/
-  security_helpers.yaml       # input_text, input_datetime, input_boolean helpers
-  security_templates.yaml     # threat score, classification, movement path sensors
-  security_state.yaml         # zone aggregation, perimeter/grounds/house sensors
-  security_automations.yaml   # event router, snapshot capture, path tracking
-  security_core.yaml          # Hikvision integration config
-  security_cameras.yaml       # Camera entity definitions
-  security_notifications.yaml # Security-specific notification routing
+packages/security/  (9 files)
+  cameras_core.yaml           # group definitions (perimeter/grounds/inside cameras)
+  cameras_processing.yaml     # debounce sensors, correlation, last-event timestamps
+  security_helpers.yaml       # input_boolean/input_number/input_datetime/input_text helpers
+  security_core.yaml          # boundary_permissive_window, security_mode, trust_mode
+  security_logic.yaml         # event classification, correlation, threat score/level
+  security_zones.yaml         # zone aggregation binary sensors
+  security_automations.yaml   # snapshot capture, event lifecycle, event router
+  security_alarm.yaml         # IDS Hyyp interface stub (not yet wired)
+  security_history_cleanup.yaml # one-shot manual camera-history cleanup script
 ```
 
 ---
@@ -143,6 +159,12 @@ All outdoor cameras have `delay_on` added to filter rain/wind/spider false trigg
 
 ## ⚠️ Known Problems (Root Causes Understood)
 
+**⚠️ Only #4 individually re-verified 2026-08-21 (confirmed fixed). #1/#3/#5 not
+re-checked this pass — #2 was independently re-confirmed still open via
+SECURITY_CONTRACT.md ISSUE 9 earlier the same session. SECURITY_CONTRACT.md's Bug
+Catalog (75+ BUG-S entries, all current) is the authoritative source — this section
+predates the vast majority of it.**
+
 ### 1. Duplicate Images
 - **Cause:** Multiple triggers fire on same motion event (NVR sends multiple signals)
 - **Fix:** `delay_on` in cameras_processing.yaml now filters rapid re-fires
@@ -159,10 +181,15 @@ All outdoor cameras have `delay_on` added to filter rain/wind/spider false trigg
 - **Fix needed:** Move to direct IP cameras (ColorVu/AcuSense) — in progress
 - **Status:** Hardware transition ongoing
 
-### 4. Trust Model Not Wired to Security
-- **Cause:** Trust filtering logic was commented out during testing and never restored
-- **Fix needed:** Re-enable `low_trust_present` and `staff_on_site` conditions in security classification
-- **Status:** Security currently runs blind — no presence/trust filtering
+### 4. ✅ FIXED — Trust Model Not Wired to Security
+**Status corrected 2026-08-21** (SECURITY_CONTRACT.md ISSUE 8, doc-drift confirmed
+2026-07-10 and re-verified again live this session): the S2/S3 classifier rebuild wired
+trust filtering into `sensor.security_correlation`/`security_event_router` — not by
+re-enabling the old commented-out per-automation conditions (which would have restored a
+broken path referencing a deprecated helper), but structurally, at the classifier level.
+Security does not run blind.
+- ~~**Fix needed:** Re-enable `low_trust_present` and `staff_on_site` conditions in security classification~~
+- ~~**Status:** Security currently runs blind — no presence/trust filtering~~
 
 ### 5. Template Errors on Unknown Timestamps
 - **Cause:** `sensor.camXX_last_seen_seconds` fails when camera has never triggered

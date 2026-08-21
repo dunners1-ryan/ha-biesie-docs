@@ -1,6 +1,15 @@
 # HABiesie — Alerts & Notifications Domain Context
 > **Living document.** Update after every change to alerts or notifications packages.  
 > Paste alongside `PROJECT_STATE.md` when working on alerts/notifications.
+>
+> **⚠️ Superseded by `docs/domains/ALERTS_CONTRACT.md` and
+> `docs/domains/NOTIFICATIONS_CONTRACT.md` — use the contracts for real work.** This
+> file is a quick-reference summary, dated 2026-04-13, essentially untouched since while
+> both domains absorbed months of fixes (BUG-A01 through BUG-A19, BUG-N01 through
+> BUG-N18). Corrected 2026-08-21: Package Files listed 2 nonexistent files and every
+> notifications filename was wrong; Known Issues #3/#4 (notify bypasses, quiet hours)
+> both confirmed fixed. Items #1/#2 and "Next Steps" not individually re-verified this
+> pass.
 
 ---
 
@@ -18,26 +27,27 @@ Domain Condition → Severity Sensor → Alert Entity → Context Sensor → Glo
 
 ## 📁 Package Files
 
-```
-packages/alerts/
-  alerts_core.yaml              # alert entity definitions
-  alerts_device.yaml            # device-level alert helpers
-  alerts_doors.yaml             # door/gate security alerts
-  alerts_network.yaml           # WAN/LAN/device alerts
-  alerts_power.yaml             # grid/battery/load alerts
-  alerts_temperature.yaml       # device temperature alerts
-  alerts_water.yaml             # water system alerts
-  alerts_security.yaml          # security event alerts
+**⚠️ Corrected 2026-08-21 — this list named 2 files that don't exist
+(`alerts_core.yaml`, `alerts_device.yaml`, already flagged stale in ALERTS_CONTRACT.md)
+and every `packages/notifications/` filename was wrong (wrong naming scheme entirely).
+Replaced with the live inventory — 16 files in `alerts/`, 13 in `notifications/`; see
+ALERTS_CONTRACT.md Section 2 and NOTIFICATIONS_CONTRACT.md Section "Files Audited" for
+full per-file descriptions.**
 
-packages/notifications/
-  notifications_control.yaml    # master notify script, severity routing
-  notifications_quiet_hours.yaml # quiet hours logic
-  notifications_presence.yaml   # presence event notifications
-  notifications_power.yaml      # power event notifications
-  notifications_water.yaml      # water event notifications
-  notifications_security.yaml   # security event notifications
-  notifications_system.yaml     # HA system notifications
-  notifications_lighting.yaml   # lighting event notifications
+```
+packages/alerts/  (16 files)
+  alerts_helper.yaml, alerts_summary.yaml, alerts_doors.yaml, alerts_network.yaml,
+  alerts_power.yaml, alerts_temperature.yaml, alerts_device_power.yaml, alerts_media.yaml,
+  alerts_system_health.yaml, alerts_presence.yaml, alerts_water.yaml, alerts_security.yaml,
+  alerts_garden.yaml, alerts_batteries.yaml, alerts_device_batteries.yaml,
+  alerts_camera_health.yaml
+
+packages/notifications/  (13 files)
+  notifications_control.yaml, notifications_quiet_hours.yaml, notifications_helpers.yaml,
+  notify_power_event.yaml, notify_water_events.yaml, notify_security_events.yaml,
+  notify_presence_events.yaml, notify_system_event.yaml, notify_light_events.yaml,
+  admin_notifications.yaml, presence_notifications.yaml, water_notifications.yaml,
+  power_notifications.yaml (empty stub, unused)
 ```
 
 ---
@@ -196,15 +206,20 @@ All notifications routed through domain scripts (`script.notify_*_event`).
 - **Fix:** Both now derive from `sensor.alert_device_entities` (same source)
 - **Status:** Fixed for most domains
 
-### 3. Not All Domains Unified
-- Some older alerts still use direct `notify.*` calls instead of central scripts
-- **Fix needed:** Audit all `notify.` calls, migrate to `script.notify_*_event`
-- **Status:** In progress
+### 3. ✅ DONE — Not All Domains Unified
+**Status corrected 2026-08-21:** all direct-notify bypasses this item was tracking
+(temperature BUG-A03, device power BUG-A04, presence BUG-N05, plus the whole
+`notify.STD_Alerts` group itself, BUG-A10/BUG-N16) are fixed and re-verified live this
+session — see ALERTS_CONTRACT.md Section 6 and NOTIFICATIONS_CONTRACT.md Section
+"Priority 1". No longer "in progress".
+- ~~Some older alerts still use direct `notify.*` calls instead of central scripts~~
+- ~~**Fix needed:** Audit all `notify.` calls, migrate to `script.notify_*_event`~~
 
-### 4. Quiet Hours Not Consistently Applied
-- Applied in central scripts but some legacy automations bypass them
-- **Fix needed:** Remove direct notify calls, all through scripts
-- **Status:** In progress
+### 4. ✅ DONE — Quiet Hours Not Consistently Applied
+**Status corrected 2026-08-21:** same underlying cause as #3 (direct notify bypasses),
+same fix, same confirmation. Every domain now routes through a central `script.notify_*_event`.
+- ~~Applied in central scripts but some legacy automations bypass them~~
+- ~~**Fix needed:** Remove direct notify calls, all through scripts~~
 
 ---
 

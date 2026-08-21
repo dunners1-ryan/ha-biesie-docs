@@ -2,6 +2,20 @@
 > Created: 2026-04-14
 > Update after each test run with results and any fixes applied.
 > Run this after any alert pipeline changes to verify end-to-end behaviour.
+>
+> **⚠️ 2026-08-21: this plan has never actually been run** — the Test Run Log below has
+> exactly one entry, from creation day, with no Pass/Fail results filled in anywhere in
+> the document. Meanwhile the alert pipeline changed substantially in the 4+ months
+> since (BUG-A08 through BUG-A19, BUG-N15 through BUG-N18 — STD_Alerts breaking and
+> getting fixed twice, Cancel Alert buttons added to every domain, delivery moving from
+> `alert:` entity notifiers to `route_*_alert` automations). Two concrete stale claims
+> found and fixed in a docs-only pass this session (temperature bypass claimed still
+> pending — fixed since 2026-06-19; a deprecated camera referenced in a known-issue row).
+> Treat every other expected-result cell as **unverified against current delivery
+> mechanics**, not confirmed passing — re-read ALERTS_CONTRACT.md's current Domain
+> Pipeline Audit (Section 4) before trusting a specific check in this plan, especially
+> Test 6 (Security) and Test 7 (Quiet Hours), which test mechanisms that have since
+> changed. This plan is due a real run, not just a doc-drift correction.
 
 ---
 
@@ -371,11 +385,11 @@ Issues found:
 
 | Issue | Status | Notes |
 |---|---|---|
-| Dogs triggering rear cameras | 🟡 Ongoing | delay_on tuning in progress — hardware fix (NVR zones) preferred |
-| cam01/cam04/cam07 no snapshots | 🟡 Hardware fix needed | No motion zones drawn in Hikvision NVR UI |
-| Water alert fires at 10% tank level | ✅ By design | Threshold is `input_number.water_depth_critical` |
-| Security alert skip_first = true | ✅ By design | Avoids duplicate with security_automations immediate notify |
-| Temperature alerts bypass notify script | 🔴 BUG-A03 pending | Still on Group C fix list |
+| Dogs triggering rear cameras | 🟡 Ongoing (re-verify — not checked in this pass) | delay_on tuning in progress — hardware fix (NVR zones) preferred. SECURITY_CONTRACT.md's active bug catalog is the current source for camera false-positive status, not this row. |
+| ~~cam01/cam04/cam07 no snapshots~~ | ✅ Moot, doc-drift correction 2026-08-21 | `cam01` was deprecated 2026-05-08 (replaced by ipcam01+ipcam02) — no longer part of the active camera fleet at all, so a snapshot gap referencing it can't recur. cam04/cam07 status not re-checked this pass. |
+| Water alert fires at 10% tank level | ✅ By design (threshold recalibrated since — see below) | Threshold is `input_number.water_depth_critical`, now 0.25m default (≈12.8% of the 1.95m max depth, per WATER_CONTRACT.md's 2026-07-17 dashboard recalibration) — the "10%" figure here is a rough approximation, not exact, but the by-design status still holds. |
+| Security alert skip_first = true | ✅ By design (delivery mechanism has changed since, see note below) | Avoids duplicate with security_automations immediate notify. **Note 2026-08-21:** `alert.security_alert`'s own `notifiers:` was removed 2026-07-10 (BUG-A10) — repeats now deliver via `automation.security_alert_repeat_reminder`, and a Cancel Alert button was added 2026-08-18 (BUG-A19). This test's specific expected-results checklist (Test 6) predates both changes and should be re-read against ALERTS_CONTRACT.md's current Security Domain section before re-running. |
+| ~~Temperature alerts bypass notify script~~ | ✅ FIXED — doc-drift correction 2026-08-21 | BUG-A03 fixed 2026-06-19 (confirmed again live during today's ALERTS_CONTRACT.md sweep) — temperature routing automations call `script.notify_system_event`, not `notify.STD_*`. No longer "pending" or "on the Group C fix list" (that list is itself fully done, see PROJECT_STATE.md Group C). |
 
 ---
 

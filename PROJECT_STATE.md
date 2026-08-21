@@ -5,6 +5,51 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-08-21 (17th pass, same day) — Testing/ + Context/ deep drift sweep (4th
+      follow-up after the 9-domain audit; user said "carry on" a second time after
+      SYSTEM_CONTRACT.md).** Doc-only. Covered `Testing/Alert_Test_Plan.md` and all 6
+      `Context/*.md` quick-reference files (explicitly lower-fidelity than the domain
+      contracts per CLAUDE.md — scoped this pass to banners + mechanical fixes
+      (Package Files lists, the clearest stale "Known Problems" claims) rather than a
+      full line-by-line audit at contract-depth, since that would duplicate work already
+      done in the authoritative contracts today):
+      - **Alert_Test_Plan.md** — never actually run (one Test Run Log entry, from
+        creation day, no Pass/Fail filled in anywhere) while the alert pipeline changed
+        substantially since (BUG-A08–A19, BUG-N15–N18). Fixed 2 concrete stale claims:
+        "Temperature alerts bypass notify script — BUG-A03 pending" (fixed 2026-06-19)
+        and a known-issue row about `cam01` snapshots (cam01 deprecated 2026-05-08, no
+        longer part of the active fleet). Added a banner flagging the rest as unverified
+        against current delivery mechanics.
+      - **PRESENCE/ALERTS/WATER/SECURITY/POWER_CONTEXT.md** — every one of these had a
+        stale Package Files list naming files that don't exist (3-5 phantom files each)
+        and/or misspelled/wrong-plural real filenames — all corrected against the live
+        tree. Fixed one or two of the clearest "Known Problems" claims per file where
+        directly confirmable from today's other audits (Presence #2 security-trust-model,
+        Alerts #3/#4 notify-bypass, Security #4 trust-model, Water all 3 known problems +
+        its Safety Abort Logic table describing disabled dry-run protection as active and
+        a deleted max-runtime helper as current). POWER_CONTEXT.md's Hardware Architecture
+        also had stale battery/PV capacity figures (pre-2026-06-17 swap, pre-2026-08-21
+        correction) — fixed to match PROJECT_STATE.md's Hardware Summary.
+      - **NOTIFICATIONS_CONTEXT.md** — Package Files had 4 wrong filenames + 2 missing
+        files; rest of the document is pattern/convention guidance, not live-state
+        claims, so left otherwise unaudited (lower risk by nature).
+      - **POWER_DEPENDENCY_ANALYSIS.md** — a different kind of document (technical
+        dependency graph, not a context quick-ref) with real value but real drift: file
+        count stale (20 vs live 26, missing 3 files from the analysis entirely), and its
+        Load Shedding section describes content that migrated out of `power/load_shedding.yaml`
+        into a separate top-level package back in April — that section's own "should
+        split this out" recommendation already happened. Flagged clearly with a banner
+        rather than attempting a full graph re-derivation (out of proportion for a
+        drift pass) — pointed at POWER_CONTRACT.md Section 15 as the place to
+        cross-check current claims.
+      Every file's own top banner now says "superseded by `docs/domains/X_CONTRACT.md`
+      — use the contract for real work," consistent with SYSTEM_CONTRACT.md's existing
+      closing note. No `ha core check` needed — zero YAML touched, Markdown-only session.
+      **This is the last item on the "anything else to audit" backlog raised after the
+      original 9-domain sweep** — remaining lower-value surface (SESSION_STARTERS.md,
+      AUDIT_PROMPTS.md, AUTOMATIONS_AUDIT.md, FETCH_URLS.md) is process/meta
+      documentation, not live-state description, and wasn't flagged as worth auditing.
+
 - [x] **2026-08-21 (16th pass, same day) — SYSTEM_CONTRACT.md deep drift sweep (3rd
       follow-up after the 9-domain audit + POWER_CONTRACT.md + PROJECT_STATE.md's own
       master tables; user said "carry on").** Doc-only, but this was the most-drifted

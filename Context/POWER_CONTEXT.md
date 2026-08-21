@@ -1,6 +1,13 @@
 # HABiesie — Power & Energy Domain Context
 > **Living document.** Update after every change to the power package.  
 > Paste alongside `PROJECT_STATE.md` when working on power/energy/prepaid.
+>
+> **⚠️ Superseded by `docs/domains/POWER_CONTRACT.md` — use the contract for real
+> work.** This file is a quick-reference summary; Package Files named 5 nonexistent
+> files and listed only 10 of the live 26; Hardware Architecture had a stale battery
+> capacity (pre-2026-06-17 swap) and PV capacity (pre-2026-08-21 correction). All fixed
+> 2026-08-21. Hardware is about to change again 2026-08-28 (inverter/panel upgrade) —
+> see PROJECT_STATE.md Hardware Summary for the authoritative live spec either way.
 
 ---
 
@@ -18,18 +25,26 @@ Prepaid Meter (truth) ──┘
 
 ## 📁 Package Files
 
+**⚠️ Corrected 2026-08-21 — this list named 5 files that don't exist as such
+(`power_prepaid.yaml`, `power_loads.yaml`, `power_solar.yaml`, `power_battery.yaml`,
+`power_grid.yaml` — each is actually split across several real files with different
+names) and only listed 10 of the live 26. See POWER_CONTRACT.md Section 2 for the full
+inventory with roles; abbreviated here:**
+
 ```
-packages/power/
-  power_helpers.yaml         # input_numbers for thresholds, offsets, settings
-  power_templates.yaml       # all derived power/energy sensors
-  power_state.yaml           # health states, risk levels, strategy sensors
-  power_automations.yaml     # alerts, load management, charging programs
-  power_core.yaml            # solarman integration config, utility meters
-  power_prepaid.yaml         # prepaid tracking, cost model, buy score
-  power_loads.yaml           # load group definitions and tracking
-  power_solar.yaml           # solar-specific sensors and forecasting
-  power_battery.yaml         # battery runtime, health, and state sensors
-  power_grid.yaml            # grid state, import tracking, risk sensors
+packages/power/  (26 files)
+  power_helpers.yaml, power_templates.yaml, power_state.yaml, power_statistics.yaml,
+  power_strategy.yaml, power_automations.yaml, power_core.yaml, power_contract.yaml,
+  geyser_automations.yaml, load_control.yaml, load_shedding.yaml (empty, migrated),
+  battery_runtime.yaml, battery_state.yaml,
+  energy_core.yaml, energy_helpers.yaml, energy_state.yaml,
+  grid_risk.yaml, grid_state.yaml,
+  prepaid_core.yaml, prepaid_helpers.yaml, prepaid_strategy.yaml,
+  solar_clipping.yaml, solar_core.yaml, solar_forecast.yaml, solar_helpers.yaml,
+  solar_state.yaml
+
+packages/load_shedding/  (1 file)
+  load_shedding_templates.yaml
 ```
 
 ---
@@ -46,9 +61,15 @@ Both aggregated in `power_core.yaml` into unified sensors.
 
 ### Solar
 - 4x MPPT strings (2 per inverter)
-- Max PV: ~10.8kW
-- Battery: ~31.8kWh
+- Max PV: **9.89kWp working** (23×430W JA Solar panels; 1 of 24 panels currently
+  disconnected/damaged, rated 435W — corrected 2026-08-21, see PROJECT_STATE.md Hardware
+  Summary for full detail and Solcast site-geometry correction)
+- Battery: **48.2kWh** (3× Greenrich AF1600, swapped 2026-06-17 from the original 2×
+  Freedom Won 15kWh/~30kWh units — do not use the old ~31.8kWh figure, corrected 2026-08-21)
 - Forecast: Solcast integration
+- **Pending 2026-08-28:** both SunSynk inverters replaced by a single 12kW Deye + 12×
+  620W Canadian bifacial panels added (see PROJECT_STATE.md Hardware Summary) —
+  Master/Slave dual-inverter architecture below will need a full rewrite once this lands.
 
 ### Grid
 - Prepaid meter (Eskom)

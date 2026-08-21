@@ -1,6 +1,12 @@
 # HABiesie — Notifications Domain Context
 > **Living document.** Update after every change to notification patterns or scripts.  
 > Paste alongside `PROJECT_STATE.md` when working on notifications.
+>
+> **⚠️ Superseded by `docs/domains/NOTIFICATIONS_CONTRACT.md` — use the contract for
+> real work.** This file is a quick-reference summary; Package Files had 4 wrong
+> filenames and was missing 2 files entirely — corrected 2026-08-21. The rest of this
+> document is pattern/convention guidance (correct syntax, deprecated patterns) rather
+> than live-state claims, so lower drift risk — not otherwise re-audited this pass.
 
 ---
 
@@ -18,19 +24,27 @@ Domain Automation → Notification Script → Severity Routing → Platform Deli
 
 ## 📁 Package Files
 
+**⚠️ Corrected 2026-08-21 — 4 filenames had wrong singular/plural (`notify_water_event`/
+`notify_security_event`/`notify_presence_event`/`notify_lighting_event` — live files use
+different pluralization, and lighting's is actually `notify_light_events.yaml`, not
+`notify_lighting_event.yaml`), and 2 files were missing entirely
+(`water_notifications.yaml`, `power_notifications.yaml`). 13 files live, not 11.**
+
 ```
-packages/notifications/
+packages/notifications/  (13 files)
   notify_system_event.yaml         # HA system & core notifications
   notify_power_event.yaml          # Solar, battery, grid events
-  notify_water_event.yaml          # Tank, pump, refill events
-  notify_security_event.yaml       # Camera, alarm, intrusion events
-  notify_presence_event.yaml       # Arrival, departure, occupancy events
-  notify_lighting_event.yaml       # Scene activation, presence-aware lighting
+  notify_water_events.yaml         # Tank, pump, refill events (script)
+  notify_security_events.yaml      # Camera, alarm, intrusion events
+  notify_presence_events.yaml      # Arrival, departure, occupancy events
+  notify_light_events.yaml         # Scene activation, presence-aware lighting
   notifications_control.yaml       # Master notify script, severity routing
   notifications_quiet_hours.yaml   # Quiet hours logic & time windows
   admin_notifications.yaml         # Admin-only notifications
-  presence_notifications.yaml      # Deprecated or supplementary presence notifs
+  presence_notifications.yaml      # Per-person unknown AP alert automations
+  water_notifications.yaml         # Water-specific notification automations
   notifications_helpers.yaml       # Input helpers for control
+  power_notifications.yaml         # Empty stub, 0 bytes, unused — see NOTIFICATIONS_CONTRACT.md
 ```
 
 ---

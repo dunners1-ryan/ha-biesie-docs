@@ -2,6 +2,15 @@
 > **Living document.** Update after every change to the water package.  
 > Before modifying ANY water file, read `packages/water/a_water_lifecycle_contract.yaml` first.  
 > Paste alongside `PROJECT_STATE.md` when working on water.
+>
+> **⚠️ Superseded by `docs/domains/WATER_CONTRACT.md` — use the contract for real work.**
+> This file is a quick-reference summary, dated 2026-04-13, essentially untouched since
+> while the water domain absorbed months of fixes (most recently a full drift sweep
+> earlier the same day as this correction, 2026-08-21). Package Files listed 4
+> nonexistent files and misplaced one; the Safety Abort Logic table described dry-run
+> protection as active (disabled) and a max-runtime helper that no longer exists
+> (redesigned into a rate-based guard the same day); all 3 Known Problems were already
+> fixed. All corrected 2026-08-21.
 
 ---
 
@@ -33,16 +42,28 @@ Idle ──→ Running ──→ Completed
 
 ## 📁 Package Files
 
+**⚠️ Corrected 2026-08-21 — this list named 4 files that don't exist
+(`water_state.yaml`, `water_automations.yaml`, `water_core.yaml`, `water_debug.yaml`) and
+misplaced `water_notifications.yaml` (it actually lives in `packages/notifications/`, not
+`packages/water/`). Replaced with the live 18-file inventory in `packages/water/`.**
+
 ```
-packages/water/
-  a_water_lifecycle_contract.yaml  # SPECIFICATION DOCUMENT — read before anything else
+packages/water/  (18 files)
+  a_water_lifecycle_contract.yaml  # SPECIFICATION DOCUMENT (locked) — read before anything else
   water_helpers.yaml               # all input helpers and thresholds
-  water_templates.yaml             # depth validation, level %, rate sensors
-  water_state.yaml                 # water_state aggregation, refill permission
-  water_automations.yaml           # lifecycle capture, safety aborts, scheduling
-  water_core.yaml                  # Tuya integration config for sensors/pumps
-  water_notifications.yaml         # water event notifications
-  water_debug.yaml                 # diagnostic sensors for debugging
+  water_templates.yaml             # depth validation, level %, water_state, spike guard
+  water_tank_refill_control.yaml   # main refill control logic (Safety/Critical/Emergency/etc.)
+  water_protection_automations.yaml # borehole no-rise/degraded-rate/spike-rejection guards
+  water_safety.yaml                # hard stops (max depth, battery hard stop)
+  water_refill_cycle.yaml          # cycle state + summary sensors
+  water_refill_capture.yaml        # start/end capture automations
+  water_state_extensions.yaml      # borehole_control_status, refilling (derived) mirror
+  water_consume_cycle.yaml, water_fault_logging.yaml, water_health.yaml,
+  water_maintenance_automations.yaml, water_reporting.yaml, water_scripts.yaml,
+  water_sensor.yaml, water_test_helpers.yaml
+
+packages/notifications/
+  water_notifications.yaml         # water event notifications (NOT in packages/water/)
 ```
 
 ---
@@ -110,35 +131,47 @@ input_datetime.water_refill_solar_stop        # solar window end time
 
 ## ⚙️ Safety Abort Logic (IN PLACE — DO NOT REMOVE)
 
+**⚠️ Corrected 2026-08-21 against WATER_CONTRACT.md Section 11 (Safety System Audit,
+re-verified live same day):**
+
 | Protection | Trigger | Action |
 |---|---|---|
-| Max depth stop | depth ≥ `water_target_depth_full` | Stop pump |
-| Dry run protection | pump ON + power < threshold | Stop pump, log fault |
-| No-rise protection | pump running + depth not increasing after timeout | Stop pump, log fault |
-| Battery hard stop | SOC drops below `water_battery_soc_hard_stop` | Stop pump |
-| Max runtime cutoff | pump on > `water_refill_max_runtime_minutes` | Stop pump, log fault |
+| Max depth stop | depth ≥ 1.95m (hardcoded, not `water_target_depth_full`) | Stop pump — debounced 1min |
+| ~~Dry run protection~~ | — | **❌ DISABLED**, not "in place" — deliberately replaced by no-rise protection (binary_sensor + automation both commented out) |
+| No-rise protection | pump running + depth rate < 0.01 m/h for 15 min | Stop pump, log fault, **auto-retries after cooldown** (2026-08-18) |
+| Battery hard stop | SOC drops below `water_battery_soc_hard_stop` (40%) | Stop pump |
+| ~~Max runtime cutoff~~ | — | **Redesigned 2026-08-21** — `water_refill_max_runtime_minutes` deleted outright, replaced by `water_borehole_degraded_rise_rate_protection` (rate-based: stops if depth rate stays between 0.01-0.05 m/h for 60 min, not a flat wall-clock cutoff) |
 
 ---
 
 ## ⚠️ Known Problems
 
-### 1. False Cycle Detection (ROOT ISSUE)
-- **Cause:** Tuya sensor instability causes `unavailable → on` transitions
-- **Symptom:** System logs false refill start/end cycles
-- **Fix needed:** Add `from: "off"` constraint to all pump triggers + 10s stability window
-- **Status:** Partially implemented, needs verification
+**⚠️ All 3 items below corrected 2026-08-21 — all confirmed done in WATER_CONTRACT.md's
+Section 9 Implementation Checklist (Sprint 2, "Fix Trigger Integrity"), re-verified
+live during this session's own WATER_CONTRACT.md pass earlier the same day.**
 
-### 2. Control Loop Fighting Safety
-- **Old pattern (broken):** Control → start pump → Safety → stop pump → Capture → logs cycle
-- **Correct pattern:** Check permission BEFORE starting → only start if allowed
-- **Fix needed:** Pre-check `binary_sensor.water_refill_allowed` before any pump start
-- **Status:** `binary_sensor.water_refill_allowed` exists but not consistently checked first
+### 1. ✅ DONE — False Cycle Detection
+`from: "off"` guards confirmed present on the relevant pump triggers
+(`water_borehole_no_rise_protection`, `water_reconcile_cycle_state`, fixed 2026-04-15)
+plus a stability window (`water_refill_visibility_guard`, `for: "00:00:10"`). Not
+"partially implemented" — done.
+- ~~**Fix needed:** Add `from: "off"` constraint to all pump triggers + 10s stability window~~
+- ~~**Status:** Partially implemented, needs verification~~
 
-### 3. Notification Spam
-- **Cause:** 5-minute control loop retrying + pump being blocked each time
-- **Symptom:** Repeated START → END → START → END notifications
-- **Fix:** Pre-check pattern above eliminates the artificial cycles
-- **Status:** Linked to issue #2
+### 2. ✅ DONE — Control Loop Fighting Safety
+WATER_CONTRACT.md's own Sprint 2 checklist: "E3 verified: `binary_sensor.water_refill_allowed`
+checked before pump start on critical+low paths. Safety/limited-critical paths
+intentionally bypass (emergency scenarios)" — by design, not an oversight.
+- ~~**Fix needed:** Pre-check `binary_sensor.water_refill_allowed` before any pump start~~
+- ~~**Status:** `binary_sensor.water_refill_allowed` exists but not consistently checked first~~
+
+### 3. ✅ DONE (this specific cause) — Notification Spam
+The control-loop-retry spam this item describes is resolved along with #2. **Note:** a
+*different* notification-spam risk (Tuya spike-rejection notifications firing on every
+glitch, not control-loop retries) was found and fixed separately today — see
+WATER_CONTRACT.md Recommendation 5 (new cooldown gate, `water_protection_automations.yaml`).
+- ~~**Fix:** Pre-check pattern above eliminates the artificial cycles~~
+- ~~**Status:** Linked to issue #2~~
 
 ---
 

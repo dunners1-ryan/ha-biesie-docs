@@ -1,5 +1,26 @@
 # Power Package Dependency Analysis
 
+> **⚠️ Doc-drift correction 2026-08-21: this analysis predates several package changes
+> and was not fully re-verified this pass** (a full rewrite would mean redoing the
+> underlying dependency graph from scratch — out of proportion for a docs-drift sweep;
+> flagging clearly instead so it isn't trusted as current). Three concrete, confirmed
+> gaps:
+> - **File count is stale.** The live package has 26 files, not 20 — this document
+>   entirely omits `power_statistics.yaml`, `load_control.yaml`, and
+>   `geyser_automations.yaml` (none analyzed anywhere below), and pre-dates their
+>   addition.
+> - **Section 7 (LOAD_SHEDDING) describes content that no longer lives in
+>   `load_shedding.yaml`.** That file is now an empty migration-marker stub (2026-04-21) —
+>   the real template sensors (`load_shedding_active`, `load_shedding_status_card`, etc.)
+>   moved to `packages/load_shedding/load_shedding_templates.yaml`, a separate top-level
+>   package, not a `packages/power/` file at all. This section's own "Safe Split
+>   Candidates" recommendation #1 ("Extract load_shedding first") already happened.
+> - The core coupling analysis (which subsystems can/can't split, the dependency
+>   direction diagrams) is architecturally plausible and probably still mostly holds —
+>   just not verified entity-by-entity against current code in this pass. Cross-check
+>   against POWER_CONTRACT.md Section 15 ("Package Architecture & Dependency Analysis")
+>   before relying on a specific claim here.
+
 ## Executive Summary
 
 The power package consists of 20 interconnected files across 7 subsystems. Key finding: **load_shedding is completely independent** with zero internal dependencies. All other subsystems form a tightly coupled graph centered on `power_core`.
