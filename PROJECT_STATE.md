@@ -5,6 +5,25 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-08-21 (11th pass, same day) — NETWORK_CONTRACT.md deep drift sweep (7th of 9
+      domain contracts; WATER + ALERTS + SECURITY + PRESENCE + LIGHTING + CONTEXT +
+      NOTIFICATIONS already done same day).** Doc-only, small domain (3 files +
+      alerts_network.yaml), otherwise well-maintained. Findings:
+      - **IMP-NET01 (Section 8)** — "verify wired" item for whether
+        `sensor.network_alert_context` feeds `sensor.alert_device_entities`. Confirmed
+        live: it matches the `_alert_context` substring filter (unlike
+        `sensor.camera_health_context`, which ALERTS_CONTRACT.md documents as the one
+        that doesn't match) — always has been wired correctly. Marked done.
+      - **Section 3's Alert Pipeline block** had 3 stale claims about `alert.network_alert`:
+        said "repeat 60 min" (live is a 4-stage `[3, 10, 30, 60]` schedule, matching
+        ALERTS_CONTRACT.md's own Alert Entity Inventory), "skip_first:true" (not set on the
+        live block at all — defaults to false), and implicitly still delivering via
+        `STD_Alerts` (its `notifiers:` was removed 2026-08-18 as part of BUG-N18, already
+        corrected in this session's NOTIFICATIONS_CONTRACT.md pass).
+      - **Header "Source" line** was missing `network_ups.yaml`/`network_nas.yaml` despite
+        the contract having full sections (9, 10) about both — expanded.
+      No `ha core check` needed — zero YAML touched, Markdown-only session.
+
 - [x] **2026-08-21 (10th pass, same day) — NOTIFICATIONS_CONTRACT.md deep drift sweep
       (6th of 9 domain contracts; WATER + ALERTS + SECURITY + PRESENCE + LIGHTING +
       CONTEXT already done same day).** Doc-only. Findings:

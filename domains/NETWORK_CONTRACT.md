@@ -3,7 +3,17 @@
 # Domain Audit: Network / WAN Monitoring
 # Generated: 2026-04-16
 # Updated: 2026-08-18
-# Source: packages/network/network_helpers.yaml, packages/alerts/alerts_network.yaml
+# Updated: 2026-08-21 (deep drift sweep) — IMP-NET01 (Section 8) confirmed already wired
+# (sensor.network_alert_context does match the aggregator's _alert_context filter — always
+# has), marked done. Section 3's Alert Pipeline block had 3 stale claims about
+# alert.network_alert: "repeat 60 min" (live is a 4-stage [3,10,30,60] schedule),
+# "skip_first:true" (not set on the live block at all), and implicitly still using
+# STD_Alerts (notifiers: removed 2026-08-18, BUG-N18 — see NOTIFICATIONS_CONTRACT.md,
+# also corrected there this same session). Source line below expanded — network_ups.yaml
+# and network_nas.yaml (Sections 9/10) were missing from it despite having full sections.
+# No code changes — doc-only.
+# Source: packages/network/network_helpers.yaml, packages/network/network_ups.yaml,
+#         packages/network/network_nas.yaml, packages/alerts/alerts_network.yaml
 ##########################################################
 
 ---
@@ -149,8 +159,20 @@ binary_sensor.wan_degraded_alert_active          — health score <= 30 for 5 mi
 binary_sensor.device_restart_alert_active        — uptime drop detected > 250s
 binary_sensor.network_alert_active              — master OR across above four
 sensor.network_alert_context                    — severity: warning/critical + devices list
-alert.network_alert                             — STD_Alerts, repeat 60 min, skip_first:true
+alert.network_alert                             — repeat: [3, 10, 30, 60] min, skip_first
+                                                    not set (defaults to false — fires
+                                                    immediately). notifiers: [STD_Alerts]
+                                                    is commented out (BUG-N18, fixed
+                                                    2026-08-18 — see NOTIFICATIONS_CONTRACT.md);
+                                                    real delivery is the 4 route_*_alert
+                                                    automations below, alert entity kept
+                                                    for dashboard/ack/repeat-timer display only
 ```
+*(Doc-drift correction 2026-08-21: this used to say "STD_Alerts, repeat 60 min,
+skip_first:true" — repeat is actually a 4-stage `[3, 10, 30, 60]` schedule (matches
+ALERTS_CONTRACT.md's own Alert Entity Inventory), `skip_first` isn't set on the live
+block at all, and `notifiers: STD_Alerts` was removed 2026-08-18 as part of BUG-N18 — all
+re-verified against `alerts_network.yaml` live.)*
 
 ---
 
@@ -566,7 +588,7 @@ DSM → Control Panel → Hardware & Power → General:
 | ~~BUG-NET06~~ | ~~Medium~~ | ~~`network_device_down_alert_severity` has no periodic re-evaluation trigger — can stick at a stale `critical` indefinitely.~~ — **FIXED 2026-07-17**, see Section 6. |
 | ~~BUG-NET08~~ | ~~High~~ | ~~Jitter permanently 0 (missing avg statistics sensors); packet loss never actually fed `wan_health_score` despite BUG-NET03~~ — **FIXED 2026-07-27**, see Section 6. |
 | ~~BUG-NET09~~ | ~~Medium~~ | ~~`route_network_device_down_alert`'s severity-critical trigger had no `for:` duration, bypassing the 250s anti-flap gate; fired false criticals on harmless ~2s UniFi reconnect blips.~~ — **FIXED 2026-08-09**, see Section 6. |
-| IMP-NET01 | Low | Add `sensor.network_alert_context` to `sensor.alert_device_entities` aggregator (verify wired — B3 done 2026-04-14) |
+| ~~IMP-NET01~~ | ~~Low~~ | ~~Add `sensor.network_alert_context` to `sensor.alert_device_entities` aggregator~~ — **✅ Confirmed wired, doc-drift correction 2026-08-21.** `sensor.network_alert_context` (`unique_id: network_alert_context`, `alerts_network.yaml`) matches the `_alert_context` substring filter `sensor.alert_device_entities` scans for (`alerts_summary.yaml`, confirmed live) — same mechanism ALERTS_CONTRACT.md's Camera Health section documents as the thing `sensor.camera_health_context` fails to match. Network's naming is correct and always has been. |
 | IMP-NET02 | Low | Add ISP name/plan to a descriptive input_text for context on dashboard |
 | IMP-NET03 | Low | Several UniFi diagnostic entities are disabled by the integration by default (`sensor.ap_bar_clients`, `sensor.ap_lounge_clients`, `sensor.ap_passage_clients`, `sensor.usw_ultra_poe_clients`, all per-port PoE switch/link-speed sensors) — inconsistent with `ap_garage`/`ap_office` which have clients enabled. Enable in the UniFi integration entity list if per-AP client counts / per-port PoE control become needed; the network-control LAN table degrades gracefully to "—" for these today. |
 | ~~IMP-NET04~~ | ~~Medium~~ | ~~ZenWiFi (actual WAN router) not in any alert group~~ — **FIXED 2026-07-13.** Added `binary_sensor.zenwifi_xd6_connected` (template, keyed off `sensor.zenwifi_xd6_cpu_usage` availability) to `group.network_devices`; `sensor.zenwifi_xd6_uptime` added to `group.network_device_uptimes` and `group.network_device_restart_times`. Applied via Reload Template Entities + Reload Groups (no restart needed), verified live via API. |
