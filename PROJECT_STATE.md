@@ -5,6 +5,77 @@
 
 ## ⚠️ OPEN TODO
 
+- [ ] **2026-08-22 — RESUME-HERE: consolidated action items surfaced by the 2026-08-21
+      docs audit (9 domain contracts + POWER_CONTRACT.md + PROJECT_STATE.md master
+      tables + SYSTEM_CONTRACT.md + Testing/ + Context/), not yet actioned.** These are
+      genuine code/content gaps the audit *found*, distinct from the doc-drift
+      corrections the audit *fixed* (already done — see the dated session-log entries
+      below). Nothing here needs more investigation — each was independently confirmed
+      live during the audit. Pick any one and go straight to implementing.
+      - [ ] **`alerts_power.yaml` battery-low alert reads the wrong SOC sensor**
+            (SYSTEM_CONTRACT.md IV-04 / POWER_CONTRACT.md). Reads
+            `sensor.inverter_1_battery` (per-inverter, slave-only) in ~4 places instead
+            of the published aggregate `sensor.inverter_battery_soc`. Breaks if inverter
+            role assignment ever changes. **2-minute fix, 4 entity-name replacements,
+            zero design decision needed** — the smallest genuinely-open item from the
+            whole audit.
+      - [ ] **`water_notifications.yaml` reads raw Tuya sensor, not validated depth**
+            (SYSTEM_CONTRACT.md IV-06). Line ~158, `tank_level` value in a notification
+            message uses `sensor.water_tank_level_sensor_liquid_level` (raw %) instead of
+            a validated-depth-derived percent. Low priority, 1-line fix.
+      - [ ] **8 alert domains still double-deliver via a redundant `notifiers: [STD_Alerts]`**
+            (NOTIFICATIONS_CONTRACT.md BUG-N18). Water and network were fixed 2026-08-18/21
+            respectively (removed the now-redundant `notifiers:` line from the `alert:`
+            entity, since `route_*_alert` automations are the real delivery path and
+            `STD_Alerts` itself started working again 2026-08-09, BUG-N16). Same fix
+            needed in: `alerts_temperature.yaml` (×4 streams), `alerts_doors.yaml`,
+            `alerts_presence.yaml`, `alerts_device_power.yaml`, `alerts_power.yaml`,
+            `alerts_media.yaml`, `alerts_batteries.yaml`, `alerts_garden.yaml`. One
+            restart-batch session (⚠️ `alert:` entity changes require a full HA restart —
+            batch all 8 together per CODING_STANDARDS).
+      - [ ] **`input_text.security_event_session` 255-char overflow risk**
+            (SECURITY_CONTRACT.md ISSUE 9, still open). Needs a pyscript-managed state
+            object or 3 discrete fixed-size `input_text` entities — see CODING_STANDARDS
+            Rule 5.
+      - [ ] **`www/` snapshot retention — 31,812 files and climbing, no cleanup**
+            (SECURITY_CONTRACT.md ISSUE 10, re-verified worse than documented this
+            session — was 1,871 when originally filed). No shell_command/pyscript purge
+            exists anywhere in `packages/`. Add a daily cleanup for snapshots older than
+            N days.
+      - [ ] **`intruder_high` correlation state has no distinct escalated treatment**
+            (SECURITY_CONTRACT.md ISSUE 14, downgraded not closed). It's consumed now
+            (treated identically to plain `intruder`) but the original ask — a distinct
+            critical-severity path for the holiday-mode-escalated case — was never built.
+      - [ ] **pyscript load group health check** (POWER_CONTRACT.md Recommendation 7).
+            No binary_sensor detects `group.known_power_loads` being empty/unsynced at
+            startup, and no re-sync trigger exists if `sync_power_groups.py` fails
+            silently.
+      - [ ] **`packages/notifications/power_notifications.yaml` — 0-byte empty stub**,
+            unchanged since at least 2026-02-03. `notify_power_event.yaml` is the real
+            handler. Needs a delete-or-populate decision, not urgent either way.
+      - [ ] **`docs/Testing/Alert_Test_Plan.md` needs an actual run.** Created
+            2026-04-14, has exactly one Test Run Log entry with no Pass/Fail results
+            filled in anywhere, while the alert pipeline it tests changed substantially
+            since (BUG-A08–A19, BUG-N15–N18). Re-read ALERTS_CONTRACT.md's current
+            Domain Pipeline Audit before trusting a specific expected-result cell,
+            especially Test 6 (Security) and Test 7 (Quiet Hours).
+      - [ ] **IMP-IDS02 — document which weather integration is canonical for what**
+            (INFRA_CONTRACT.md, low priority). OWM + OWM History + Met.no 6h + Met
+            Nowcast all installed; only OWM is marked canonical, the other 3 have no
+            documented purpose.
+      - [ ] **`MI-06` — no home-detection reconciliation sensor** (SYSTEM_CONTRACT.md,
+            needs a design decision first, not just implementation). AP-based
+            (`binary_sensor.anyone_connected_home`) and Mobile-App-based
+            (`binary_sensor.anyone_home`) can disagree (phone home but off WiFi, or on
+            guest WiFi) with no `binary_sensor.anyone_probably_home` to reconcile them.
+            Decide the combination logic before building.
+      - [ ] **Cosmetic only, not urgent:** `water_tank_refill_control.yaml` still passes
+            a dead `rate_limit_minutes: 60` data key to `script.notify_water_event` at 2
+            call sites (emergency-refill branches) — the script has no such field, this
+            was already a no-op before today's session (found while implementing WATER_CONTRACT
+            Recommendation 5, out of scope to fix there). Harmless; safe to remove
+            whenever that file is next touched.
+
 - [x] **2026-08-22 — `/update-docs` skill itself updated with the 9-domain audit's
       findings (step 3a + routing-table extensions); never had its own session log
       entry across either edit.** Two changes to `.claude/commands/update-docs.md`,
