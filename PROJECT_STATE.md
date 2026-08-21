@@ -5,6 +5,28 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-08-22 — `/update-docs` skill itself updated with the 9-domain audit's
+      findings (step 3a + routing-table extensions); never had its own session log
+      entry across either edit.** Two changes to `.claude/commands/update-docs.md`,
+      made during the 2026-08-21 audit arc but only now logged: (1) step 3a
+      "secondary-drift sweep" added — the checklist previously only routed a fix to
+      wherever step 3's table sent it, with nothing telling a session to also check
+      File Inventory rows, summary tables, other domain contracts, and stale code
+      comments for the same fact; every one of the 9-domain audit's passes found this
+      exact pattern. (2) Step 3's routing table extended with 3 new rows found missing
+      only after the audit was already underway: cross-domain interface changes now
+      route to `SYSTEM_CONTRACT.md` (which had gone stale for 4+ months with zero
+      mechanical trigger pointing anyone at it); package file changes now also route to
+      the matching `Context/*.md` quick-ref's Package Files list (found stale across
+      all 6 Context files in the 17th pass); alert/notification pipeline mechanics
+      changes now flag the affected `Testing/Alert_Test_Plan.md` section as due for
+      re-run (found never-executed since creation in the same pass). Step 3a's own
+      "every other contract" bullet widened to explicitly include
+      `SYSTEM_CONTRACT.md`/`Context/*.md`/`Testing/*.md`, not just `docs/domains/*.md`
+      — the first several audit passes only grepped `domains/`, and several stale
+      cross-references outside it were only caught in later follow-up passes as a
+      result. No functional/YAML change — tooling only.
+
 - [x] **2026-08-21 (17th pass, same day) — Testing/ + Context/ deep drift sweep (4th
       follow-up after the 9-domain audit; user said "carry on" a second time after
       SYSTEM_CONTRACT.md).** Doc-only. Covered `Testing/Alert_Test_Plan.md` and all 6
