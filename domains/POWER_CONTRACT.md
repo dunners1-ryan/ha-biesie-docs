@@ -1928,24 +1928,23 @@ Issues ordered by risk/impact. **P1 = breaks functionality. P2 = incorrect data.
 
 ---
 
-### Issue 7 — DATA QUALITY: `sensor.inverter_today_energy_import` Uses Doubling Workaround
-**Priority:** P2 — Structural data quality issue  
-**File:** `packages/power/power_core.yaml`  
-**Root cause:** Slave inverter (inv2) doesn't reliably report grid import. Workaround multiplies inv1 value by 2. If inv2 starts reporting, the doubling produces 2× overcounting.  
-**Fix needed:** Add detection logic — if inv2 value > 0, use actual sum instead of doubling. Or add a config flag `input_boolean.use_grid_import_doubling` to allow easy toggle.
+### Issue 7 — ✅ RESOLVED 2026-08-21: `sensor.inverter_today_energy_import` removed (dead code, not fixed)
+**Priority:** was P2 — Structural data quality issue
+**File:** `packages/power/power_core.yaml`
+**Root cause:** Slave inverter (inv2) doesn't reliably report grid import. Workaround multiplied inv1's value by 2 — wrong if inv2 was genuinely reporting zero, ≈2× overcounting if inv2 came back online.
+**Resolution:** Not fixed with detection logic as originally proposed — instead confirmed and removed as dead code. Grepped the whole repo: zero consumers anywhere. This contract's own "Status" note claimed `energy_core.yaml → solar_used_by_house_today` still used it; re-verified live and that sensor actually reads `sensor.inverter_today_production` / `sensor.inverter_today_energy_export` / `sensor.solar_to_battery_energy_today` — never referenced `inverter_today_energy_import` at all. The block was deleted outright. The real authoritative daily grid-import figure is `sensor.grid_energy_import_today` — a **UI-defined `utility_meter` helper** (Settings → Helpers, not YAML) wrapping an `integration` sensor off inverter 1's grid power — already the sole source used by `energy_core.yaml`, `energy_state.yaml`, and `power_automations.yaml`.
 
 ---
 
-### Issue 8 — RENAMED: `group.security_power_sensors` → `group.house_security_power_sensors`
-**Priority:** P2 — ⚠️ Group defined but may have no member entities  
-**File:** `packages/power/power_templates.yaml`  
-**Status (2026-06-19):** Group `group.house_security_power_sensors` IS defined in `power_templates.yaml:106`
-and referenced at `power_templates.yaml:187`. The contract previously reported the wrong group name
-(`security_power_sensors`). The group exists but whether it has member entities (smart plugs on
-security devices) is not confirmed — `sensor.house_security_power` may still return 0.  
-**Remaining action:** Populate `group.house_security_power_sensors` with actual security device
-power sensors (NVR, IP cameras, alarm panel) or remove `sensor.house_security_power` if security
-load monitoring is not needed.
+### Issue 8 — ✅ CONFIRMED 2026-08-21: `group.house_security_power_sensors` has a real member (not empty)
+**Priority:** P3 — was ⚠️ Group defined but may have no member entities
+**File:** `packages/power/power_templates.yaml`
+**Status:** Confirmed via direct read: `group.house_security_power_sensors` has exactly one member,
+`sensor.electric_fence_plug_power` — so `sensor.house_security_power` is NOT stuck at 0. The
+"may still return 0" uncertainty from the 2026-06-19 pass is resolved.
+**Remaining action (unchanged, downgraded to nice-to-have):** Only the electric fence is
+smart-metered; NVR/IP cameras/alarm panel still aren't, so the sensor undercounts total security
+load. Populate further only if that visibility is actually wanted — not a defect as-is.
 
 ---
 
@@ -2010,9 +2009,21 @@ No references to `sensor.inverter_power` remain in the file.
 
 ---
 
-### Issue 17 — DESIGN DEBT: `power_helpers.yaml` violates layering convention
-**Priority:** P3 — Maintenance clarity  
-**Root cause:** File contains both `group:` definitions (helpers layer role) and `template: sensor:` blocks (templates layer role). Violates the `*_helpers.yaml` → only helpers rule from CODING_STANDARDS.md.  
+### Issue 17 — ✅ RESOLVED 2026-08-21: `power_helpers.yaml` violates layering convention
+**Priority:** was P3 — Maintenance clarity
+**Root cause:** File contained both `group:` definitions (helpers layer role) and `template: sensor:` blocks (templates layer role). Violated the `*_helpers.yaml` → only helpers rule from CODING_STANDARDS.md.
+**Resolution:** Moved the `group:` block (11 inverter comparison groups: `inverter_battery_soc_group`,
+`inverter_battery_state`, `inverter_battery_temperature`, `inverter_grid_frequency`,
+`inverter_load_frequency`, `inverter_output_frequency`, `inverter_dc_temperature`,
+`inverter_ac_temperature`, `inverter_device_alarm`, `inverter_device_fault`, `inverter_device_state`)
+and the `template: sensor:` block (~30 combined-inverter sensors — battery current/voltage/capacity,
+grid/load/output L1 current/voltage, PV power/current/voltage per inverter — plus 1 throttled
+`house_outdoor_power` trigger-sensor) into `power_templates.yaml`, merged into that file's existing
+single `group:`/`template:` top-level keys rather than adding new ones (verified via YAML parse:
+20 groups, 37 sensors, zero duplicate `unique_id`s — the exact bug class that caused BUG-P15 and
+Issue 0 was checked for and avoided). `power_helpers.yaml` now contains only
+`input_boolean`/`input_select`/`input_number`/`input_datetime`, matching the file-role convention.
+No entity IDs or `unique_id`s changed — file-location move only.
 **Fix (non-urgent):** Split into `power_groups.yaml` (group definitions) + merge templates into `power_templates.yaml`. Do not do this unless refactoring — splitting risks breaking references.
 
 ---
@@ -2659,6 +2670,22 @@ capacity/tilt/azimuth/shading as configured in the Solcast rooftop site) rather 
 something a percentile-field switch alone fixes. See PROJECT_STATE.md for the open review
 item.
 
+**Site-calibration check (2026-08-21):** pulled the live Solcast site config
+(`solcast_solar/solcast-sites.json`, "Home Biesie", resource `a900-21df-4d5b-a523`):
+capacity 10.2 kW AC / 10.8 kW DC, **azimuth 41°**, tilt 26°, loss_factor 0.9. Azimuth 41°
+doesn't match a north-facing roof (true north ≈ 0° in Solcast's convention, positive =
+east of north) — this alone is a plausible material contributor to the bias, independent
+of the `estimate10` fix. Also relevant: the property had trees felled ~mid-August 2026,
+improving actual irradiance/shading from that point — not reflected in Solcast's site
+config at all (no shading model), and it complicates reading `estimate10`-vs-actual trend
+data across the felling date as one continuous baseline. **Recommended, not yet applied**
+(site geometry lives on the Solcast Rooftop portal, solcast.com — not in this repo, so
+this needs manual action there): re-verify true azimuth (compass/satellite check) and
+correct if it's really close to 0°; derate `capacity_dc` for the 1 known broken panel
+(reduce by that panel's rated watts — get exact wattage from the panel spec/count before
+computing); re-run the `estimate10`-vs-actual comparison using only post-felling days once
+enough of them exist.
+
 ### Issue 29 — ✅ FIXED 2026-08-14: BUG-PWR-DOCDRIFT01 — stale entity reference in
 Entity Reference table
 
@@ -3053,6 +3080,12 @@ Three statistics sensors defined in `power_statistics.yaml` are NOT appearing in
 
 The YAML parses correctly. Pre-existing statistics sensors load as 'unavailable'. HA logs show no error. Investigation needed: check if statistics platform rejects standard_deviation characteristic in HA 2026.6, or if source entity incompatibility is the cause. Dashboard cards that reference these sensors will show "unavailable" — acceptable until resolved.
 *Updated by: Deep audit — all 22 power package files read, POWER_DEPENDENCY_ANALYSIS.md incorporated, watchman cross-referenced, legacy automations checked*
+*Last updated: 2026-08-21 — Issue 7 closed (sensor.inverter_today_energy_import removed as
+confirmed dead code, not fixed with detection logic); Issue 8 confirmed (group has 1 real
+member, not empty); Issue 17 closed (power_helpers.yaml layering violation — group:/template:
+blocks moved to power_templates.yaml); Issue 28 updated with Solcast site-geometry finding
+(azimuth 41° vs described north-facing roof) + tree-felling note. See PROJECT_STATE.md
+2026-08-21 session entry for full detail.*
 *Last updated: 2026-07-17 — Issue 23 (BUG-PWR-BATTERY01) closed: `has_value()` guard added to
 `Power Battery Low Alert Active` so an unavailable battery sensor no longer reads as a phantom 0%.*
 *Last updated: 2026-06-19 — Issues 10/11/12/13 closed (code verified); Issue 8 corrected (group renamed house_security_power_sensors); watchman table updated; legacy automations table updated (all deleted/migrated 2026-06-18)*

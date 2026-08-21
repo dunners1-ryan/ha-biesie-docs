@@ -5,6 +5,88 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-08-21 — Pool pump dashboard ghost-entity cleanup + prioritized doc/code audit
+      pass across power + water (7 issues closed, 1 downgraded, 3 confirmed-already-fixed
+      doc-drift corrections).** User flagged `sensor.pool_pump_solar_headroom` showing
+      "Unavailable — no longer provided by the template integration" on the Pool Pump
+      Status card. Root cause: this entity was supposedly removed from
+      `core.entity_registry` back in the 2026-04-22 Session D cleanup (renamed to
+      `sensor.solar_available_surplus`), but the registry removal didn't stick and two
+      `.storage/lovelace.dashboard_operations` cards still referenced the old name (an
+      entities card + a 24h history-graph card). Both fixed to
+      `sensor.solar_available_surplus`; user then deleted the stale registry entry.
+      **Follow-on cross-check of PROJECT_STATE.md against the domain contracts surfaced
+      a prioritized fix list; user actioned it same session:**
+      - **Confirmed already-fixed (stale doc/TODO status corrected, no code needed):**
+        pool pump's Tuya `continue_on_error` safety net (this file's "RESUME-HERE" Tuya
+        entry below — `pool_pump_solar_control` got it 2026-08-09, entry hadn't been
+        updated); WATER_CONTRACT Issue 2 (`water_tank_full_notification` — already
+        triggers off `binary_sensor.water_tank_full_depth`, not the nonexistent
+        `sensor.water_state == 'full'`); POWER_CONTRACT Issue 8
+        (`group.house_security_power_sensors` confirmed to have 1 real member, not
+        empty); network dashboard AP-button restart fix (confirmed live — single
+        consolidated button card + "Total Known Clients" line both present).
+      - **Code fixes shipped:** WATER_CONTRACT Issue 10 (dual-write duplicate Telegram
+        on emergency refills — removed the direct `notify.send_message` calls in both
+        CRITICAL branches of `water_tank_refill_control.yaml`; `script.notify_water_event`
+        already Telegram-mirrors severity:warning unconditionally, so this was 2
+        messages per emergency event — see note below re: the now-obsolete "accepted
+        exception" in WATER_CONTRACT's Locked Design Decisions table); Issue 9
+        (re-enabled the commented-out 1-min debounce on the max-depth safety stop in
+        `water_safety.yaml` — confirmed it's an independent backstop, not covered by the
+        separate stop-at-target-depth automation); Issue 12 (`water_refill_never_reached_full`'s
+        condition was tautologically always-true — `sensor.water_state` can never equal
+        `'full'` — now checks `binary_sensor.water_tank_full_depth` instead); Issue 11
+        (deleted `water_policy_helpers.yaml` outright — 4 orphaned input_numbers, zero
+        references anywhere in packages/ or dashboards, confirmed via grep). POWER_CONTRACT
+        Issue 7 (deleted the dead `sensor.inverter_today_energy_import` doubling-workaround
+        block from `power_core.yaml` — confirmed zero consumers anywhere in the repo; the
+        contract's claimed consumer, `solar_used_by_house_today`, actually reads different
+        source sensors. The real authoritative daily grid-import figure is
+        `sensor.grid_energy_import_today`, a UI-defined `utility_meter` helper — not YAML —
+        wrapping an `integration` sensor off inverter 1, per user). POWER_CONTRACT Issue 17
+        (layering violation — moved the `group:` block, 11 inverter comparison groups, and
+        `template:` sensor block, ~30 combined-inverter sensors + 1 throttled-sensor block,
+        out of `power_helpers.yaml` into `power_templates.yaml`'s existing single
+        `group:`/`template:` keys; verified via YAML parse — 20 groups, 37 sensors, zero
+        duplicate `unique_id`s, exactly 2 template list items, same as before the move.
+        `power_helpers.yaml` now contains only `input_boolean`/`input_select`/
+        `input_number`/`input_datetime`, matching the `*_helpers.yaml` convention).
+      - **Reviewed, decision made:** Program 4 SOC target (90%→100%, tested since
+        2026-08-04) — recorder data pulled (`sensor.inverter_battery_soc`,
+        `sensor.grid_energy_import_today`, 2026-07-28 to 2026-08-21): morning-floor SOC
+        rose from a ~30-45% pre-test baseline to ~45-55% at 100%, and daily grid import
+        fell to 1.6-7.7 kWh/day from ~08-15 onward (vs. a rough 10-39 kWh/day spread
+        before). **Decision: keep 100%.** Caveat: this window also contains a tree-felling
+        event (~mid-August, improved solar/reduced shading, not yet in any doc — see
+        Claude's memory file) that the 08-10 to 08-14 high-grid-import days and the
+        post-08-15 improvement both plausibly reflect, so the 100%-target effect and the
+        felling effect aren't cleanly separable from this data alone.
+      - **Reviewed, external action (not a repo change):** Solcast site geometry
+        (`solcast_solar/solcast-sites.json`) — capacity 10.2kW/10.8kWdc, **azimuth 41°**,
+        tilt 26°, loss_factor 0.9. A 41° azimuth doesn't match a "north-facing" roof
+        description (true north ≈ 0° in Solcast's convention) — flagged as a likely
+        contributor to POWER_CONTRACT Issue 28's persistent forecast-overshoot bias,
+        independent of the `estimate10` percentile fix already applied there. Recommended
+        the user re-check/correct azimuth (and derate `capacity_dc` for the 1 broken
+        panel) on the Solcast Rooftop site portal directly — this config lives on
+        solcast.com, not in this repo; the local JSON is a read-only sync cache.
+      - **Still open, needs the user, not re-flagged as a bug:** WATER_CONTRACT Issue 5
+        (max-runtime cutoff) — user questioned whether it's redundant given the existing
+        depth hard-stop (1.95m) + 15-min no-rise protection. Assessment: not fully
+        redundant (covers a 3rd failure mode — slow-but-continuous fill that trips
+        neither guard) but genuinely lower priority than originally scored; downgraded
+        P2→P3, no automation added pending the user's call. Telegram inline-photo
+        delivery (SECURITY_CONTRACT BUG-S61) — still broken, root cause needs the user's
+        cloudflared tunnel ingress target (not discoverable from this repo) before a fix
+        can be proposed.
+      **Not yet run:** `ha core check` / Developer Tools → YAML → Check Configuration —
+      this session validated the changed water/power YAML files with a local YAML parse
+      (syntax + no duplicate top-level keys/unique_ids confirmed) but that is not a
+      substitute for HA's own config check. Run it, then reload Template Entities +
+      Automations (no core restart needed — no automation trigger/id changes, no new
+      integration entities) before treating these live.
+
 - [x] **2026-08-18 — Cancel Alert rolled out to every critical alert domain, BUG-A19 fixed.**
       User asked to audit whether every critical alert has a way to cancel its own escalation,
       using the garage-door "left open" critical push as the example. Investigation found the
@@ -457,9 +539,12 @@
             `tuya_reload_and_verify` auto-reloads themselves corrupting
             signing state (ties to the user's recalled "6 second reload"
             mechanism, still not located in this repo's history).
-      - [ ] `pool_pump_solar_control` (and possibly the pond pump, another
-            Tuya device) likely need the same `continue_on_error` safety net
-            as geyser — not yet applied.
+      - [x] `pool_pump_solar_control` given the same `continue_on_error` safety
+            net — done 2026-08-09 (see that automation's header comment in
+            `power_automations.yaml`), confirmed still in place 2026-08-21.
+            Does NOT add geyser's fuller evidence/retry wrapper, just stops a
+            Tuya API exception from silently killing the automation. The pond
+            pump (Sonoff, not Tuya) is unaffected — this fault is Tuya-specific.
       - [ ] `continue_on_error` only makes failures visible again; it does
             not fix why Tuya is rejecting the signature. Real fix is
             upstream — likely needs a genuine Tuya re-auth or a deeper look
@@ -658,7 +743,10 @@
       live-verified against a real UniFi blip (none occurred during the fix session) — next
       ~2s multi-AP reconnect is the real test. See NETWORK_CONTRACT.md Section 6 + Section 8.
 
-- [ ] **REVIEW 2026-08-11 — Program 4 SOC target test (90% → 100%), started 2026-08-04.**
+- [x] **REVIEWED 2026-08-21 (9 days late — target was 2026-08-11) — Program 4 SOC target
+      test (90% → 100%), started 2026-08-04. DECISION: keep 100%.** See the 2026-08-21
+      session entry at the top of this list for the full data pull and the tree-felling
+      caveat.
       User asked to push Inverter Program 4 (14:00–17:00 window) target SOC from 90% to
       100% on both inverters, reasoning: coming out of winter, days getting longer/warmer,
       wants more midday solar banked into the battery for better overnight/morning grace
@@ -971,7 +1059,8 @@
       reproducing in real time (a `template.reload` froze severity/context at `critical` again
       while `alert.network_alert` correctly stayed `idle`) immediately before applying the fix, then
       confirmed the new trigger self-corrects within one 5-min cycle. See NETWORK_CONTRACT.md.
-- [ ] **Network dashboard polish pass (2026-07-10, same day) needs another full HA restart.**
+- [x] **Network dashboard polish pass (2026-07-10, same day) — confirmed live 2026-08-21,
+      multiple restarts completed since.**
       Post-restart visual review of network-control/network-debug found one real defect (fixed)
       and two non-issues (browser-cache related, no YAML change). Fixed: 5 oversized per-AP
       restart buttons on network-debug consolidated into one compact shared grid (they were

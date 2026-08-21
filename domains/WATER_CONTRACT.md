@@ -552,11 +552,14 @@ Issues ordered by risk/impact. **P1 = breaks functionality. P2 = incorrect data/
 
 ---
 
-### Issue 2 — BUG: `water_tank_full_notification` never fires
-**Priority:** P1 — Tank full notification silently dead  
-**File:** `packages/notifications/water_notifications.yaml:69`  
-**Root cause:** Trigger watches `sensor.water_state` → `"full"` but the sensor never produces that state. Actual states are: `fault`, `critical`, `safety`, `low`, `refilling`, `ok`. There is no `"full"` state.  
-**Fix:** Change trigger state to watch for `binary_sensor.water_tank_full_depth` transitioning to `"on"`, OR add a `"full"` state branch to `sensor.water_state` at depth ≥ `water_target_depth_full`.
+### Issue 2 — ✅ CONFIRMED FIXED (doc-drift correction) 2026-08-21: `water_tank_full_notification` never fires
+**Priority:** was P1 — Tank full notification silently dead
+**File:** `packages/notifications/water_notifications.yaml`
+**Status:** Re-verified live 2026-08-21 — this contract's own description was stale. The
+automation already triggers on `binary_sensor.water_tank_full_depth` going `off`→`on` (the
+exact fix this issue used to recommend), with an explicit code comment noting
+`sensor.water_state` never reaches `"full"`. No code change needed this session; only the
+contract text was out of date.
 
 ---
 
@@ -597,11 +600,22 @@ cycle_active`. `water_refill_capture.yaml` untouched (was already correct per th
 ---
 
 ### Issue 5 — SAFETY GAP: Max runtime cutoff not implemented
-**Priority:** P2 — Protection 5 from contract is missing  
-**Files:** All water package files — not present in any  
-**Root cause:** `input_number.water_refill_max_runtime_minutes` is defined in `water_helpers.yaml` but never referenced in any automation. The safety spec lists "Max runtime cutoff" as Protection 5, but there is no automation that uses this helper.  
-**Exception:** The emergency survival mode (case 3) has a hardcoded 10-minute delay. This is NOT the max runtime cutoff — it is a specific emergency duration, not a general safety guard.  
-**Fix:** Add to `water_safety.yaml`:
+**Priority:** P2 → **downgraded to P3 2026-08-21** — reassessed, not fully redundant but lower urgency than originally scored
+**Files:** All water package files — not present in any
+**Root cause:** `input_number.water_refill_max_runtime_minutes` is defined in `water_helpers.yaml` but never referenced in any automation. The safety spec lists "Max runtime cutoff" as Protection 5, but there is no automation that uses this helper.
+**Exception:** The emergency survival mode (case 3) has a hardcoded 10-minute delay. This is NOT the max runtime cutoff — it is a specific emergency duration, not a general safety guard.
+**2026-08-21 re-assessment (user question: is this arbitrary given the existing depth
+hard-stop + no-rise protection?):** Not fully redundant. The 1.95m depth hard-stop
+(`water_stop_refill_at_max_depth`, Issue 9 above) catches overfill; the 15-minute
+`water_borehole_no_rise_protection` catches a pump that's running but not moving the
+level at all. Neither catches a **slow-but-genuinely-rising** fill — e.g. a partially
+blocked line or a degraded borehole yield — that never trips "no rise" and never reaches
+1.95m, but runs for hours longer than normal, wasting power and pump-hours. A max-runtime
+cutoff is the only guard that would catch that specific case. That said, it's a lower-risk
+failure mode than overfill or dry-run (nothing floods, nothing runs dry), so downgraded to
+P3 rather than closed. **Not implemented this session — awaiting the user's call** on
+whether the defense-in-depth is worth adding. Draft automation below still valid if/when
+they say yes:
 ```yaml
 - id: water_safety_max_runtime_cutoff
   alias: "Water Safety ▸ Max Runtime Cutoff"
@@ -692,37 +706,58 @@ BUG-N02 — corrected there too.
 
 ---
 
-### Issue 9 — BUG: `water_safety.yaml` max-depth stop has commented-out debounce
-**Priority:** P2 — Tuya spike > 1.95m triggers false safety abort  
-**File:** `packages/water/water_safety.yaml:40`  
-**Root cause:** `# for: "00:01:00" #REQUIRED DEBOUNCE (ONE LINE)` — the comment says debounce is REQUIRED but it's commented out. Without it, a single erroneous Tuya reading above 1.95m (before the spike filter catches it) immediately stops the pump and marks the cycle as aborted.  
-**Note:** The spike filter in `water_tank_depth_validated` should reject jumps > 0.35m. But since the safety trigger watches `sensor.water_tank_depth_validated` (not raw), a legitimate slow rise to 1.96m would correctly trigger. The risk is specifically a spike that passes through the filter (a jump < 0.35m from near-full).  
-**Fix:** Uncomment the `for: "00:01:00"` line. One minute debounce is appropriate for a physical safety stop.
+### Issue 9 — ✅ FIXED 2026-08-21: `water_safety.yaml` max-depth stop had commented-out debounce
+**Priority:** was P2 — Tuya spike > 1.95m triggers false safety abort
+**File:** `packages/water/water_safety.yaml`
+**Root cause:** `# for: "00:01:00" #REQUIRED DEBOUNCE (ONE LINE)` — the comment said debounce was REQUIRED but it was commented out. Without it, a single erroneous Tuya reading above 1.95m (before the spike filter catches it) immediately stopped the pump and marked the cycle as aborted.
+**Verified not covered elsewhere:** re-checked whether the separate stop-at-target-depth
+automation (`water_tank_refill_control.yaml`, stops at `water_effective_fill_target` ≈
+1.6m) makes this moot — it doesn't. That's a different automation, and this hard stop is
+explicitly designed as an *independent* backstop for when that logic fails to fire (see
+Locked Design Decisions: "Independent of refill logic"), so it can't assume the
+target-reached path already protects it.
+**Fix applied:** Uncommented the `for: "00:01:00"` line. A genuine rise to 1.95m+ sustains
+well past 1 minute, so the debounce doesn't weaken the backstop — it only rejects a single
+spurious reading.
 
 ---
 
-### Issue 10 — DUAL WRITE: Duplicate notifications on emergency refills
-**Priority:** P3 — User receives 2 notifications per emergency refill  
-**File:** `packages/water/water_tank_refill_control.yaml:200,221`  
-**Root cause:** Both CRITICAL cases (2 and 3) call `script.notify_water_event` AND `notify.send_message` on `notify.telegram_bot_5527` directly. Central script routes to Telegram anyway. Result: 2 Telegram messages per emergency event.  
-**Violates:** CODING_STANDARDS notification standard (all calls through central script).  
-**Fix:** Remove the direct `notify.send_message` calls. Add `telegram: true` parameter to the central script call, or let the central script handle Telegram routing based on severity.
+### Issue 10 — ✅ FIXED 2026-08-21: DUAL WRITE — Duplicate notifications on emergency refills
+**Priority:** was P3 — User receives 2 notifications per emergency refill
+**File:** `packages/water/water_tank_refill_control.yaml`
+**Root cause:** Both CRITICAL cases (2 and 3) called `script.notify_water_event` AND `notify.send_message` on `notify.telegram_bot_5527` directly. `script.notify_water_event` already has its own unconditional Telegram mirror (`telegram_bot.send_message`, fires for every severity including warning) — confirmed by reading `notify_water_events.yaml` directly. Result: 2 Telegram messages per emergency event.
+**Note — supersedes a stale "Locked Design Decision":** this file's Locked Design Decisions
+table carried a row calling the direct bypass an "accepted exception... critical emergency
+notifications need guaranteed delivery." That exception predates `notify_water_event`
+gaining its own reliable Telegram mirror (added afterward) — it's now obsolete. Row removed
+below.
+**Fix applied:** Removed both direct `notify.send_message` blocks. The central script's
+mirror now delivers the sole Telegram message for both CRITICAL branches.
 
 ---
 
-### Issue 11 — ORPHANED: `water_policy_helpers.yaml` threshold entities unused
-**Priority:** P3 — Dead code creates confusion about which thresholds are active  
-**File:** `packages/water/water_policy_helpers.yaml`  
-**Root cause:** Defines `water_depth_full_threshold`, `water_depth_low_threshold`, `water_depth_critical_threshold`, `water_depth_empty_threshold`. None of these are referenced in any template or automation. The active thresholds are in `water_helpers.yaml` (`water_depth_critical`, `water_depth_low`, etc.).  
-**Fix:** Either wire the policy helpers into the templates (replacing hardcoded values) — which was the intent — or delete this file entirely.
+### Issue 11 — ✅ FIXED 2026-08-21: ORPHANED — `water_policy_helpers.yaml` threshold entities unused
+**Priority:** was P3 — Dead code creates confusion about which thresholds are active
+**File:** `packages/water/water_policy_helpers.yaml` (deleted)
+**Root cause:** Defined `water_depth_full_threshold`, `water_depth_low_threshold`, `water_depth_critical_threshold`, `water_depth_empty_threshold`. None of these were referenced in any template, automation, or dashboard (re-confirmed via repo-wide grep). The active thresholds are in `water_helpers.yaml` (`water_depth_critical`, `water_depth_low`, etc.).
+**Fix applied:** Deleted the file outright rather than wiring it in — the active thresholds
+in `water_helpers.yaml` already serve this role and there was no in-progress consumer to
+preserve.
 
 ---
 
-### Issue 12 — DEAD CODE: `water_refill_never_reached_full` effectively unreachable
-**Priority:** P3 — The automation can never fire in practice  
-**File:** `packages/notifications/water_notifications.yaml:101`  
-**Root cause:** Trigger: `binary_sensor.water_tank_refilling` stays on for 3 hours. But `water_borehole_no_rise_protection` fires after 15 minutes of no depth increase and stops the pump. The tank refilling binary_sensor turns off → 3-hour timer resets. No refill that fails to rise will ever stay on for 3 hours. Only a genuine 3-hour non-stop rise (tank filling very slowly) could trigger this — but that would mean normal operation.  
-**Fix:** Replace with a trigger-based approach: when cycle starts, check 30–45 minutes later if the depth has risen by a meaningful amount.
+### Issue 12 — ✅ PARTIALLY FIXED 2026-08-21: DEAD CODE — `water_refill_never_reached_full` had a tautological guard condition
+**Priority:** was P3 — The automation can never fire in practice
+**File:** `packages/notifications/water_notifications.yaml`
+**Root cause (original, still applies):** Trigger: `binary_sensor.water_tank_refilling` stays on for 3 hours. But `water_borehole_no_rise_protection` fires after 15 minutes of no depth increase and stops the pump. The tank refilling binary_sensor turns off → 3-hour timer resets. No refill that fails to rise will ever stay on for 3 hours — this half of the reachability problem is unresolved, see "Fix needed" below.
+**Second, independent bug found and fixed 2026-08-21:** the automation's `condition` checked
+`sensor.water_state != 'full'` — a state that sensor can never produce (see Issue 2) — so the
+condition was tautologically always `True`. Even in the rare case the trigger did fire, the
+guard was providing zero actual filtering. Fixed to check
+`binary_sensor.water_tank_full_depth == 'off'`, the real signal.
+**Fix still needed (reachability, unchanged):** Replace the 3-hour stays-on trigger with a
+trigger-based approach: when cycle starts, check 30–45 minutes later if the depth has risen
+by a meaningful amount.
 
 ---
 
@@ -1054,9 +1089,13 @@ For improved reliability, consider adding a `for: "00:00:30"` delay to the no-ri
 | Depth rate uses RAW sensor (not validated) | Spike filter introduces latency; rate sensor needs real-time data |
 | No-rise protection replaces dry-run protection | Deliberate trade-off; dry-run binary_sensor commented out intentionally |
 | Manual scripts do NOT check `water_refill_allowed` | Manual operator actions override the permission gate by design |
-| Emergency Telegram calls are direct (bypassing central script) | Critical emergency notifications need guaranteed delivery; accepted exception |
+| ~~Emergency Telegram calls are direct (bypassing central script)~~ **SUPERSEDED 2026-08-21** | Row removed — `script.notify_water_event` gained its own unconditional Telegram mirror after this exception was written, making the direct bypass a duplicate-message bug (WATER_CONTRACT Issue 10, fixed) rather than a needed guarantee. Direct calls removed from `water_tank_refill_control.yaml`'s CRITICAL branches. |
 
 ---
 
+*Last updated: 2026-08-21 — Issues 2 (doc-drift correction, already fixed), 5 (downgraded
+P2→P3, not implemented, awaiting user decision), 9, 10, 11, 12 (closed/partially closed) —
+see PROJECT_STATE.md 2026-08-21 session entry for full detail. Locked Design Decisions:
+"Emergency Telegram calls are direct" row superseded (Issue 10 fix).*
 *Last updated: 2026-06-14 (E7)*  
 *Updated by: E7 — sensor.water_usage_today (utility_meter), sensor.water_tank_consumption_integral (integration), sensor.water_daily_usage_mean (statistics), sensor.water_effective_fill_target (template). Branch 4.7 predictive fill added. water_stop_at_daily_target updated to read water_effective_fill_target. Predictive fill enabled/wired — see Predictive Fill Helpers section above.*
