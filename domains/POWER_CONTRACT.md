@@ -2684,7 +2684,11 @@ north — the 2021 install/test report, `docs` PDF archive, explicitly documents
 as "north facing"; fine-tune with a satellite bearing/compass check if the roof turns out
 not to be exactly true-north-facing); capacity_dc → **9.89kW** (24 panels − 1 broken = 23
 × 430W nameplate, see PROJECT_STATE.md Hardware Summary "Solar PV Array" for the full
-panel/inverter/battery spec sourced from the install/CoC PDFs); re-run the
+panel/inverter/battery spec sourced from the install/CoC PDFs); tilt → **18.4°** (no
+pitch documented in the install PDFs; user phone-measured with the iOS Measure app's
+Level tool — two readings didn't mirror cleanly, -5°/-18° — then matched against
+PVWatts' standard roof-pitch conversion table and confirmed 4/12 pitch = 18.4°, well
+below the configured 26° and consistent with both raw readings). Re-run the
 `estimate10`-vs-actual comparison using only post-felling days once enough of them exist.
 
 ### Issue 29 — ✅ FIXED 2026-08-14: BUG-PWR-DOCDRIFT01 — stale entity reference in

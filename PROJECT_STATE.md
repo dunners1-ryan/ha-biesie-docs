@@ -1876,10 +1876,19 @@ files are authoritative for actual file inventory.
   **Recommended correction** (via the Solcast Rooftop portal, solcast.com — not this
   repo): azimuth → 0° (true north, matching install docs; fine-tune with a satellite
   bearing/compass check if the roof turns out not to be exactly true-north-facing),
-  capacity_dc → 9.89kW (1 broken panel). AC capacity (10.2kW) not touched — no clear
-  evidence it's wrong; if changed, check it against any grid export limit/NRS097
-  approval cap rather than just the 11kW inverter nameplate. See POWER_CONTRACT.md
-  Issue 28 for the forecast-bias investigation this feeds into.
+  capacity_dc → 9.89kW (1 broken panel), **tilt 26° → 18.4°**. AC capacity (10.2kW) not
+  touched — no clear evidence it's wrong; if changed, check it against any grid export
+  limit/NRS097 approval cap rather than just the 11kW inverter nameplate.
+  **Tilt derivation (2026-08-21):** no roof pitch documented in the install/CoC PDFs
+  (unlike azimuth's explicit "north facing"). User phone-measured the roof with the iOS
+  Measure app's Level tool: +facing up-roof = -5°, facing down-roof = -18° — the two
+  readings don't mirror cleanly (implies either a large phone-level calibration offset or
+  an orientation inconsistency between the two readings), but both are clearly well below
+  the configured 26°. User then matched the readings against PVWatts' standard roof-pitch
+  conversion table (rise/run → tilt degrees) and picked **4/12 pitch = 18.4°** — a common
+  residential rafter pitch, and consistent with both raw phone readings pointing well
+  below 26°. Treat as user-confirmed, not re-derive without new evidence. See
+  POWER_CONTRACT.md Issue 28 for the forecast-bias investigation this feeds into.
 
 ### Cameras (verified 2026-05-17 — 7 NVR + 5 IP active)
 - NVR: Hikvision DS-7116HGHI-F1 (16-channel hybrid DVR, analog 1080p, no AI)
