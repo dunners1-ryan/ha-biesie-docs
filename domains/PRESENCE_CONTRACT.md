@@ -22,6 +22,13 @@
 # missing BUG-P14/P18 (both already Fixed in Section 10) — added, count corrected 15→17.
 # Scope line above corrected 5→6 files. No code changes — presence pipeline needed none,
 # this was 100% doc drift (the Bug Catalog itself, Section 10, was already accurate).
+# Last updated: 2026-08-23 — new laundry_entry_event/laundry_departure_event automations
+# (presence_boundary.yaml, mirror house_entry_event/house_departure_event for the new
+# laundry_door_sensor/laundry_security_gate_sensor Zigbee pair). Section 5 (Door
+# Correlation) and Section 9 (Trigger Integrity Audit) updated; File Inventory line count
+# corrected 703→798. Also fixed a stale Section 5 note describing BUG-P09 (house_
+# departure_event logbook copy-paste) as still open — it was fixed 2026-07-10, Section 10
+# already said so, only this one line hadn't been updated.
 ###############################################################################
 
 ---
@@ -52,7 +59,7 @@ correlation, threat scoring) silently ignore staff presence.
 | `presence_helpers.yaml` | 105 | Arrival/departure booleans, last-event timestamps |
 | `presence_core.yaml` | 264 | AP→room map, per-person location, RAW occupancy, groups |
 | `presence_confidence.yaml` | 276 | Confidence scoring + binary occupied (per room) + `family_arriving`, `family_departing`, `all_family_home` (added S2 2026-05-17; `family_arriving`/`departing` logic updated S8 2026-05-19 — snapshot-delta replaces recency-only) |
-| `presence_boundary.yaml` | 703 | Boundary resolver (gate-based arrival/departure), `presence_clear_arrival_flag` auto-clear (added S1.4 2026-05-17), `presence_snapshot_who_home` rolling snapshot (added S8 2026-05-19) |
+| `presence_boundary.yaml` | 798 | Boundary resolver (gate-based arrival/departure), `presence_clear_arrival_flag` auto-clear (added S1.4 2026-05-17), `presence_snapshot_who_home` rolling snapshot (added S8 2026-05-19), `laundry_entry_event`/`laundry_departure_event` (added 2026-08-23, mirror house_entry_event/house_departure_event) |
 | `presence_validation.yaml` | 115 | Unknown AP detection, AP sanity sensors |
 | `presence_trust.yaml` | 279 | Trust model: all trust input_booleans, derived binary sensors, maid/gardener schedule automations, **startup state sync** (`sync_staff_state_on_startup` — restores maid + gardener booleans on HA restart). Migrated from `context/context_presence.yaml` 2026-04-30 (BUG-CTX01/P11 fix). |
 
@@ -258,9 +265,17 @@ Two additional automations provide entry/departure event flags:
 |---|---|---|---|
 | `house_entry_event` | `front_door_sensor → on` | `front_security_gate_sensor` changed < 30s ago | `house_entry_event = on` (5 min); `input_boolean.arrival_detected = on` (BUG-P17, 2026-07-08) |
 | `house_departure_event` | `front_security_gate_sensor → on` | `front_door_sensor` changed < 30s ago | `house_departure_event = on` (5 min) |
+| `laundry_entry_event` (added 2026-08-23) | `laundry_door_sensor → on` | `laundry_security_gate_sensor` changed < 30s ago | Exact mirror of `house_entry_event`, writing the SAME shared `house_entry_event`/`arrival_detected` booleans — laundry inherits front door's arrival-lighting behavior for free |
+| `laundry_departure_event` (added 2026-08-23) | `laundry_security_gate_sensor → on` | `laundry_door_sensor` changed < 30s ago | Exact mirror of `house_departure_event`, same shared `house_departure_event` boolean |
 
-**Bug:** `house_departure_event` logbook.log message says "House **entry**
-event recorded" — copy-paste error. Does not affect function.
+*(Doc-drift correction 2026-08-23: the line below describing `house_departure_event`'s
+logbook message as a live copy-paste bug was stale — that was BUG-P09, fixed 2026-07-10
+per Section 10; live code now correctly says "House departure event recorded." Kept
+struck through for history rather than deleted, matching this contract's convention
+elsewhere.)*
+
+~~**Bug:** `house_departure_event` logbook.log message says "House **entry**
+event recorded" — copy-paste error. Does not affect function.~~
 
 **Why this matters (BUG-P17):** `house_entry_event`/`house_departure_event` are the only
 automations keyed off the pedestrian front-security-gate + front-door sensors (area
@@ -427,6 +442,8 @@ family members. See BUG-P08 in Section 10 for the fix writeup.
 | `property_entry_event` | `main_gate_sensor → on` | None | Low (gate sensor rarely unavailable) |
 | `house_entry_event` | `front_door_sensor → on` | None | Low |
 | `house_departure_event` | `front_security_gate_sensor → on` | None | Low |
+| `laundry_entry_event` (2026-08-23) | `laundry_door_sensor → on` | None | Low — mirrors house_entry_event |
+| `laundry_departure_event` (2026-08-23) | `laundry_security_gate_sensor → on` | None | Low — mirrors house_departure_event |
 | `presence_boundary_resolver` | `main_gate_sensor → on` | None | Low |
 | `gate_open_too_long_permissive` | `main_gate_sensor → on for 5m` | None | Low |
 | `maid_schedule_start` | `time at: input_datetime.maid_start` | N/A | ✅ Time trigger. **`maid_start` changed 09:00→10:00 (2026-06-29, live via API)** — recorder showed first actual maid camera activity (ipcam01/ipcam03 entrance) at 09:47–09:59 on 2026-06-29, ~50min after the old 09:00 schedule; `maid_end` unchanged at 17:45. |
