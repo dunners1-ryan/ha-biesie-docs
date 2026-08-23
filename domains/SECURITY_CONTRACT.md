@@ -351,7 +351,7 @@ No security-domain helpers were found to be UI-created. All are YAML-defined in
 | Entity | Type | File | Output States | Consumers |
 |--------|------|------|---------------|-----------|
 | `sensor.security_trigger_camera` | template sensor | security_logic.yaml | `camera.camXX_...` or `none` | security_automations.yaml, notify script |
-| `sensor.security_event_classification` | template sensor | security_logic.yaml | idle, arrival, departure, family_movement, service_person, **perimeter_front**, visitor, **gate_activity**, perimeter_threat, **grounds_low_confidence** (BUG-S52, 2026-06-28), intruder, critical_intrusion | security_event_router automation (S3) |
+| `sensor.security_event_classification` | **trigger-based** template sensor (BUG-S76, 2026-08-23 — was legacy `state:`+`attributes:` template) | security_logic.yaml | idle, arrival, departure, family_movement, service_person, **perimeter_front**, visitor, **gate_activity**, perimeter_threat, **grounds_low_confidence** (BUG-S52, 2026-06-28), intruder, critical_intrusion | security_event_router automation (S3) |
 | `binary_sensor.security_inside_garage_motion` | template sensor | security_zones.yaml | on/off | security_event_classification |
 | `binary_sensor.security_inside_main_motion` | template sensor | security_zones.yaml | on/off | security_event_classification |
 | `binary_sensor.security_inside_bedrooms_motion` | template sensor | security_zones.yaml | on/off | security_event_classification |
@@ -2306,6 +2306,85 @@ snapshot`, `security_event_router`, `security_gate_vehicle_stage_1_direction_che
 `security_arrival_stage_2_confirm_who_arrived`, and `security_departure_stage_2_confirm_
 who_left` all came back `on` post-reload; `sensor.security_event_classification` confirmed
 still rendering correctly post-reload (`cam: cam15_passage` on a live cam15 event).
+
+---
+
+### BUG-S76 — `sensor.security_event_classification` title/body/camera could disagree; ladder fallback mislabelled non-perimeter events as "Perimeter activity"
+**Priority: HIGH | Status: ✅ FIXED 2026-08-23**
+
+**Symptom:** Live push: title "⚠️ Perimeter activity" / "Activity outside boundary, no
+presence explanation" with the attached photo/camera actually `Cam15-Passage` (bedroom
+passage — an inside camera, zero perimeter signal). Body read `zones: Beds | gate: closed
+| home: no | arriving: no | departing: yes | staff: no | conf: none | cam: cam15_passage`.
+Same symptom class as the already-fixed BUG-S69/S70/S74/S75, recurring because those fixes
+each patched one manifestation without changing the underlying architecture.
+
+**Root cause 1 (architecture):** `sensor.security_event_classification` was a legacy
+`state:` + `attributes:` template sensor. `state:` (the classification/title),
+`attributes.reason` (the body text + embedded `cam:` slug), and `attributes.zone_label`
+(which image slot / live-snapshot camera the router uses) were three **independently
+rendered Jinja templates**, each re-deriving "which zone is this event about" from raw
+entity state on its own. BUG-S69 fixed one specific disagreement (an aggregate sensor
+lagging behind `reason`'s direct read); BUG-S74/S75 fixed `zone_label`/`reason`'s camera
+picker defaulting to a GLOBAL "any active camera" value instead of a zone-scoped one. But
+the three-independent-renders architecture itself remained, so new disagreements (this one)
+could still appear.
+
+**Root cause 2 (ladder gap — same class as BUG-S52):** `reason`'s camera-picker
+(`zone_cam_list`, since removed) checked zones in a fixed order — garage → main → beds →
+grounds → perimeter — with no awareness of which rung actually produced the classification.
+Separately, the classification ladder's bottom fallback (`elif anyhome: family_movement /
+else: perimeter_threat`) could be reached by a grounds/inside-only event whenever a
+`departing`/`guest`/`staff` combination excluded it from every dedicated rung above (RUNG
+7/7b for grounds, RUNG 8d for inside all explicitly guard on `not departing`, and RUNG
+7/7b also guard on `not guest` — deliberately, so a departing car briefly in grounds or a
+family member walking through the house on the way out doesn't escalate to intruder/
+critical). Excluding an event from those rungs just pushed it further down the ladder with
+nothing left to claim it correctly, and it fell into `else: perimeter_threat` — the exact
+same failure BUG-S52 closed for the plain `grounds + anyhome:false` case, just never closed
+for the `departing`/`guest`-excluded variants. Confirmed live: `ib` (Beds/cam15) true,
+`perim` false, `departing` true (a presence-sensor flap during a `template.reload` at the
+same moment — see chat investigation 2026-08-23), `anyhome` false → fell through RUNG 8d's
+`not departing` guard straight to the `perimeter_threat` fallback.
+
+**Fix — rebuilt as a TRIGGER-based template sensor (`packages/security/security_logic.yaml`):**
+1. Converted from `state:`/`attributes:` platform to `trigger:` + `variables:` + `sensor:`.
+   Trigger-based template entities render their `variables:` block **once** per trigger
+   firing and share the results across `state:` and every `attributes:` key — so
+   classification, `zone_label`, and the embedded camera name are now set TOGETHER in the
+   same branch of one ladder pass (packed as `cls|zone|cam` and split back out), and can
+   never describe three different events again. This also permanently forecloses the whole
+   BUG-S69/S70/S74/S75 bug *class*, not just today's instance of it.
+2. Replaced the old fixed-order `zone_cam_list`/`zone_label` re-derivations with per-zone
+   helper variables (`inside_zone`/`inside_cam`, `grounds_zone`/`grounds_cam`,
+   `perim_front_cam`/`perim_rear_cam`) computed once and referenced by whichever rung
+   actually matches — the camera/zone shown is now always the one the classification is
+   actually about, including the case where an unrelated inside camera is genuinely active
+   at the same moment as a real perimeter/grounds event (the S17b concurrent-motion
+   scenario) — that case now correctly keeps the perimeter/grounds camera instead of being
+   overridden by the inside one.
+3. Closed the ladder gap generally rather than case-by-case: the bottom fallback is now
+   `elif anyhome: family_movement (zone-aware) / elif grounds or inside_any: family_movement
+   (zone-aware) / else: perimeter_threat` — the last branch can now ONLY be reached when
+   `perim` is actually true, regardless of which guard (`departing`, `guest`, `staff`, or
+   any future one added to RUNG 7/7b/8d) excluded the event from its dedicated rung.
+4. All rung conditions/order/comments preserved verbatim from the original ladder — this
+   was a rendering-architecture and fallback fix, not a reclassification-logic change. No
+   rung's trigger conditions changed.
+
+**Verification:** `ha core check` → `{"result":"ok"}`. `homeassistant.reload_all` via the
+Supervisor API applied live (a plain `template.reload` was not sufficient to hot-swap the
+entity from the legacy platform to the trigger-based one — needed the fuller reload).
+Confirmed live post-reload with real motion active (Perim+Grounds+Beds, family home):
+`state: family_movement`, `reason: "zones: Perim+Grounds+Beds | gate: closed | home: all |
+... | cam: cam15_passage"`, `zone_label: "bedroom passage"` — title/body/camera all
+consistent, correctly silent (family home explains it) rather than misfiring perimeter.
+`automation.security_event_router` fired cleanly off the change (`last_triggered` matches),
+no template errors in the core log, no duplicate `sensor.security_event_classification`
+entity created by the platform migration. Manually traced the original bug's exact inputs
+(`ib:true, perim:false, departing:true, anyhome:false, gate:false`) through the new ladder:
+now resolves to `family_movement` / `bedroom passage` / `cam15_passage` — silent, correctly
+zoned — instead of the old `perimeter_threat` / `cam15_passage` mismatch.
 
 ---
 

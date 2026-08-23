@@ -216,7 +216,11 @@ input_datetime.last_arrival_time     persistent
 ```
 sensor.security_threat_level         low/elevated/warning/critical
 sensor.security_threat_score         0–100
-sensor.security_event_classification critical_intrusion/intruder/service_person/arrival/family_movement/none
+sensor.security_event_classification idle/arrival/departure/family_movement/service_person/
+                                      visitor/gate_activity/perimeter_front/perimeter_threat/
+                                      grounds_low_confidence/intruder/critical_intrusion
+                                      (full list corrected 2026-08-23, BUG-S76 — was
+                                      missing 7 of 12 live output states)
 sensor.security_correlation          family_arrival/visitor/service_visit/intruder/intruder_high/ignore/none
 sensor.security_movement_path        street/driveway/front_door/side_entry/rear_*/none
 sensor.security_lighting_intent      ignore/full/area/perimeter

@@ -7,6 +7,12 @@
 #
 # Scope: All 16 packages/alerts/*.yaml files
 #        Plus cross-domain aggregation in alerts_summary.yaml
+# Last updated: 2026-08-23 — Doors Domain: 5 new Zigbee door/gate sensors tiered in
+# (kitchen/laundry door, laundry/garage security gate → Tier 2; reading room → Tier 3),
+# garage_door_sensor split into its own boundary-lights+all-home condition, new
+# automation.house_secured_check (bedtime/everyone-left sweep). Device Battery Domain:
+# found the documented 15-entity battery_monitor rollout was actually at 0 live — restored
+# + extended to 20. alerts_doors.yaml line count corrected 1103→1282.
 # Last updated: 2026-08-21 (deep drift sweep) — File Inventory line counts were all
 # stale (2026-04-13 baseline, never refreshed as files grew) — corrected all 16
 # against live `wc -l`, including the "14 files" scope note above (now 16). Network
@@ -114,7 +120,7 @@ fully correct. All domains route through the central notification script.
 |---|---|---|---|
 | `alerts_helper.yaml` | 154 | ✅ Active | `active_alert_entities` sensor |
 | `alerts_summary.yaml` | 772 | ✅ Active | `alert_device_entities`, `global_alert_context`, all count sensors |
-| `alerts_doors.yaml` | 1103 | ✅ Active | Door/gate tiered severity, `alert.door_alert` |
+| `alerts_doors.yaml` | 1282 | ✅ Active | Door/gate tiered severity, `alert.door_alert`, `automation.house_secured_check` (2026-08-23) |
 | `alerts_network.yaml` | 1365 | ✅ Active | WAN/LAN/device down, degraded, restart |
 | `alerts_power.yaml` | 496 | ✅ Active | Grid offline, battery low, excess load, prepaid drift |
 | `alerts_temperature.yaml` | 1523 | ✅ Active | WAN/LAN/device/storage temps |
@@ -288,11 +294,24 @@ say so. Only this one table cell had never been updated.)*
 | Escalation alerts | ~~Via `alert.door_alert` → `STD_Alerts`~~ **Correction:** `STD_Alerts` is dead (BUG-A10) and was never the live path here — real delivery is `automation.route_door_sustained_open_escalation` (fires once) + `automation.route_door_alert_repeat_reminder` (5/10/30/60 min), both added 2026-07-13, both calling `script.notify_security_event` directly. `alert.door_alert` itself still exists but its `notifiers: [STD_Alerts]` delivery is a no-op. | ✅ working path documented; `alert:` entity delivery still dead but unused |
 | Camera evidence + cancel | `route_door_sustained_open_escalation` / `route_door_alert_repeat_reminder` snapshot the relevant gate camera fresh on every send (ipcam03 for `main_gate_sensor`, cam04 for `front_security_gate_sensor`) and attach a "Cancel Alert" button (phone action `CANCEL_GATE_ALERT` + Telegram `/cancel_gate_alert`) that mutes `input_boolean.gate_alert_snoozed` for the rest of the open cycle | ✅ added 2026-07-17, see BUG-A13 |
 | Sonoff recovery watchdog | `binary_sensor.garage_door_stale` → `automation.recover_sonoff_if_stale` (`homeassistant.reload_config_entry` on the garage door sensor's Sonoff config entry) | ✅ fixed 2026-08-05, see BUG-A17 — was firing ~every 6 min 24/7 (false "stale" on a sensor that just hadn't toggled), now requires genuine unavailable/unknown state |
+| New sensors onboarded (2026-08-23) | `binary_sensor.kitchen_door_sensor`, `laundry_door_sensor`, `laundry_security_gate_sensor`, `garage_security_gate_sensor` → Tier 2 (entry); `reading_room_door_sensor` → Tier 3 (house control) | ✅ wired into `group:` block AND the real severity engine (trigger list, rank computation, duration, devices attribute) — inherit existing night/nobody-home escalation + Cancel Alert automatically |
+| Garage door split-out (2026-08-23) | `binary_sensor.garage_door_sensor` moved out of the shared Tier 2 loop into its own condition block — away/nobody-home unchanged, but the home-branch now requires `binary_sensor.security_lighting_required` (dusk/dark, NOT the generic night flag) AND `binary_sensor.all_family_home` both on, instead of just `night` | ✅ per user request — garage sits open most of the day regardless of who's home, old logic was too noisy |
+| House Secured Check (2026-08-23) | `automation.house_secured_check` — sweeps all 11 doors/gates (every tier, incl. garage), fires at bedtime (`input_datetime.house_secured_check_time`, default 21:30) and on everyone-leaving (`anyone_connected_home` on→off), suppressed by `low_trust_present` (covers maid/gardener) | ✅ new, silent when all-clear, warning at bedtime / critical on everyone-left |
 
 **PASS.** BUG-A06 fixed 2026-04-16. `sensor.doors_open_alert_severity` deleted.
 `sensor.door_alert_context` is now the unified single source with tiered logic across
-all 6 monitored doors. Alert message and `door_alert_notify_active` updated to read only
-from `sensor.door_alert_context`.
+all 6 originally-monitored doors, expanded to 11 as of 2026-08-23 (see rows above).
+Alert message and `door_alert_notify_active` updated to read only from
+`sensor.door_alert_context`.
+
+**Current tier composition (2026-08-23):**
+- **Tier 1 (perimeter):** `main_gate_sensor`, `front_security_gate_sensor` — property
+  boundary only, deliberately not extended to the new interior gates.
+- **Tier 2 (entry):** `front_door_sensor`, `garage_door_sensor` (own condition block, see
+  above), `kitchen_door_sensor`, `laundry_door_sensor`, `laundry_security_gate_sensor`,
+  `garage_security_gate_sensor`.
+- **Tier 3 (house control):** `lounge_door_sensor`, `bar_door_sensor`,
+  `reading_room_door_sensor`.
 
 ### Temperature Domain — `alerts_temperature.yaml`
 
@@ -424,7 +443,24 @@ shows empty with an onboarding hint until one is added. `sensor.ha_system_monito
 (the HA host's own systemmonitor battery sensor — a Raspberry Pi has no battery) was
 deliberately NOT labelled.
 
-**PASS.**
+**⚠️ Regression found + fixed 2026-08-23:** the 15-entity rollout above was documented as
+done but **zero entities were actually labelled** — `sensor.device_battery_fleet` was
+live and functioning but reporting an empty roster. Root cause not identified (label
+registry state, not YAML — nothing in `alerts_device_batteries.yaml` itself changed
+between the two dates). Restored all 15 above and added 5 more from the same session's
+new Zigbee door/gate sensors (`kitchen_door_sensor_battery`,
+`reading_room_door_sensor_battery`, `garage_security_gate_sensor_battery`,
+`laundry_door_sensor_battery`, `laundry_security_gate_sensor_battery`) — **20 entities
+labelled as of 2026-08-23**, applied live via the HA WebSocket API
+(`config/entity_registry/update`, not a file edit — avoids the entity-registry
+edit/restart race noted in this file's Zigbee sensor onboarding entry). Verified live:
+`sensor.device_battery_fleet` shows all 20, `sensor.device_battery_alert_context`
+recomputed correctly (surfaced a real pre-existing low-battery phone at 5%, not caused
+by this fix). If the label count unexpectedly drops to 0 again, that's the same
+regression recurring — worth its own investigation session rather than just re-applying
+the label again.
+
+**PASS**, with the above caveat.
 
 ### Camera Health Domain — `alerts_camera_health.yaml`
 

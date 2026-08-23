@@ -5,6 +5,136 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-08-23 — BUG-S76 fixed: `sensor.security_event_classification` title/body/
+      camera could disagree; ladder fallback mislabelled non-perimeter events as
+      "Perimeter activity".** User got a push titled "⚠️ Perimeter activity" whose body
+      read `zones: Beds | ... | cam: cam15_passage` and whose attached photo was the
+      bedroom passage — zero perimeter signal anywhere. Traced via the recorder DB
+      (`home-assistant_v2.db`) to a `template.reload` at 18:50:26 SAST that flapped
+      several presence sensors (`family_departing`, `anyone_connected_home`) through
+      `unavailable` for ~3s; during that window the classifier's ladder fell through
+      RUNG 7/7b (grounds) and RUNG 8d (inside)'s `not departing` guards — deliberately
+      there so a departing car/family member doesn't escalate to intruder/critical — with
+      nothing below them to claim the event correctly, so it dropped into the bottom
+      `else: perimeter_threat` fallback despite zero perimeter motion (same bug *class* as
+      BUG-S52, which only closed this for the plain grounds+anyhome:false case). Root
+      architecture cause: the sensor was a legacy `state:`+`attributes:` template where
+      title, body (`reason`), and camera/image routing (`zone_label`) were three
+      independently-rendered Jinja templates that could disagree (same class as
+      BUG-S69/S70/S74/S75, each of which patched one symptom without fixing the
+      architecture). **Fix:** rewrote `sensor.security_event_classification`
+      (`packages/security/security_logic.yaml`) as a **trigger-based** template sensor —
+      classification + zone + camera are now decided together in one ladder pass via a
+      shared `variables:` block, and the bottom fallback is now zone-aware (`perimeter_
+      threat` can only fire when `perim` is actually true; grounds/inside-only events that
+      fall through their dedicated rungs now correctly land on `family_movement` with their
+      real zone/camera). All rung trigger conditions/order preserved verbatim — this was a
+      rendering-architecture + fallback fix, not a reclassification-logic change. `ha core
+      check` → `{"result":"ok"}`; `homeassistant.reload_all` applied live (plain `template.
+      reload` did not hot-swap the platform type); confirmed live with real motion active
+      (Perim+Grounds+Beds, family home) rendering consistently (`family_movement` /
+      `bedroom passage` / `cam15_passage`); manually traced the original bug's exact inputs
+      through the new ladder → now resolves correctly instead of mislabelling perimeter.
+      `SECURITY_CONTRACT.md` updated: BUG-S76 full writeup (Section 6) + Section 3 entity
+      row. `SYSTEM_CONTRACT.md` line 219 also corrected in the same sweep — the Security
+      Domain Published Interface's `sensor.security_event_classification` output-state list
+      was stale independent of this bug (was missing 7 of the 12 live states; not something
+      this session broke, just noticed while in the area). **Note:** `packages/alerts/
+      alerts_doors.yaml`, `packages/presence/presence_boundary.yaml`, the `ids_hyyp` custom
+      component, `solcast_solar/*.json` cache files, `www/community/kiosk-mode/*`, and
+      `www/security_latest.jpg` all had pre-existing uncommitted changes at commit time,
+      unrelated to this fix (the door/gate sensor session below, plus other in-flight work)
+      — deliberately excluded from this commit/doc-update pass per user instruction ("only
+      this session").
+
+- [x] **2026-08-23 — New Zigbee door/gate sensors onboarded (kitchen, laundry, reading
+      room, garage security gate) + entity-ID fix + garage door alert redesign + battery
+      monitoring restored.** Five new SNZB-04P (eWeLink) Zigbee contact sensors were
+      physically added: `bar_door_sensor`/`front_door_sensor`/`front_security_gate_sensor`/
+      `lounge_door_sensor` already existed pre-session; `kitchen_door_sensor`,
+      `laundry_door_sensor`, `laundry_security_gate_sensor`, `garage_security_gate_sensor`,
+      `reading_room_door_sensor` are new this session.
+      - **Entity-ID bug found + fixed:** 4 of the 5 new sensors' Area wasn't set before HA
+        auto-named them, producing doubled-prefix entity_ids
+        (`binary_sensor.kitchen_kitchen_door_sensor`,
+        `binary_sensor.reading_room_reading_room_door_sensor`,
+        `binary_sensor.garage_garage_security_gate_sensor`,
+        `binary_sensor.laundry_laundry_security_gate_sensor`). Renamed to the clean
+        `binary_sensor.kitchen_door_sensor` / `reading_room_door_sensor` /
+        `garage_security_gate_sensor` / `laundry_security_gate_sensor` — 21 + 7 = 28
+        entities total (binary_sensor + battery/tamper/lqi/rssi/update/button) via direct
+        `.storage/core.entity_registry` edit, `unique_id` untouched. **Lesson learned
+        live:** editing `core.entity_registry` is only safe to do BEFORE HA has loaded
+        the file this run — an edit made after HA is already up gets silently reverted by
+        HA's own registry flush on the next `ha core restart` (reproduced once with
+        `laundry_security_gate_sensor`; fixed by having the user rename that one via the
+        UI instead, which doesn't have this race). Two `ha core restart`s were needed
+        this session; areas (Kitchen/Reading Room/Garage/Laundry) were already correctly
+        assigned at the device level throughout, only the entity_id was broken.
+      - **`presence_boundary.yaml`:** new `laundry_entry_event`/`laundry_departure_event`
+        automations, exact mirror of `house_entry_event`/`house_departure_event`
+        (laundry_door + laundry_security_gate pair, same 30s cross-check, same shared
+        `input_boolean.arrival_detected`/`house_entry_event` writes) — laundry inherits
+        front door's exact arrival-lighting behavior for free since that's driven off
+        `arrival_detected`, not a per-door rule. `kitchen_door_sensor` deliberately NOT
+        wired into this boundary-resolver pattern — no `kitchen_security_gate_sensor`
+        hardware exists to pair it with.
+      - **`alerts_doors.yaml` tier placement:** `kitchen_door_sensor`, `laundry_door_sensor`,
+        `laundry_security_gate_sensor`, `garage_security_gate_sensor` → Tier 2 (entry);
+        `reading_room_door_sensor` → Tier 3 (house control, same as lounge/bar). User
+        decision: Tier 1 (perimeter) is reserved for the property boundary only — the new
+        gate sensors are inside the property, so they join Tier 2 with their paired doors
+        rather than Tier 1 alongside main_gate/front_security_gate. Wired into both the
+        `group:` block (dashboard tier-summary) and the real severity engine
+        (`sensor.door_alert_context` — trigger list, rank computation, duration tracking,
+        devices attribute) — all new sensors automatically inherit the existing
+        night/nobody-home escalation and sustained-open Cancel-Alert notification with no
+        further wiring.
+      - **New "House Secured Check" automation** (`alerts_doors.yaml`): sweeps all 11
+        doors/gates (every tier, incl. garage) and alerts if anything's still open, at
+        bedtime (`input_datetime.house_secured_check_time`, default 21:30,
+        dashboard-adjustable) and whenever everyone leaves
+        (`binary_sensor.anyone_connected_home` on→off) — suppressed while
+        `binary_sensor.low_trust_present` is on (covers maid Mon/Thu + gardener Sat
+        automatically, no separate day-of-week logic needed). Silent when all clear;
+        warning at bedtime, critical when everyone's left.
+      - **`garage_door_sensor` alert logic redesigned** (existing Sonoff sensor, unrelated
+        to the new Zigbee gate): split out of the shared Tier 2 night-based logic into its
+        own condition block, per user request — garage is left open most of the day
+        regardless of who's home, so the old "night + anyone home" trigger was noisy.
+        Away/nobody-home branch unchanged (info → warning after ~5 min). Home branch now
+        suppressed unless `binary_sensor.security_lighting_required` (the dusk/dark
+        trigger `lighting_boundary.yaml` uses for the boundary/street lights — NOT the
+        generic `night` flag) AND `binary_sensor.all_family_home` are both on; same
+        warning/critical thresholds as before once that condition holds. `front_door_sensor`
+        and the other Tier 2 members are unaffected, still on the shared logic.
+      - **Battery monitoring — real regression found + fixed, not just "5 new added":**
+        `alerts_device_batteries.yaml`'s `battery_monitor` label (see Device Battery Alert
+        Entities below) had **zero entities labelled** despite this file documenting a
+        15-entity rollout as done 2026-08-21 — `sensor.device_battery_fleet` was live but
+        reporting an empty roster. Restored the original 15 AND added the 5 new
+        door/gate sensors' battery entities, 20 total, applied live via the HA WebSocket
+        API (`config/entity_registry/update` — no restart needed, avoids the same
+        registry-edit race noted above). Root cause of the label loss not identified —
+        flagged as open below.
+      - `ha core check` valid; `automation`/`template`/`input_datetime`/`group` reloaded
+        live (package YAML changes), no restart needed for those. Functional checks:
+        `sensor.door_alert_context` live-verified reaching `critical` for a genuinely-open
+        garage door (48.7 min, lights on, all home) after the redesign; `sensor.device_battery_fleet`
+        live-verified showing all 20 labelled entities after the battery fix.
+      - **Docs:** `ALERTS_CONTRACT.md` (Doors Domain, Device Battery Domain, File
+        Inventory), `PRESENCE_CONTRACT.md` (Section 5, Section 9, File Inventory), this
+        file's Hardware Summary + Locked Entity Names + Device Battery Alert Entities, all
+        updated same session.
+      - **Note:** `custom_components/ids_hyyp/*` and `packages/security/security_logic.yaml`
+        had unrelated uncommitted changes sitting in the working tree at commit time from
+        outside this session — deliberately left untouched and uncommitted here per user
+        instruction ("only this session"); not this session's work, not documented here.
+      - **Open follow-up:** root cause of the `battery_monitor` label registry going from
+        15 entities to 0 was not identified — worth a look if it recurs, since it means
+        label-based onboarding (the documented mechanism for this whole alert domain) can
+        silently regress with no alerting on the regression itself.
+
 - [x] **2026-08-23 — BUG-NET10 follow-up: WAN Degraded CRITICAL no longer triggers off
       a single bad target.** User asked why a network alert read CRITICAL when only one
       of the 3 WAN ping targets (they suspected Microsoft) was affected, expecting
@@ -2559,6 +2689,21 @@ check those (and this file's 2026-06-17 session log entry) before editing this b
 - WAN Router: ASUS ZenWiFi XD6 (192.168.1.3) | Gateway: UniFi Dream Machine (downstream LAN routing) | APs: 5x UniFi
 - ASUS ROG router (192.168.1.1) — NOT a WAN router; provides dual-LAG bonded LAN connectivity for the Synology NAS only (corrected 2026-07-13, was previously mislabeled "WAN Router: ASUS ROG" here)
 
+### Zigbee Door/Gate Sensors (SNZB-04P, added 2026-08-23)
+- Hub: SONOFF Dongle-M (zha), 21 devices / 233 entities on the Zigbee network as of this
+  writing.
+- Fleet: `bar_door_sensor`, `front_door_sensor`, `front_security_gate_sensor`,
+  `lounge_door_sensor` (pre-existing before this session) + `kitchen_door_sensor`,
+  `laundry_door_sensor`, `laundry_security_gate_sensor`, `garage_security_gate_sensor`,
+  `reading_room_door_sensor` (new 2026-08-23). Each device exposes `binary_sensor.<name>`
+  (opening) + `_tamper`, `sensor.<name>_battery`, `_lqi`, `_rssi`, `update.<name>_firmware`,
+  `button.<name>_identify`.
+- `garage_security_gate_sensor` is a separate pedestrian/security gate at the garage,
+  distinct from the existing `binary_sensor.garage_door_sensor` (Sonoff, DW2-WiFi) —
+  two different physical sensors covering two different things.
+- See "Zigbee Door/Gate Sensors" under Locked Entity Names below for the entity-ID
+  rename history, and ALERTS_CONTRACT.md's Doors Domain section for tier placement.
+
 ---
 
 ## 🔒 Locked Entity Names (DO NOT RENAME)
@@ -2621,12 +2766,32 @@ input_boolean.staff_on_site      ← BUG IV-01 FIXED 2026-04-14 (4 security auto
 input_boolean.low_trust_present
 ```
 
+### Zigbee Door/Gate Sensors (added 2026-08-23)
+```
+binary_sensor.kitchen_door_sensor               # renamed from kitchen_kitchen_door_sensor
+binary_sensor.reading_room_door_sensor          # renamed from reading_room_reading_room_door_sensor
+binary_sensor.garage_security_gate_sensor       # renamed from garage_garage_security_gate_sensor
+binary_sensor.laundry_security_gate_sensor      # renamed from laundry_laundry_security_gate_sensor
+binary_sensor.laundry_door_sensor               # entity_id was already clean, no rename needed
+# All 4 renames: doubled-prefix bug from Area not being set before HA auto-named the
+# entity at creation. unique_id untouched on all 4 — only entity_id changed.
+# DO NOT reintroduce the doubled-prefix names above.
+automation.laundry_entry_event                  # presence_boundary.yaml, mirrors house_entry_event
+automation.laundry_departure_event              # presence_boundary.yaml, mirrors house_departure_event
+automation.house_secured_check                  # alerts_doors.yaml, bedtime + everyone-left sweep
+input_datetime.house_secured_check_time         # default 21:30, dashboard-adjustable
+```
+
 ### Door Alert Inputs (BUG-A06 — added 2026-04-16)
 ```
 input_number.tier3_door_evening_start          # 21.0 h — evening mode start for lounge/bar
 input_number.entry_door_night_escalation_minutes # 5 min — tier-2 night escalation
 sensor.door_alert_context                       # SINGLE SOURCE — replaces doors_open_alert_severity
 # sensor.doors_open_alert_severity DELETED
+# 2026-08-23: garage_door_sensor split out of the shared Tier 2 loop into its own
+# condition block — home-branch now gated on binary_sensor.security_lighting_required
+# AND binary_sensor.all_family_home instead of the generic night flag. See
+# ALERTS_CONTRACT.md Doors Domain section.
 ```
 
 ### Gate Alert Camera + Cancel (BUG-A13 — added 2026-07-17)
@@ -2783,7 +2948,14 @@ label_id: battery_monitor   ← name "Battery Monitor" — apply to any new batt
                                both this alert pipeline and the Batteries dashboard
                                view automatically, no restart needed for onboarding
 
-# Initial 2026-08-21 rollout (15 entities labelled battery_monitor):
+# Initial 2026-08-21 rollout was documented as 15 entities labelled battery_monitor —
+# ⚠️ 2026-08-23: found live at ZERO entities labelled (sensor.device_battery_fleet
+# reporting an empty roster) despite this doc and ALERTS_CONTRACT.md both saying PASS.
+# Root cause not identified. Restored the original 15 below AND added the 5 new
+# door/gate sensors from the same session's Zigbee onboarding (see this file's
+# 2026-08-23 session log entry) — 20 entities labelled as of 2026-08-23, applied live
+# via the HA WebSocket API (config/entity_registry/update), verified live via
+# sensor.device_battery_fleet showing all 20.
 sensor.bar_door_sensor_battery
 sensor.front_door_sensor_battery
 sensor.front_security_gate_sensor_battery
@@ -2799,6 +2971,12 @@ sensor.iphone16promax_ryan_watch_battery_level
 sensor.luke_iphone15_mobile_app_watch_battery_level
 sensor.ap_0223_1001_internal_battery_level
 sensor.ryan_macbook_pro_mobile_app_internal_battery_level
+# + 5 new (2026-08-23):
+sensor.kitchen_door_sensor_battery
+sensor.reading_room_door_sensor_battery
+sensor.garage_security_gate_sensor_battery
+sensor.laundry_door_sensor_battery
+sensor.laundry_security_gate_sensor_battery
 # Deliberately NOT labelled: sensor.ha_system_monitor_battery (HA host/Pi has no
 # real battery). No iPad has a battery entity yet (device_tracker.tayla_ipadair5th
 # / device_tracker.ipadpro_luke are unifi presence trackers only, no HA app) —
