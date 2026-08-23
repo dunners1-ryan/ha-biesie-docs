@@ -5,6 +5,35 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-08-23 — BUG-NET10 follow-up: WAN Degraded CRITICAL no longer triggers off
+      a single bad target.** User asked why a network alert read CRITICAL when only one
+      of the 3 WAN ping targets (they suspected Microsoft) was affected, expecting
+      WARNING until 2+ targets degrade. Traced to the exact architectural gap the
+      2026-08-18 BUG-NET10 fix had explicitly flagged and left unfixed pending more
+      data: `sensor.wan_health_score`'s latency term is `max(cf, google, ms)`, and both
+      `sensor.wan_degraded_alert_severity` and `sensor.wan_noc_status` escalated to
+      `critical` on `score <= 30` alone — a threshold one target can trip solo — with
+      the severity sensor's `high_count >= 2` branch present but unreachable (ordered
+      after the score check). Fixed in
+      [alerts_network.yaml](../packages/alerts/alerts_network.yaml) (severity sensor now
+      requires `high_count >= 2` or `score <= 10` for critical) and
+      [network_helpers.yaml](../packages/network/network_helpers.yaml) (`wan_noc_status`
+      now derives from the corrected severity sensor instead of duplicating the raw
+      threshold). `ha core check` valid via Supervisor API
+      (`{"result":"valid"}`); Reload Template Entities applied and live-verified — all 4
+      affected entities recomputed cleanly, no errors. `NETWORK_CONTRACT.md` updated:
+      BUG-NET10 entry, Section 7 (also corrected a separate long-stale claim there —
+      "for: minutes: 5 on the numeric_state trigger" was never the real implementation;
+      actual mechanism is `delay_on: minutes: 5` on the binary sensor, BUG-NET10's own
+      2026-08-18 writeup already said this but Section 7 was never corrected to match),
+      and the Section 9 summary table — which was also missing BUG-NET10 and BUG-NET11
+      rows entirely despite both having full Section 6 writeups (same drift pattern the
+      2026-08-21 audit found domain-wide). **Note:** `packages/alerts/alerts_doors.yaml`
+      and `packages/presence/presence_boundary.yaml` had substantial uncommitted changes
+      at commit time (new kitchen/laundry/reading-room door + gate sensors, dated
+      2026-08-23) from a concurrent peer session — deliberately excluded from this
+      commit/doc-update pass per user instruction; that session owns its own docs update.
+
 - [ ] **2026-08-22 — RESUME-HERE: consolidated action items surfaced by the 2026-08-21
       docs audit (9 domain contracts + POWER_CONTRACT.md + PROJECT_STATE.md master
       tables + SYSTEM_CONTRACT.md + Testing/ + Context/), not yet actioned.** These are

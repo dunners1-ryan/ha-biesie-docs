@@ -3,6 +3,13 @@
 # Domain Audit: Network / WAN Monitoring
 # Generated: 2026-04-16
 # Updated: 2026-08-18
+# Updated: 2026-08-23 — BUG-NET10 follow-up: the single-target-can-reach-critical
+# design flagged in the 2026-08-18 entry as "left alone" is now fixed. CRITICAL
+# (both sensor.wan_degraded_alert_severity and sensor.wan_noc_status) now requires
+# 2+ bad WAN targets or a catastrophic score, not one. Section 6 (BUG-NET10) and
+# Section 9 (summary table) updated; Section 9 also gained missing BUG-NET10/11 rows
+# (had full Section 6 writeups but were never added to the summary table — same
+# drift pattern flagged domain-wide in the 2026-08-21 audit).
 # Updated: 2026-08-21 (deep drift sweep) — IMP-NET01 (Section 8) confirmed already wired
 # (sensor.network_alert_context does match the aggregator's _alert_context filter — always
 # has), marked done. Section 3's Alert Pipeline block had 3 stale claims about
@@ -401,6 +408,27 @@ more data on whether Google's periodic spikes are a genuine ISP/routing issue or
 `ha core check` valid. **Reload:** template entity change — Reload Template Entities is
 normally sufficient, but bundled with BUG-NET11 restart below.
 
+**Follow-up fix applied 2026-08-23 — the single-target-can-reach-critical design flagged
+above as "left alone" is now closed.** User asked directly why a single bad target (they
+cited Microsoft ping) reads CRITICAL instead of WARNING until 2 targets are affected.
+Live-traced same root cause as above: `sensor.wan_health_score`'s latency term is still
+`max(cf, google, ms)`, and **both** consumers of that score short-circuited to `critical`
+on `score <= 30` alone, before ever checking `high_count` —
+`sensor.wan_degraded_alert_severity` ([alerts_network.yaml:515-527](../../packages/alerts/alerts_network.yaml#L515-L527))
+had the `high_count >= 2` branch but it sat *after* the `score <= 30` branch so it never
+ran, and `sensor.wan_noc_status` ([network_helpers.yaml:225-239](../../packages/network/network_helpers.yaml#L225-L239))
+didn't check target count at all. **Fix:** reordered `wan_degraded_alert_severity` so
+`critical` now requires `high_count >= 2` (2+ targets over 80ms) OR a catastrophic
+`score <= 10`; a single bad target now falls through to `warning`. `wan_noc_status`'s
+`critical` branch now reads `sensor.wan_degraded_alert_severity == 'critical'` instead of
+duplicating the raw `score <= 30` threshold, so the dashboard NOC banner and the alert
+pipeline agree on one source of truth. `ha core check` valid (`"result":"valid"` via
+Supervisor API). **Reload:** Reload Template Entities only, applied and live-verified —
+`sensor.wan_degraded_alert_severity`/`wan_noc_status`/`wan_health_score`/
+`binary_sensor.wan_degraded_alert_active` all recomputed cleanly post-reload (no live WAN
+degradation at verification time to exercise the new branch against real data — next
+single-target spike is the real test).
+
 ### BUG-NET11 [HIGH] — ✅ FIXED 2026-08-18 — the 4 network notify toggles reset to
 `true` on every restart/reload, undoing the user's own attempt to silence WAN Degraded
 **File:** `packages/alerts/alerts_network.yaml`
@@ -441,11 +469,22 @@ entity, not fixed here, flagged for a future session. `ha core check` valid.
 - The network domain feeds only the alert pipeline. No other domain consumes
   network sensors directly.
 - `sensor.wan_noc_status` is a clean abstraction for dashboards — prefer this
-  over reading raw health scores on cards.
+  over reading raw health scores on cards. Its `critical` branch reads
+  `sensor.wan_degraded_alert_severity == 'critical'` (2026-08-23, BUG-NET10
+  follow-up) rather than duplicating the raw health-score threshold, so the
+  dashboard and the alert pipeline always agree on one source of truth.
 - ISP max values (`input_number.isp_download_max`, `isp_upload_max`) must be
   updated manually when the ISP plan changes (not auto-discovered).
 - Alert anti-flap delay is 250s consistently across all LAN binary sensors.
-  WAN degraded uses a `for: minutes: 5` on the numeric_state trigger instead.
+  WAN degraded instead uses `delay_on: minutes: 5` on
+  `binary_sensor.wan_degraded_alert_active` itself (BUG-NET10, 2026-08-18) —
+  this doc previously (and incorrectly) described it as "a `for: minutes: 5`
+  on the numeric_state trigger", which was never actually implemented in code;
+  corrected here, see Section 6 BUG-NET10 for the discovery detail.
+- CRITICAL severity (both `wan_noc_status` and `wan_degraded_alert_severity`)
+  requires 2+ of the 3 WAN targets (Cloudflare/Google/Microsoft) over 80ms, or
+  a catastrophic score <=10 — not a single bad target (BUG-NET10 follow-up,
+  2026-08-23). A lone bad target now reads `degraded`/`warning`.
 
 ---
 
@@ -588,6 +627,8 @@ DSM → Control Panel → Hardware & Power → General:
 | ~~BUG-NET06~~ | ~~Medium~~ | ~~`network_device_down_alert_severity` has no periodic re-evaluation trigger — can stick at a stale `critical` indefinitely.~~ — **FIXED 2026-07-17**, see Section 6. |
 | ~~BUG-NET08~~ | ~~High~~ | ~~Jitter permanently 0 (missing avg statistics sensors); packet loss never actually fed `wan_health_score` despite BUG-NET03~~ — **FIXED 2026-07-27**, see Section 6. |
 | ~~BUG-NET09~~ | ~~Medium~~ | ~~`route_network_device_down_alert`'s severity-critical trigger had no `for:` duration, bypassing the 250s anti-flap gate; fired false criticals on harmless ~2s UniFi reconnect blips.~~ — **FIXED 2026-08-09**, see Section 6. |
+| ~~BUG-NET10~~ | ~~High~~ | ~~WAN Degraded had no anti-flap delay; a single-target latency spike swung health score to CRITICAL and notification-stormed. Anti-flap fixed 2026-08-18; underlying single-target-can-reach-critical design fixed 2026-08-23 (CRITICAL now requires 2+ bad targets or score<=10).~~ — **FIXED 2026-08-18 / 2026-08-23**, see Section 6. |
+| ~~BUG-NET11~~ | ~~High~~ | ~~4 network notify toggles reset to `true` on every restart/reload via `initial: true`, silently undoing user's own mute; `alert.network_alert` double-delivered via redundant `notifiers:`.~~ — **FIXED 2026-08-18**, see Section 6. |
 | ~~IMP-NET01~~ | ~~Low~~ | ~~Add `sensor.network_alert_context` to `sensor.alert_device_entities` aggregator~~ — **✅ Confirmed wired, doc-drift correction 2026-08-21.** `sensor.network_alert_context` (`unique_id: network_alert_context`, `alerts_network.yaml`) matches the `_alert_context` substring filter `sensor.alert_device_entities` scans for (`alerts_summary.yaml`, confirmed live) — same mechanism ALERTS_CONTRACT.md's Camera Health section documents as the thing `sensor.camera_health_context` fails to match. Network's naming is correct and always has been. |
 | IMP-NET02 | Low | Add ISP name/plan to a descriptive input_text for context on dashboard |
 | IMP-NET03 | Low | Several UniFi diagnostic entities are disabled by the integration by default (`sensor.ap_bar_clients`, `sensor.ap_lounge_clients`, `sensor.ap_passage_clients`, `sensor.usw_ultra_poe_clients`, all per-port PoE switch/link-speed sensors) — inconsistent with `ap_garage`/`ap_office` which have clients enabled. Enable in the UniFi integration entity list if per-AP client counts / per-port PoE control become needed; the network-control LAN table degrades gracefully to "—" for these today. |
