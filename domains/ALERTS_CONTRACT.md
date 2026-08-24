@@ -1467,8 +1467,37 @@ JSON-parsed clean; not yet restart-verified against a real stale device by the u
 
 **Related, same session (docs-only, not a package change):** Tayla's `mobile_app` entities
 renamed for naming consistency (`tayla_iphone14_mobile_app_*` → `iphone14_tayla_mobile_app_*`)
-via the entity registry UI — see PRESENCE_CONTRACT.md BUG-P21 for a resulting gap this exposed
-(`person.tayla_dunnington`'s device tracker string didn't follow the rename).
+via the entity registry UI — see PRESENCE_CONTRACT.md BUG-P21/BUG-P22 for two resulting gaps
+this exposed (`person.tayla_dunnington`'s device tracker string didn't follow the rename; a
+second, unrelated UniFi tracker got collaterally renamed and broke 4 presence templates).
+
+---
+
+### BUG-A21 — Battery dashboard showed raw vendor device names instead of the custom names already set on every device
+**Severity:** Low (cosmetic — data was correct, labelling was not)
+**File:** `packages/alerts/alerts_device_batteries.yaml` (`sensor.device_battery_fleet`)
+**Status:** ✅ FIXED 2026-08-24
+
+**User-reported** from a Batteries dashboard screenshot: every Zigbee door/gate sensor showed
+as `eWeLink SNZB-04P` (the vendor model number, identical across all of them — the dashboard
+had ~10 indistinguishable rows), the doorbell as `DB2C_ezviz_doorbell`, the garage sensor as
+`DW2-WiFi-Garage-Door`, and — the one that gave it away — Luke's phone as **"Charles Leclerc "**
+(his device's raw hardware-reported name, unrelated to Home Assistant).
+
+**Root cause:** `sensor.device_battery_fleet`'s `devices` attribute built each row's display
+name from `device_attr(e, 'name')` alone. That HA template function returns the device
+registry's raw/reported `name` field — it does **not** fall back to `name_by_user`, the
+user-set custom name field, the way the frontend UI does when displaying a device. Checked
+`.storage/core.device_registry` directly: every single one of these devices already had the
+correct custom name set in `name_by_user` (`"Front Door Sensor"`, `"Garage Security Gate
+Sensor"`, `"Luke iPhone15 Mobile App"`, etc.) — the data existed, the template just never read
+it.
+
+**Fix:** `{% set dname = device_attr(e, 'name_by_user') or device_attr(e, 'name') %}` —
+prefer the custom name, fall back to raw only if no custom name was ever set (e.g.
+`sensor.ap_0223_1001_internal_battery_level`, which genuinely has no `name_by_user`). `ha core
+check` passed. Template-only change — resolves via "Reload Template Entities" or the next
+restart, no `alert:`-entity impact.
 
 ---
 
@@ -1516,9 +1545,10 @@ via the entity registry UI — see PRESENCE_CONTRACT.md BUG-P21 for a resulting 
 | BUG-A18 | **Medium** | ✅ Fixed 2026-08-14/15 | `route_door_sustained_open_escalation` had no camera branch for Tier-2 entry doors (garage/front door) — a garage-only critical escalation rendered no image; extended to all 4 doors, garage camera corrected to the carport-facing view | alerts_doors.yaml |
 | BUG-A19 | **Medium** | ✅ Fixed 2026-08-18 | Only doors/gates could cancel a repeat-reminder cycle (BUG-A13) — every other critical alert domain (power, water ×3, temperature ×4, device power, media, network ×4, security, batteries, presence, garden) had no way to stop a repeating push short of the underlying condition clearing or a global notify-toggle; rolled the BUG-A13 pattern (per-cycle snooze boolean + Cancel Alert button, phone + Telegram + auto-reset) out to all of them | 4 notify_*.yaml scripts + 11 alerts_*.yaml files |
 | BUG-A20 | **Medium** | ✅ Fixed in code 2026-08-24, not yet restart-verified | Device Battery pipeline re-fired CRITICAL on a frozen 5% reading (mobile_app had stopped reporting) — added a `stale` severity tier keyed on `last_reported` age instead of trusting an old SOC | alerts_device_batteries.yaml |
+| BUG-A21 | **Low** | ✅ Fixed 2026-08-24 | Battery dashboard showed raw vendor device names (`eWeLink SNZB-04P` ×10, `"Charles Leclerc "` for Luke's phone) instead of the `name_by_user` custom names already set on every device — `device_attr(e,'name')` doesn't fall back to `name_by_user` the way the frontend does | alerts_device_batteries.yaml |
 
 **Open: 0 issues (BUG-A20 shipped, pending its own package's standard restart)**  
-**Fixed 2026-08-24: BUG-A20**
+**Fixed 2026-08-24: BUG-A20, BUG-A21**
 **Fixed 2026-08-18: BUG-A19**
 **Fixed 2026-08-15: BUG-A18**
 **Fixed 2026-08-04: BUG-A16**

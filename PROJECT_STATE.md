@@ -3035,6 +3035,14 @@ sensor.laundry_security_gate_sensor_battery
 # real battery). No iPad has a battery entity yet (device_tracker.tayla_ipadair5th
 # / device_tracker.ipadpro_luke are unifi presence trackers only, no HA app) —
 # the dashboard's Tablets section shows an onboarding hint until one exists.
+# ⚠️ Watch coverage gap found 2026-08-24: only Ryan's and Luke's Apple Watches have
+# battery entities (via their phone's mobile_app Watch extension). Checked live —
+# Vicky's iPhone (iphone13promax_vicky, 21 mobile_app entities) has NO watch_battery_
+# level sensor at all; likely her Watch app's "Share Watch Battery with HA" permission
+# was never enabled on her phone (phone-side fix, not a HA config change). Tayla's
+# watch is a Huawei, not Apple — there is no native HA path for Huawei Health battery
+# data at all (Apple's WatchKit battery bridge is iOS-only); would need a manual
+# relay (e.g. Tasker/HTTP shortcut) to ever appear here, nothing to onboard today.
 
 # Dashboard: packages/operations dashboard, new "Batteries" view
 # (.storage/lovelace.dashboard_operations, path battery-monitor, inserted right
