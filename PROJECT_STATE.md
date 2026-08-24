@@ -3726,9 +3726,25 @@ Rule: binary sensors / input_booleans → `from: "off"`. Template/state sensors 
 
 ### Group U — iCloud Re-integration [DEFERRED — blocked on upstream fix]
 ```
-BLOCKER: icloud integration broken on HA 2025.11.0 (Issue #155933 — dict has no attribute user_info).
+⚠️ 2026-08-24: checked live against GitHub. Issue #155933 (the crash cited below,
+"dict has no attribute user_info") IS fixed — merged via PR #156485, shipped HA
+2025.11.3 (2025-11-17). This instance runs 2026.8.3, well past that fix. BUT the
+actual reason this stays deferred — monthly 2FA reauth pain, non-primary Apple ID
+support — is a separate, still-open, ongoing class of bugs through mid-2026, not
+the same bug as #155933: #160536 ("stopped working after 2026.1"), #167608 (auth
+failure), #170959 (filed May 2026 against HA 2026.5.2, still open as of this check
+— Apple never sends the verification code needed to reauth, forcing a full delete-
+and-recreate), plus a community report on 2026.5.4 with the same symptom, and a
+third-party unofficial patched fork (github.com/mdeuerlein/homeassistant-icloud-fix)
+created because the official integration still isn't reliable. Re-adding today would
+likely work initially and then hit the same reauth wall again — correctly still
+DEFERRED, just don't cite #155933 as the live blocker any more; it isn't.
+
+BLOCKER (historical, resolved): icloud integration broken on HA 2025.11.0 (Issue
+         #155933 — dict has no attribute user_info). Fixed HA 2025.11.3.
+         Current live blocker is the reauth-reliability class of issues above —
+         no single tracking issue, several open in parallel as of 2026-08-24.
          Do not start U1–U3 until integration is confirmed working on current HA version.
-         Monitor: https://github.com/home-assistant/core/issues/155933
 
 U1. [DEFERRED] Re-add iCloud integration via UI (Settings → Integrations → Apple iCloud)
     Use primary Apple ID account (non-primary family accounts unsupported upstream).
@@ -3813,7 +3829,7 @@ added GARDEN_CONTRACT.md, which had no row in this table at all.)*
 | `ids_hyyp` v1.9.0 | Zero automations in automations.yaml — integration not yet wired at HA level | Medium | Stub created (IMP-IDS01 ✅). Migrate entity interface when IDS is live. |
 | `localtuya` v5.2.3 | False reconnect event can trigger spurious water tank abort | Medium | See WATER_CONTRACT.md — input_boolean.water_refill_aborted_due_to_safety can get stuck |
 | Multiple weather integrations | OWM + OWM History + Met.no + Met Nowcast all installed — canonical source unclear | Low | Document which is used for what in INFRA_CONTRACT.md |
-| `icloud` (built-in) | **Removed end of 2025.** Monthly 2FA session expiry requires manual `.storage/icloud` delete + HA restart + code entry. Non-primary Apple ID (family members) unsupported. Broke entirely on HA 2025.11.0 (`dict has no attribute user_info`). Value lost: GPS away-from-home location for all family devices. ~~+ Apple device battery/charging state~~ — **not actually lost, doc-drift correction 2026-08-21:** battery/charging state comes from the HA Companion App (`mobile_app` integration), not iCloud — unaffected by this breakage, and `alerts_device_batteries.yaml` (2026-08-21) already covers it live. Only GPS/location is genuinely blocked on this integration. | High | **DEFERRED** — monitor upstream fixes (Issue #155933 for 2025.11 breakage). Re-add only when auth is stable. Recovery automation (U1/U2) still planned — see Group U; the battery pipeline (U3) is done and was never actually blocked on this. |
+| `icloud` (built-in) | **Removed end of 2025.** Monthly 2FA session expiry requires manual `.storage/icloud` delete + HA restart + code entry. Non-primary Apple ID (family members) unsupported. Broke entirely on HA 2025.11.0 (`dict has no attribute user_info`, Issue #155933 — **confirmed fixed live on GitHub 2026-08-24**, PR #156485, shipped HA 2025.11.3; this instance runs 2026.8.3, past the fix). Value lost: GPS away-from-home location for all family devices. ~~+ Apple device battery/charging state~~ — **not actually lost, doc-drift correction 2026-08-21:** battery/charging state comes from the HA Companion App (`mobile_app` integration), not iCloud — unaffected by this breakage, and `alerts_device_batteries.yaml` (2026-08-21) already covers it live. Only GPS/location is genuinely blocked on this integration. | High | **DEFERRED — confirmed still correct 2026-08-24.** The specific crash (#155933) is fixed, but re-checked live against GitHub and the underlying reauth pain is a separate, still-open, ongoing bug class through mid-2026 (#160536, #167608, #170959 — filed May 2026 against HA 2026.5.2, still open; community reports through 2026.5.4; an unofficial third-party patched fork exists because the official integration still isn't reliable). Re-add only once one of those settles — see Group U for the full citation trail. Recovery automation (U1/U2) still planned; the battery pipeline (U3) is done and was never actually blocked on this. |
 
 ---
 
