@@ -29,13 +29,16 @@
 # corrected 703→798. Also fixed a stale Section 5 note describing BUG-P09 (house_
 # departure_event logbook copy-paste) as still open — it was fixed 2026-07-10, Section 10
 # already said so, only this one line hadn't been updated.
-# Last updated: 2026-08-24 — BUG-P21 opened (not a package change — People-integration
-# storage gap): renaming Tayla's `mobile_app` entities for naming consistency
-# (`tayla_iphone14_mobile_app_*` → `iphone14_tayla_mobile_app_*`) left `person.tayla_
-# dunnington.device_trackers` pointing at the now-dead old device_tracker string —
-# registry entity_id renames don't propagate into `person` storage. Her presence
-# currently runs on the UniFi tracker alone until re-picked in Settings → People. No
-# `presence/` package changes — nothing there reads the mobile_app tracker by name.
+# Last updated: 2026-08-24 — BUG-P21 + BUG-P22, both from the same Tayla iPhone14
+# entity-rename cleanup. BUG-P21 (fixed): `person.tayla_dunnington.device_trackers`
+# didn't follow the `mobile_app` entity_id rename (registry renames don't propagate
+# into `person` storage) — re-picked in Settings → People. BUG-P22 (fixed in code,
+# restart-pending, High severity): verifying that fix surfaced that `device_tracker.
+# tayla_iphone_tracker` — the UniFi tracker `presence_core.yaml`/`presence_validation.
+# yaml` actually read for Tayla's AP location (4 template references) — had been
+# collaterally renamed to `iphone14_tayla_tracker` during the same session's cleanup,
+# same failure class as BUG-P08 (nonexistent entity → state_attr silently returns
+# None). All 4 references updated to the new entity_id.
 ###############################################################################
 
 ---
@@ -1031,7 +1034,7 @@ root-cause fix above but shipped in the same session.
 ### BUG-P21 — `person.tayla_dunnington.device_trackers` points at a renamed, now-nonexistent entity
 **Severity:** Medium
 **File:** `.storage/person` (not package YAML — People integration storage)
-**Status:** 🔴 OPEN (found 2026-08-24)
+**Status:** ✅ FIXED 2026-08-24
 
 **Context:** Session renamed Tayla's `mobile_app` entities for naming consistency
 (`tayla_iphone14_mobile_app_*` → `iphone14_tayla_mobile_app_*`, matching the rest of her
@@ -1041,21 +1044,55 @@ on the device now consistently `iphone14_tayla_mobile_app_*`.
 
 **The gap:** HA's entity-registry rename does not propagate into `person.*.device_trackers`
 — that list is a raw string array in `.storage/person`, not a live registry reference.
-Re-checked live after the rename:
+Re-checked live right after the rename:
 ```json
 "device_trackers": ["device_tracker.tayla_iphone14_mobile_app", "device_tracker.tayla_iphone_tracker"]
 ```
-`device_tracker.tayla_iphone14_mobile_app` no longer exists (renamed to
-`device_tracker.iphone14_tayla_mobile_app`) — that array entry is dead. Tayla's presence is
-currently derived from `device_tracker.tayla_iphone_tracker` (UniFi, unaffected by this
-rename, still correctly referenced by `presence_core.yaml`/`presence_validation.yaml`) alone;
-the `mobile_app` geofence source (see BUG-P08's canonical-tracker note above) is not
-contributing to her presence resolution until this is fixed.
+`device_tracker.tayla_iphone14_mobile_app` no longer existed (renamed to
+`device_tracker.iphone14_tayla_mobile_app`) — that array entry was dead.
 
-**Fix:** Settings → People → Tayla Dunnington → re-select `device_tracker.iphone14_tayla_
-mobile_app` in the Device Trackers field and save. No package/automation changes needed —
-nothing in `presence/` reads the `mobile_app` tracker by name (only the `_tracker`-suffixed
-UniFi one), so this is a People-integration-only fix, not a package one.
+**Fix:** re-selected `device_tracker.iphone14_tayla_mobile_app` in Settings → People → Tayla
+Dunnington and saved. Confirmed live via `.storage/person`:
+```json
+"device_trackers": ["device_tracker.iphone14_tayla_mobile_app", "device_tracker.iphone14_tayla_tracker"]
+```
+No package/automation changes needed for this half — nothing in `presence/` reads the
+`mobile_app` tracker by name. **See BUG-P22 immediately below** — re-verifying this fix is
+what surfaced a second, more serious break in the *other* tracker in this same list.
+
+---
+
+### BUG-P22 — `device_tracker.tayla_iphone_tracker` (the UniFi tracker `presence/` actually reads) renamed out from under 4 live templates, same failure class as BUG-P08
+**Severity:** High
+**Files:** `presence/presence_core.yaml:74`, `presence/presence_validation.yaml:39,63,113`
+**Status:** ✅ FIXED 2026-08-24 (package templates), restart scheduled — not yet live-verified
+
+**Found while verifying the BUG-P21 fix above:** `person.tayla_dunnington.device_trackers`'
+second entry changed from `device_tracker.tayla_iphone_tracker` to `device_tracker.
+iphone14_tayla_tracker` — a *different*, pre-existing UniFi entity (same platform/area/
+labels, clearly the same physical phone's network tracker, just a different entity_id),
+not something either the BUG-P21 fix or this session's instructed rename list touched.
+Confirmed via `core.entity_registry`: `device_tracker.tayla_iphone_tracker` no longer exists
+at all (0 matches) — it was renamed at some point during this session's UI cleanup passes,
+collaterally, alongside the intended entities. It slipped past this file's own BUG-P08
+detection method too: that bug's fix explicitly checks for `*_iphone_tracker`-suffixed
+entities, and `tayla_iphone_tracker` still matches that suffix — the rename is what broke
+it, not the naming pattern.
+
+**Impact:** `presence_core.yaml`'s `sensor.tayla_ap_location` and all four of
+`presence_validation.yaml`'s unknown-AP sensors (`Unknown UniFi AP Connections`, `Unknown
+UniFi AP Details`, `Tayla Unknown AP`) call `state_attr('device_tracker.tayla_iphone_
+tracker', 'ap_mac')` — on a nonexistent entity this silently returns `None`, exactly BUG-P08's
+originally-documented failure mode. Tayla's AP-based room location has been reporting
+`'Disconnected'` (the `ap is none` fallback) regardless of her actual location since the
+rename happened, and her contribution to the unknown-AP fleet count was silently zero
+throughout.
+
+**Fix:** updated all 4 template references to `device_tracker.iphone14_tayla_tracker`,
+matching the `ryan_iphone_tracker`/`vicky_iphone_tracker`/`luke_iphone_tracker` sibling
+pattern used by the other three family members in the same file. `ha core check` passed.
+**Not yet live** — needs the same template reload/restart already scheduled for
+ALERTS_CONTRACT.md's BUG-A20; ride-along, not yet confirmed against live AP data post-restart.
 
 ---
 
@@ -1234,10 +1271,11 @@ brief hallway trips at night. This is well-calibrated for the use case.
 | BUG-P18 | **Low** | ✅ Fixed 2026-07-10 | `presence_marker_reset` missing `mode: restart`, dropping clears on overlapping arrivals/departures | presence_boundary.yaml |
 | BUG-P19 | **Medium** | ✅ Fixed 2026-07-10 | Unknown AP sensors case-mismatch false positive | presence_validation.yaml |
 | BUG-P20 | **Critical** | ✅ Fixed 2026-07-17 | `arrival_detected` permanently stuck ON since creation (2026-05-17) — auto-clear trigger deadlock killed all night-arrival lighting for ~4 months | presence_boundary.yaml |
-| BUG-P21 | **Medium** | 🔴 Open (found 2026-08-24) | `person.tayla_dunnington.device_trackers` still lists the pre-rename `device_tracker.tayla_iphone14_mobile_app`, which no longer exists — mobile_app geofence source not contributing to her presence until re-picked in Settings → People | .storage/person |
+| BUG-P21 | **Medium** | ✅ Fixed 2026-08-24 | `person.tayla_dunnington.device_trackers` pointed at the pre-rename `device_tracker.tayla_iphone14_mobile_app`, which no longer existed — re-picked the renamed entity in Settings → People | .storage/person |
+| BUG-P22 | **High** | ✅ Fixed 2026-08-24 (package), restart-pending | `device_tracker.tayla_iphone_tracker` — the UniFi tracker `presence_core.yaml`/`presence_validation.yaml` actually read (4 places) — was renamed to `iphone14_tayla_tracker` collaterally during the same session's cleanup; templates read `None` silently since, same failure class as BUG-P08 | presence_core.yaml, presence_validation.yaml |
 
-**Open: 1 issue (BUG-P21)**  
-**Fixed/closed: 17 issues (S1 closed P01/P02/P03/P06/P10/P11/P12; S2 closed P13; S2/S3 router closed P04/P05 — confirmed 2026-07-10; P08/P09/P19 fixed 2026-07-10; P14 fixed 2026-06-28; P18 fixed 2026-07-10; P20 fixed 2026-07-17)**
+**Open: 0 issues (BUG-P22 fixed in code, restart-pending — see status column)**  
+**Fixed/closed: 19 issues (S1 closed P01/P02/P03/P06/P10/P11/P12; S2 closed P13; S2/S3 router closed P04/P05 — confirmed 2026-07-10; P08/P09/P19 fixed 2026-07-10; P14 fixed 2026-06-28; P18 fixed 2026-07-10; P20 fixed 2026-07-17; P21/P22 fixed 2026-08-24)**
 *(Doc-drift correction 2026-08-21: BUG-P14 and BUG-P18 both had full detailed entries in
 Section 10, marked Fixed with dates, but were missing from this summary table — the
 "Fixed/closed" count was undercounting by 2. Added both rows.)*

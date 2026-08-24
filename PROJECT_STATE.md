@@ -5,23 +5,34 @@
 
 ## ⚠️ OPEN TODO
 
-- [ ] **2026-08-24 — Tayla iPhone14 entity rename left two loose ends.** Renamed
-      all `tayla_iphone14_mobile_app_*` entities to `iphone14_tayla_mobile_app_*`
-      (matches the other Tayla iPhone14 entities, e.g. `..._steps`, which were
-      already on that convention) via Settings → Entities, done live 2026-08-24.
-      Confirmed via `.storage/core.entity_registry`: all 27 entities on this
-      device now consistently `iphone14_tayla_mobile_app_*`, zero old-pattern
-      left. **Still open:** (1) `person.tayla_dunnington` in `.storage/person`
-      still lists the dead `device_tracker.tayla_iphone14_mobile_app` string
-      (raw entity_id, doesn't follow registry renames) — Tayla's presence is
-      currently running on `device_tracker.tayla_iphone_tracker` (UniFi) alone
-      until someone re-picks the mobile app tracker in Settings → People →
-      Tayla Dunnington. (2) 13 entities (app_version, audio_output,
-      battery_level, battery_state, bssid, connection_type, geocoded_location,
-      last_update_trigger, location_permission, sim_1, sim_2, ssid, storage)
-      still carry a `name` override ("Tayla iPhone14 Mobile App X") instead of
-      falling back to `original_name` like the rest of the device's entities —
-      clear the Name field on each to finish the consistency pass.
+- [ ] **2026-08-24 — Tayla iPhone14 entity rename: two rounds of loose ends, one
+      was a real functional break (BUG-P22).** Renamed all
+      `tayla_iphone14_mobile_app_*` entities to `iphone14_tayla_mobile_app_*` via
+      Settings → Entities. Confirmed via `.storage/core.entity_registry`: all 27
+      entities on the device now consistently `iphone14_tayla_mobile_app_*`.
+      **Round 1 loose ends, both now fixed:** (1) BUG-P21 — `person.tayla_
+      dunnington.device_trackers` still listed the dead `device_tracker.tayla_
+      iphone14_mobile_app` string; user re-picked the renamed tracker in
+      Settings → People → Tayla Dunnington, confirmed live. (2) 13 entities
+      (app_version, audio_output, battery_level, battery_state, bssid,
+      connection_type, geocoded_location, last_update_trigger, location_
+      permission, sim_1, sim_2, ssid, storage) still carry a `name` override
+      ("Tayla iPhone14 Mobile App X") instead of falling back to `original_name`
+      like the rest of the device's entities — **still open**, clear the Name
+      field on each to finish the consistency pass (cosmetic only).
+      **Round 2 — BUG-P22 (High, found + fixed same day):** re-verifying the
+      BUG-P21 fix surfaced that `device_tracker.tayla_iphone_tracker` — the
+      UniFi tracker `presence_core.yaml`/`presence_validation.yaml` actually
+      read for Tayla's AP location, 4 template references — had been
+      collaterally renamed to `iphone14_tayla_tracker` during the same
+      cleanup, outside anything either of us intended to touch. Same failure
+      class as BUG-P08: nonexistent entity → `state_attr` silently returns
+      `None` → `sensor.tayla_ap_location` reporting "Disconnected" and her
+      unknown-AP contribution silently zero since the rename. Fixed: all 4
+      template references updated to `device_tracker.iphone14_tayla_tracker`.
+      `ha core check` passed. **Not yet live** — needs the same reload/restart
+      as the battery fix below; restart scheduled by user as of this writing.
+      See PRESENCE_CONTRACT.md BUG-P21/BUG-P22 for full writeups.
 - [x] **2026-08-24 — Device battery pipeline: added staleness detection**
       (`packages/alerts/alerts_device_batteries.yaml`). Root cause found via
       `.storage/core.restore_state`: `sensor.iphone14_tayla_mobile_app_battery_
@@ -36,8 +47,9 @@
       (binary_sensor/alert_context/`alert:` all treat it like warning/critical)
       but the message reads "last seen Xh ago" instead of a false battery
       claim. ⚠️ Requires HA restart (new `input_number` in a package that
-      already needs one for its `alert:` entity — not yet restarted as of this
-      writing).
+      already needs one for its `alert:` entity) — restart scheduled by user,
+      not yet completed as of this writing. BUG-P22's presence fix (below)
+      rides along on the same restart.
 - [x] **2026-08-23 — BUG-S76 fixed: `sensor.security_event_classification` title/body/
       camera could disagree; ladder fallback mislabelled non-perimeter events as
       "Perimeter activity".** User got a push titled "⚠️ Perimeter activity" whose body
@@ -2786,6 +2798,15 @@ sensor.luke_ap_location      sensor.tayla_ap_location
 person.ryan_dunnington        person.vicky_dunnington
 person.luke_dunnington        person.tayla_dunnington
 device_tracker.ryan_iphone_tracker   ← NOTE: _tracker suffix is correct
+device_tracker.vicky_iphone_tracker  device_tracker.luke_iphone_tracker
+# ⚠️ 2026-08-24 (BUG-P22): Tayla's sibling entity, device_tracker.tayla_iphone_tracker,
+# was renamed to device_tracker.iphone14_tayla_tracker during an unrelated entity-
+# renaming cleanup — despite this section's own "DO NOT RENAME" heading. Broke
+# sensor.tayla_ap_location + unknown-AP detection silently (same class as BUG-P08)
+# until caught and the 4 template references updated. Tayla is now the one exception
+# to the `<name>_iphone_tracker` pattern above — do not "fix" her template references
+# back to tayla_iphone_tracker, that entity no longer exists.
+device_tracker.iphone14_tayla_tracker   ← Tayla's actual entity_id (see warning above)
 ```
 
 ### Trust Model — CRITICAL RULE
