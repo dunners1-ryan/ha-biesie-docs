@@ -5,6 +5,39 @@
 
 ## ⚠️ OPEN TODO
 
+- [ ] **2026-08-24 — Tayla iPhone14 entity rename left two loose ends.** Renamed
+      all `tayla_iphone14_mobile_app_*` entities to `iphone14_tayla_mobile_app_*`
+      (matches the other Tayla iPhone14 entities, e.g. `..._steps`, which were
+      already on that convention) via Settings → Entities, done live 2026-08-24.
+      Confirmed via `.storage/core.entity_registry`: all 27 entities on this
+      device now consistently `iphone14_tayla_mobile_app_*`, zero old-pattern
+      left. **Still open:** (1) `person.tayla_dunnington` in `.storage/person`
+      still lists the dead `device_tracker.tayla_iphone14_mobile_app` string
+      (raw entity_id, doesn't follow registry renames) — Tayla's presence is
+      currently running on `device_tracker.tayla_iphone_tracker` (UniFi) alone
+      until someone re-picks the mobile app tracker in Settings → People →
+      Tayla Dunnington. (2) 13 entities (app_version, audio_output,
+      battery_level, battery_state, bssid, connection_type, geocoded_location,
+      last_update_trigger, location_permission, sim_1, sim_2, ssid, storage)
+      still carry a `name` override ("Tayla iPhone14 Mobile App X") instead of
+      falling back to `original_name` like the rest of the device's entities —
+      clear the Name field on each to finish the consistency pass.
+- [x] **2026-08-24 — Device battery pipeline: added staleness detection**
+      (`packages/alerts/alerts_device_batteries.yaml`). Root cause found via
+      `.storage/core.restore_state`: `sensor.iphone14_tayla_mobile_app_battery_
+      level` (then `tayla_iphone14_mobile_app_battery_level`) was frozen at 5%
+      since `2026-08-23T16:16:39Z` (mobile_app had stopped reporting, likely
+      iOS Low Power Mode background-refresh throttling) and the pipeline kept
+      re-firing CRITICAL on the dead reading. New `input_number.device_battery_
+      stale_hours` (24h default) checks each labelled entity's `last_reported`
+      (ticks on every device write, unlike `last_changed` which only moves on
+      value change); past the threshold the device's severity becomes `stale`
+      instead of trusting the frozen SOC — still feeds the alert pipeline
+      (binary_sensor/alert_context/`alert:` all treat it like warning/critical)
+      but the message reads "last seen Xh ago" instead of a false battery
+      claim. ⚠️ Requires HA restart (new `input_number` in a package that
+      already needs one for its `alert:` entity — not yet restarted as of this
+      writing).
 - [x] **2026-08-23 — BUG-S76 fixed: `sensor.security_event_classification` title/body/
       camera could disagree; ladder fallback mislabelled non-perimeter events as
       "Perimeter activity".** User got a push titled "⚠️ Perimeter activity" whose body
@@ -2965,7 +2998,7 @@ sensor.garage_door_sensor_battery
 sensor.ezviz_main_gate_doorbell_battery
 sensor.ryan_iphone16_mobile_app_battery_level
 sensor.iphone13promax_vicky_battery_level
-sensor.tayla_iphone14_mobile_app_battery_level
+sensor.iphone14_tayla_mobile_app_battery_level  # renamed 2026-08-24, was tayla_iphone14_mobile_app_*
 sensor.luke_iphone15_mobile_app_battery_level
 sensor.iphone16promax_ryan_watch_battery_level
 sensor.luke_iphone15_mobile_app_watch_battery_level

@@ -16,6 +16,22 @@
 > Pipeline Audit (Section 4) before trusting a specific check in this plan, especially
 > Test 6 (Security) and Test 7 (Quiet Hours), which test mechanisms that have since
 > changed. This plan is due a real run, not just a doc-drift correction.
+>
+> **⚠️ 2026-08-24: Device Battery Fleet pipeline (`packages/alerts/alerts_device_
+> batteries.yaml`) has no dedicated test in this plan at all** — do not confuse with
+> TEST 4B below, which is the Power domain's inverter/UPS battery, a different pipeline
+> entirely (see that package's own header: explicitly excludes/does not duplicate the
+> device-fleet one). This session added a new `stale` severity tier to the device-fleet
+> pipeline (a device that's stopped reporting for >`input_number.device_battery_stale_
+> hours` now reports "stale" instead of trusting its frozen last-known SOC — see
+> ALERTS_CONTRACT.md and PROJECT_STATE.md's 2026-08-24 session log entry for the full
+> writeup) — this changes escalation/message mechanics for that domain exactly like
+> the changes noted above did for others, so it belongs in this plan's scope, but there's
+> no existing section to mark "due for re-run" since none was ever written. Needs a new
+> TEST section (roster: `sensor.device_battery_fleet`, `sensor.device_battery_alert_
+> context`, `binary_sensor.device_battery_alert_active`, `alert.device_battery_alert`,
+> now also covering the `stale` severity path) before this pipeline can be considered
+> covered by this plan.
 
 ---
 

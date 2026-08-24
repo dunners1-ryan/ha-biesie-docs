@@ -29,6 +29,13 @@
 # corrected 703→798. Also fixed a stale Section 5 note describing BUG-P09 (house_
 # departure_event logbook copy-paste) as still open — it was fixed 2026-07-10, Section 10
 # already said so, only this one line hadn't been updated.
+# Last updated: 2026-08-24 — BUG-P21 opened (not a package change — People-integration
+# storage gap): renaming Tayla's `mobile_app` entities for naming consistency
+# (`tayla_iphone14_mobile_app_*` → `iphone14_tayla_mobile_app_*`) left `person.tayla_
+# dunnington.device_trackers` pointing at the now-dead old device_tracker string —
+# registry entity_id renames don't propagate into `person` storage. Her presence
+# currently runs on the UniFi tracker alone until re-picked in Settings → People. No
+# `presence/` package changes — nothing there reads the mobile_app tracker by name.
 ###############################################################################
 
 ---
@@ -1021,6 +1028,37 @@ root-cause fix above but shipped in the same session.
 
 ---
 
+### BUG-P21 — `person.tayla_dunnington.device_trackers` points at a renamed, now-nonexistent entity
+**Severity:** Medium
+**File:** `.storage/person` (not package YAML — People integration storage)
+**Status:** 🔴 OPEN (found 2026-08-24)
+
+**Context:** Session renamed Tayla's `mobile_app` entities for naming consistency
+(`tayla_iphone14_mobile_app_*` → `iphone14_tayla_mobile_app_*`, matching the rest of her
+device's entities, e.g. `iphone14_tayla_mobile_app_steps`) via Settings → Entities. Confirmed
+live via `.storage/core.entity_registry`: entity_id rename is fully applied, all 27 entities
+on the device now consistently `iphone14_tayla_mobile_app_*`.
+
+**The gap:** HA's entity-registry rename does not propagate into `person.*.device_trackers`
+— that list is a raw string array in `.storage/person`, not a live registry reference.
+Re-checked live after the rename:
+```json
+"device_trackers": ["device_tracker.tayla_iphone14_mobile_app", "device_tracker.tayla_iphone_tracker"]
+```
+`device_tracker.tayla_iphone14_mobile_app` no longer exists (renamed to
+`device_tracker.iphone14_tayla_mobile_app`) — that array entry is dead. Tayla's presence is
+currently derived from `device_tracker.tayla_iphone_tracker` (UniFi, unaffected by this
+rename, still correctly referenced by `presence_core.yaml`/`presence_validation.yaml`) alone;
+the `mobile_app` geofence source (see BUG-P08's canonical-tracker note above) is not
+contributing to her presence resolution until this is fixed.
+
+**Fix:** Settings → People → Tayla Dunnington → re-select `device_tracker.iphone14_tayla_
+mobile_app` in the Device Trackers field and save. No package/automation changes needed —
+nothing in `presence/` reads the `mobile_app` tracker by name (only the `_tracker`-suffixed
+UniFi one), so this is a People-integration-only fix, not a package one.
+
+---
+
 ## Section 11: Trust Model Design
 
 **✅ RESOLVED 2026-08-21 (doc-drift correction) — this entire section describes a
@@ -1196,8 +1234,9 @@ brief hallway trips at night. This is well-calibrated for the use case.
 | BUG-P18 | **Low** | ✅ Fixed 2026-07-10 | `presence_marker_reset` missing `mode: restart`, dropping clears on overlapping arrivals/departures | presence_boundary.yaml |
 | BUG-P19 | **Medium** | ✅ Fixed 2026-07-10 | Unknown AP sensors case-mismatch false positive | presence_validation.yaml |
 | BUG-P20 | **Critical** | ✅ Fixed 2026-07-17 | `arrival_detected` permanently stuck ON since creation (2026-05-17) — auto-clear trigger deadlock killed all night-arrival lighting for ~4 months | presence_boundary.yaml |
+| BUG-P21 | **Medium** | 🔴 Open (found 2026-08-24) | `person.tayla_dunnington.device_trackers` still lists the pre-rename `device_tracker.tayla_iphone14_mobile_app`, which no longer exists — mobile_app geofence source not contributing to her presence until re-picked in Settings → People | .storage/person |
 
-**Open: 0 issues**  
+**Open: 1 issue (BUG-P21)**  
 **Fixed/closed: 17 issues (S1 closed P01/P02/P03/P06/P10/P11/P12; S2 closed P13; S2/S3 router closed P04/P05 — confirmed 2026-07-10; P08/P09/P19 fixed 2026-07-10; P14 fixed 2026-06-28; P18 fixed 2026-07-10; P20 fixed 2026-07-17)**
 *(Doc-drift correction 2026-08-21: BUG-P14 and BUG-P18 both had full detailed entries in
 Section 10, marked Fixed with dates, but were missing from this summary table — the

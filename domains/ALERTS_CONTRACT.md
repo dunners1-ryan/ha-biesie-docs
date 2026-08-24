@@ -7,6 +7,15 @@
 #
 # Scope: All 16 packages/alerts/*.yaml files
 #        Plus cross-domain aggregation in alerts_summary.yaml
+# Last updated: 2026-08-24 — BUG-A20: Device Battery pipeline was re-firing CRITICAL on
+# a frozen `mobile_app` battery reading (5% since 2026-08-23T16:16Z, device had stopped
+# reporting). Added a `stale` severity tier keyed on `states[e].last_reported` age vs
+# new `input_number.device_battery_stale_hours` (24h default) — critical/warning now
+# only assigned to a reading actually heard from recently. File grew 418→463 lines,
+# corrected in Section 2. Not yet restart-verified (package already requires a restart
+# for its `alert:` entity; new `input_number` needs one too). Also backfilled Section 10
+# summary-table rows for BUG-A14/A15, which had full detail entries in Section 8 but were
+# missing from the table — same drift pattern as PRESENCE_CONTRACT.md's P14/P18 case.
 # Last updated: 2026-08-23 — Doors Domain: 5 new Zigbee door/gate sensors tiered in
 # (kitchen/laundry door, laundry/garage security gate → Tier 2; reading room → Tier 3),
 # garage_door_sensor split into its own boundary-lights+all-home condition, new
@@ -132,7 +141,7 @@ fully correct. All domains route through the central notification script.
 | `alerts_security.yaml` | 253 | ✅ Active | Security alert pipeline — implemented 2026-04-14 |
 | `alerts_garden.yaml` | 282 | ✅ Active | Garden/pond pump unscheduled alert — implemented 2026-04-29 |
 | `alerts_batteries.yaml` | 446 | ✅ Active | Dashboard tablet battery low/overcharge alert — implemented 2026-05-27 |
-| `alerts_device_batteries.yaml` | 418 | ✅ Active | All OTHER battery devices (door/gate sensors, doorbell, phones, watches, laptops) — label-onboarded (`battery_monitor`), excludes inverter/UPS/dash-tablets — implemented 2026-08-21 |
+| `alerts_device_batteries.yaml` | 463 | ✅ Active | All OTHER battery devices (door/gate sensors, doorbell, phones, watches, laptops) — label-onboarded (`battery_monitor`), excludes inverter/UPS/dash-tablets — implemented 2026-08-21; staleness tier added 2026-08-24 (BUG-A20) |
 | `alerts_camera_health.yaml` | 316 | ✅ Active | Camera fleet health (`alert.camera_health`) — missing from this inventory until 2026-07-06 |
 
 *Line counts re-verified against `wc -l packages/alerts/*.yaml` 2026-08-21 — every count above was stale (the 2026-04-13 baseline never got updated as files grew with subsequent bug fixes/features); all 16 corrected to live values, none were placeholders (`~N`) any more.*
@@ -427,6 +436,17 @@ the fitted drain-rate projects < `device_battery_critical_days_remaining` (1 day
 empty; warning when SOC < `device_battery_warning_threshold` (10%). The days-remaining
 projection needs ≥2 days of history and a measurable drop before it shows anything —
 before that it reports "gathering data" rather than guessing from one sample.
+
+**Staleness (added 2026-08-24, BUG-A20):** `available` (not unknown/unavailable) only
+proves an entity has *some* last-known state, not that the device is still reporting —
+a frozen `mobile_app` sensor kept re-triggering CRITICAL on a dead reading. Every device
+row now also checks `states[e].last_reported` (ticks on every device write, even a
+same-value one — unlike `last_changed`) against `input_number.device_battery_stale_hours`
+(24h default, tunable). Past the threshold, severity becomes `stale` instead of trusting
+the frozen SOC — critical/warning is only assigned to a reading actually heard from
+recently. `stale` still feeds the full alert pipeline (binary_sensor/alert_context/
+`alert:` all treat it the same as warning/critical) but the message reads "last seen Xh
+ago (last known N%)" instead of a false battery claim. See BUG-A20 for the full incident.
 
 **Initial onboarding (2026-08-21):** 15 entities labelled — 6 door/gate sensors
 (`bar_door_sensor_battery`, `front_door_sensor_battery`,
@@ -804,6 +824,7 @@ All thresholds are `input_number` entities:
 | `input_number.device_battery_warning_threshold` | 10% | alerts_device_batteries — low alert trigger, applies to every `battery_monitor`-labelled device |
 | `input_number.device_battery_critical_threshold` | 5% | alerts_device_batteries — critical severity |
 | `input_number.device_battery_critical_days_remaining` | 1 day | alerts_device_batteries — rate-based critical trigger (fitted drain rate projects empty within this many days) |
+| `input_number.device_battery_stale_hours` | 24h | alerts_device_batteries — added 2026-08-24 (BUG-A20); `last_reported` older than this → severity `stale` instead of trusting the frozen SOC |
 | `input_number.storage_temp_high_trigger` | 55°C | alerts_temperature |
 | `input_number.perimeter_open_escalation_minutes` | 10 min | alerts_doors |
 | `input_number.door_warning_escalation_minutes` | 15 min | alerts_doors |
@@ -1416,6 +1437,41 @@ the user yet.
 
 ---
 
+### BUG-A20 — Device Battery pipeline trusted a frozen reading, re-firing CRITICAL on stale data
+**Severity:** Medium
+**Files:** `packages/alerts/alerts_device_batteries.yaml`
+**Status:** ✅ FIXED 2026-08-24
+
+`sensor.iphone14_tayla_mobile_app_battery_level` sat frozen at 5% from `2026-08-23T16:16:39Z`
+onward (mobile_app had stopped reporting — iOS Low Power Mode throttling background refresh is
+the suspected cause) with no change in state, but the pipeline's `available` check
+(`not in ['unknown','unavailable',none]`) only proves *some* last-known value exists — it says
+nothing about whether the device is still actually reporting. The fleet sensor kept computing
+`severity: critical` off the dead 5% reading and `alert.device_battery_alert` kept re-firing on
+its 30/60 min repeat schedule, indefinitely, on data that was no longer live.
+
+**Fix:** added a `stale` severity tier. New `input_number.device_battery_stale_hours` (24h
+default, tunable per-fleet since door/gate Zigbee sensors can be sparser reporters than phones)
+is compared against each labelled entity's `states[e].last_reported` (ticks on every
+state-machine write from the device, even a same-value one — unlike `last_changed`, which is
+exactly what stayed frozen here). Past the threshold, severity becomes `stale` instead of
+whatever the frozen SOC would otherwise imply; critical/warning is now only assigned to a
+reading actually heard from recently. `stale` still feeds the full pipeline (binary_sensor →
+alert_context → `alert:`, same as critical/warning) so a dead reporter is still flagged, but the
+message reads "last seen Xh ago (last known N%)" instead of a false battery-level claim.
+Dashboard gets a distinct purple/`mdi:clock-alert-outline` treatment for stale rows.
+
+**Not yet live:** requires the standard `alert:`-entity restart this package already needs for
+its own changes (new `input_number` won't register via reload alone either). `ha core check`
+JSON-parsed clean; not yet restart-verified against a real stale device by the user.
+
+**Related, same session (docs-only, not a package change):** Tayla's `mobile_app` entities
+renamed for naming consistency (`tayla_iphone14_mobile_app_*` → `iphone14_tayla_mobile_app_*`)
+via the entity registry UI — see PRESENCE_CONTRACT.md BUG-P21 for a resulting gap this exposed
+(`person.tayla_dunnington`'s device tracker string didn't follow the rename).
+
+---
+
 ## Section 9: Summary of Pipeline Audit Results
 
 | Domain | Binary | Context | Alert entity | Aggregator | Result | Updated |
@@ -1453,12 +1509,16 @@ the user yet.
 | BUG-A11 | **Medium** | ✅ Fixed 2026-07-06, restart completed 2026-07-07 | `alert.camera_health`'s `notifiers: [STD_Warning]` — that group doesn't exist at all (removed 2026-06-28), every repeat threw hard `ServiceNotFound`; notifier removed outright | alerts_camera_health.yaml |
 | BUG-A12 | **Low** | ✅ Fixed 2026-07-07 | Garden `TURN_OFF_POND_PUMP` mobile action button unreachable — `script.notify_system_event` had no `actions:` passthrough; added, garden alert now passes the button | notify_system_event.yaml, alerts_garden.yaml |
 | BUG-A13 | **Low** | ✅ Fixed 2026-07-17 | Gate alerts had no camera evidence and no way to cancel a false-positive repeat cycle — fresh snapshot per send + `input_boolean.gate_alert_snoozed` + Cancel Alert button (phone + Telegram) | alerts_doors.yaml, notify_security_events.yaml |
+| BUG-A14 | **Medium** | ✅ Fixed 2026-07-17 | Critical Sensor Health trusted Watchman's cached (~15-20 min stale) scan instead of live state — a few-second reload blip could hold a false CRITICAL push for the rest of the scan cycle | alerts_system_health.yaml |
+| BUG-A15 | **Low** | ✅ Fixed 2026-07-17 (not live until restart) | "Known Problem Escalation (Per-Device)" dashboard card never rendered — `{% set %}` inside a `for` loop doesn't escape to outer scope, filter always returned empty since the card was written | .storage/lovelace.dashboard_system |
 | BUG-A16 | **Low** | ✅ Fixed 2026-08-04 | Critical Sensor Health push notification rendered with stray blank lines/indentation before the sensor list — un-trimmed Jinja block tags; added `-` trim modifiers + explicit single-space separator | alerts_system_health.yaml |
 | BUG-A17 | **Medium** | ✅ Fixed 2026-08-05 | `garage_door_stale` keyed on "door sensor hasn't toggled in 5min" (normal, not stale) — reloaded the whole Sonoff config entry ~every 6 min, 24/7, for ~4 months; one such reload's slow reconnect silently ate a real garage-light turn_on during a 21:43 arrival. Fixed: staleness now requires the entity to actually be unavailable/unknown | alerts_doors.yaml (see LIGHTING_CONTRACT.md BUG-L19) |
 | BUG-A18 | **Medium** | ✅ Fixed 2026-08-14/15 | `route_door_sustained_open_escalation` had no camera branch for Tier-2 entry doors (garage/front door) — a garage-only critical escalation rendered no image; extended to all 4 doors, garage camera corrected to the carport-facing view | alerts_doors.yaml |
 | BUG-A19 | **Medium** | ✅ Fixed 2026-08-18 | Only doors/gates could cancel a repeat-reminder cycle (BUG-A13) — every other critical alert domain (power, water ×3, temperature ×4, device power, media, network ×4, security, batteries, presence, garden) had no way to stop a repeating push short of the underlying condition clearing or a global notify-toggle; rolled the BUG-A13 pattern (per-cycle snooze boolean + Cancel Alert button, phone + Telegram + auto-reset) out to all of them | 4 notify_*.yaml scripts + 11 alerts_*.yaml files |
+| BUG-A20 | **Medium** | ✅ Fixed in code 2026-08-24, not yet restart-verified | Device Battery pipeline re-fired CRITICAL on a frozen 5% reading (mobile_app had stopped reporting) — added a `stale` severity tier keyed on `last_reported` age instead of trusting an old SOC | alerts_device_batteries.yaml |
 
-**Open: 0 issues**  
+**Open: 0 issues (BUG-A20 shipped, pending its own package's standard restart)**  
+**Fixed 2026-08-24: BUG-A20**
 **Fixed 2026-08-18: BUG-A19**
 **Fixed 2026-08-15: BUG-A18**
 **Fixed 2026-08-04: BUG-A16**
