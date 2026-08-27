@@ -10,6 +10,12 @@
 # Section 9 (summary table) updated; Section 9 also gained missing BUG-NET10/11 rows
 # (had full Section 6 writeups but were never added to the summary table — same
 # drift pattern flagged domain-wide in the 2026-08-21 audit).
+# Updated: 2026-08-27 — BUG-NET10 correction: the "catastrophic score<=10" fallback
+# added 2026-08-23 turned out to be just as single-target-triggerable as the bug it
+# replaced (via wan_health_score's jitter term, not the latency term) — live-traced
+# against a real 2026-08-26 single-target MS spike that still fired CRITICAL. Removed
+# entirely; CRITICAL now requires high_count>=2 and nothing else. Section 6 and
+# Section 7 updated.
 # Updated: 2026-08-21 (deep drift sweep) — IMP-NET01 (Section 8) confirmed already wired
 # (sensor.network_alert_context does match the aggregator's _alert_context filter — always
 # has), marked done. Section 3's Alert Pipeline block had 3 stale claims about
@@ -429,6 +435,31 @@ Supervisor API). **Reload:** Reload Template Entities only, applied and live-ver
 degradation at verification time to exercise the new branch against real data — next
 single-target spike is the real test).
 
+**Correction 2026-08-27 — the `score <= 10` fallback added above reproduced the exact
+same single-target bug it was meant to prevent, via a different formula term; removed
+entirely.** User reported still getting CRITICAL with only one target down (MS or
+Google), same as before the 2026-08-23 fix. Pulled the actual recorder history for the
+2026-08-26 16:27:56–16:38 UTC incident: `sensor.unifi_gateway_microsoft_wan_latency`
+spiked 9ms → 141-144ms and stayed there ~10 minutes; Cloudflare and Google stayed at
+2-14ms the entire time (`sensor.wan_degraded_reason` recorded "Microsoft", confirming a
+genuine single-target event, `high_count` correctly = 1). Yet `sensor.wan_health_score`
+dropped to 0, tripping the `score <= 10` fallback and firing CRITICAL anyway. **Root
+cause:** `sensor.wan_health_score`'s jitter term (Section 4) is
+`max(3 targets 5min avg) - min(3 targets 5min avg)` — when exactly one target diverges
+from the other two (which stay close together near baseline), jitter ≈ that one target's
+own excess latency. At 141ms vs ~2-3ms baseline, jitter ≈ 138-140, penalty
+`(jitter-10)*1.5 ≈ 190+`, which alone saturates the score to 0 — the identical
+single-target-max architectural flaw this whole bug is about, just reached through the
+jitter term instead of the latency term the 2026-08-23 fix addressed. **Fix:** removed
+the `score <= 10` branch from `sensor.wan_degraded_alert_severity` entirely — CRITICAL
+now requires `high_count >= 2` and nothing else. No scenario the score fallback caught is
+lost: if 2+ targets are genuinely bad, `high_count` is already ≥2, so the fallback was
+only ever reachable via the same single-target distortion it was supposed to guard
+against. `wan_noc_status` needed no direct change (it already derives from
+`wan_degraded_alert_severity`, comment corrected to match). `ha core check` valid;
+Reload Template Entities applied and live-verified. Also removed the now-unused `score`
+variable from the severity sensor's template.
+
 ### BUG-NET11 [HIGH] — ✅ FIXED 2026-08-18 — the 4 network notify toggles reset to
 `true` on every restart/reload, undoing the user's own attempt to silence WAN Degraded
 **File:** `packages/alerts/alerts_network.yaml`
@@ -482,9 +513,12 @@ entity, not fixed here, flagged for a future session. `ha core check` valid.
   on the numeric_state trigger", which was never actually implemented in code;
   corrected here, see Section 6 BUG-NET10 for the discovery detail.
 - CRITICAL severity (both `wan_noc_status` and `wan_degraded_alert_severity`)
-  requires 2+ of the 3 WAN targets (Cloudflare/Google/Microsoft) over 80ms, or
-  a catastrophic score <=10 — not a single bad target (BUG-NET10 follow-up,
-  2026-08-23). A lone bad target now reads `degraded`/`warning`.
+  requires 2+ of the 3 WAN targets (Cloudflare/Google/Microsoft) over 80ms
+  (`high_count >= 2`) — not a single bad target, and not a raw health-score
+  threshold (BUG-NET10 follow-up, 2026-08-23, corrected 2026-08-27 after a
+  score-based fallback added on the 23rd turned out to be just as
+  single-target-triggerable via the jitter term — removed). A lone bad target
+  now reads `degraded`/`warning` regardless of how bad its latency gets.
 
 ---
 
@@ -627,7 +661,7 @@ DSM → Control Panel → Hardware & Power → General:
 | ~~BUG-NET06~~ | ~~Medium~~ | ~~`network_device_down_alert_severity` has no periodic re-evaluation trigger — can stick at a stale `critical` indefinitely.~~ — **FIXED 2026-07-17**, see Section 6. |
 | ~~BUG-NET08~~ | ~~High~~ | ~~Jitter permanently 0 (missing avg statistics sensors); packet loss never actually fed `wan_health_score` despite BUG-NET03~~ — **FIXED 2026-07-27**, see Section 6. |
 | ~~BUG-NET09~~ | ~~Medium~~ | ~~`route_network_device_down_alert`'s severity-critical trigger had no `for:` duration, bypassing the 250s anti-flap gate; fired false criticals on harmless ~2s UniFi reconnect blips.~~ — **FIXED 2026-08-09**, see Section 6. |
-| ~~BUG-NET10~~ | ~~High~~ | ~~WAN Degraded had no anti-flap delay; a single-target latency spike swung health score to CRITICAL and notification-stormed. Anti-flap fixed 2026-08-18; underlying single-target-can-reach-critical design fixed 2026-08-23 (CRITICAL now requires 2+ bad targets or score<=10).~~ — **FIXED 2026-08-18 / 2026-08-23**, see Section 6. |
+| ~~BUG-NET10~~ | ~~High~~ | ~~WAN Degraded had no anti-flap delay; a single-target latency spike swung health score to CRITICAL and notification-stormed. Anti-flap fixed 2026-08-18; underlying single-target-can-reach-critical design fixed 2026-08-23, then corrected 2026-08-27 after the score<=10 fallback added that day reproduced the same bug via the jitter term — CRITICAL now requires high_count>=2 only, no score-based path at all.~~ — **FIXED 2026-08-18 / 2026-08-23 / 2026-08-27**, see Section 6. |
 | ~~BUG-NET11~~ | ~~High~~ | ~~4 network notify toggles reset to `true` on every restart/reload via `initial: true`, silently undoing user's own mute; `alert.network_alert` double-delivered via redundant `notifiers:`.~~ — **FIXED 2026-08-18**, see Section 6. |
 | ~~IMP-NET01~~ | ~~Low~~ | ~~Add `sensor.network_alert_context` to `sensor.alert_device_entities` aggregator~~ — **✅ Confirmed wired, doc-drift correction 2026-08-21.** `sensor.network_alert_context` (`unique_id: network_alert_context`, `alerts_network.yaml`) matches the `_alert_context` substring filter `sensor.alert_device_entities` scans for (`alerts_summary.yaml`, confirmed live) — same mechanism ALERTS_CONTRACT.md's Camera Health section documents as the thing `sensor.camera_health_context` fails to match. Network's naming is correct and always has been. |
 | IMP-NET02 | Low | Add ISP name/plan to a descriptive input_text for context on dashboard |

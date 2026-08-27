@@ -5,6 +5,31 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-08-27 — BUG-NET10 correction: the 2026-08-23 fix's `score <= 10`
+      fallback reproduced the same single-target-CRITICAL bug via a different
+      formula term; removed.** User reported still getting CRITICAL alerts with
+      only one WAN ping target down (MS or Google), same complaint as the
+      2026-08-23 session. Pulled real recorder history for the 2026-08-26
+      16:27:56–16:38 UTC incident: `sensor.unifi_gateway_microsoft_wan_latency`
+      spiked to 141-144ms for ~10 min while Cloudflare/Google stayed normal
+      (`sensor.wan_degraded_reason` = "Microsoft", `high_count` correctly = 1)
+      — yet `sensor.wan_health_score` dropped to 0 and tripped the `score <= 10`
+      fallback added 3 days prior. Root cause: `wan_health_score`'s **jitter**
+      term (`max(3 targets) - min(3 targets)`) is driven almost entirely by a
+      single diverging target when the other two are close together — the same
+      single-target-max flaw the 2026-08-23 fix addressed in the latency term,
+      just reached via jitter instead. **Fix:** removed the `score <= 10`
+      branch entirely from `sensor.wan_degraded_alert_severity`
+      ([alerts_network.yaml](../packages/alerts/alerts_network.yaml)) — CRITICAL
+      now requires `high_count >= 2` and nothing else; no real scenario the
+      fallback caught isn't already covered by that count check. Also removed
+      the now-unused `score` template variable. `wan_noc_status`
+      ([network_helpers.yaml](../packages/network/network_helpers.yaml))
+      needed no code change (already derives from the severity sensor), just a
+      corrected comment. `ha core check` valid; Reload Template Entities
+      applied and live-verified. `NETWORK_CONTRACT.md` updated: BUG-NET10
+      correction entry, Section 7, header changelog, summary table row.
+
 - [ ] **2026-08-24 — Tayla iPhone14 entity rename: two rounds of loose ends, one
       was a real functional break (BUG-P22).** Renamed all
       `tayla_iphone14_mobile_app_*` entities to `iphone14_tayla_mobile_app_*` via
