@@ -64,7 +64,7 @@
       BUG-L03/L12/L13/L14/L15/L17/L19 annotated, Section 10 checklist, file
       inventory line count 167 → 235, footer changelog.
 
-- [ ] **2026-08-29 — BUG-NET10 score-display follow-up: re-verified 2026-08-27
+- [x] **2026-08-29 — BUG-NET10 score-display follow-up: re-verified 2026-08-27
       CRITICAL fix is live, closed a separate display-only gap it left
       standing.** Session opened re-litigating the original "why does 1 bad
       ping → CRITICAL" complaint against a stale draft that hadn't checked
@@ -92,13 +92,15 @@
       too (per an earlier session's stated intent) — explicitly declined:
       it's a real detection-sensitivity change, not a display fix, and the
       existing `delay_on: minutes: 5` already anti-flaps transient spikes;
-      left for a dedicated decision if it recurs. **`ha core check` NOT run
-      this session — no live HA access from this session; flagged, run
-      Check Configuration + Reload Template Entities before this is
-      considered live on the box.** `NETWORK_CONTRACT.md` updated: Section 4
-      (formula + NOC mapping), Section 6 (BUG-NET10 dated follow-up),
-      Section 7, Section 8 summary table, header changelog, footer
-      changelog.
+      left for a dedicated decision if it recurs. `ha core check` run
+      post-session by the user via Developer Tools → YAML → Check
+      Configuration — **valid, no errors or warnings.** Reload Template
+      Entities still owed before the new formula/removed sensor take effect
+      live (template reload, not a full restart — matches every other
+      template-only change in this file). `NETWORK_CONTRACT.md` updated:
+      Section 4 (formula + NOC mapping), Section 6 (BUG-NET10 dated
+      follow-up), Section 7, Section 8 summary table, header changelog,
+      footer changelog.
 
 - [x] **2026-08-27 — BUG-NET10 correction: the 2026-08-23 fix's `score <= 10`
       fallback reproduced the same single-target-CRITICAL bug via a different

@@ -33,8 +33,9 @@
 # the mean of the 3 existing wan_*_5min_avg sensors (display-only change, confirmed no
 # CRITICAL-path consumer). Also removed the orphaned sensor.wan_health_crit (score<=30,
 # unreferenced since 2026-08-27). Section 4, Section 6 (BUG-NET10), Section 7, Section 8
-# updated. ha core check not run this session — flagged in PROJECT_STATE.md, run before
-# considered live.
+# updated. ha core check run post-session (Developer Tools → YAML → Check
+# Configuration) — valid, no errors/warnings. Reload Template Entities still owed for
+# the new formula/removed sensor to take effect live.
 # Source: packages/network/network_helpers.yaml, packages/network/network_ups.yaml,
 #         packages/network/network_nas.yaml, packages/alerts/alerts_network.yaml
 ##########################################################
