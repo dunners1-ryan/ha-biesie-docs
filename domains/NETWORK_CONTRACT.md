@@ -25,6 +25,16 @@
 # also corrected there this same session). Source line below expanded — network_ups.yaml
 # and network_nas.yaml (Sections 9/10) were missing from it despite having full sections.
 # No code changes — doc-only.
+# Updated: 2026-08-29 — BUG-NET10 score-display follow-up. Re-verified the 2026-08-27
+# fix is live and correct (high_count>=2, no score path) — no change needed there. Found
+# and closed a separate gap it left standing: sensor.wan_health_score's latency term
+# still used wan_max_5min_latency (max of 3), so the *displayed* score could still read
+# ~0 on a single-target spike even though severity correctly read WARNING. Switched to
+# the mean of the 3 existing wan_*_5min_avg sensors (display-only change, confirmed no
+# CRITICAL-path consumer). Also removed the orphaned sensor.wan_health_crit (score<=30,
+# unreferenced since 2026-08-27). Section 4, Section 6 (BUG-NET10), Section 7, Section 8
+# updated. ha core check not run this session — flagged in PROJECT_STATE.md, run before
+# considered live.
 # Source: packages/network/network_helpers.yaml, packages/network/network_ups.yaml,
 #         packages/network/network_nas.yaml, packages/alerts/alerts_network.yaml
 ##########################################################
@@ -193,15 +203,24 @@ re-verified against `alerts_network.yaml` live.)*
 
 ```
 score = 100
-if latency_max > 80ms:  score -= (latency_max - 80) / 2
+if latency_mean > 80ms: score -= (latency_mean - 80) / 2
 score -= (avg_packet_loss_3_targets * 2)
 if jitter > 10ms:       score -= (jitter - 10) * 1.5
 score = clamp(0, 100)
 ```
 
+`latency_mean` = mean of the three 5-min avg sensors (`wan_cloudflare_5min_avg`,
+`wan_google_5min_avg`, `wan_microsoft_5min_avg` — the same three jitter already reads).
+Changed from `latency_max` (max of the three `*_5min_max` sensors) 2026-08-29 — see
+Section 6 BUG-NET10 score-display follow-up. This score is **display-only**: nothing in
+the alert/severity/NOC pipeline reads it (see mapping below), so this term no longer has
+any bearing on CRITICAL detection.
+
 NOC status mapping:
 - `offline` → `binary_sensor.wan_down_alert_active` = on
-- `critical` → health_score ≤ 30
+- `critical` → `sensor.wan_degraded_alert_severity == 'critical'` (`high_count >= 2`,
+  i.e. 2+ of the 3 targets over 80ms on their `*_5min_max` sensor — **not** a
+  `wan_health_score` threshold; corrected 2026-08-27, see Section 6 BUG-NET10)
 - `degraded` → `binary_sensor.wan_degraded_alert_active` = on
 - `healthy` → default
 
@@ -460,6 +479,37 @@ against. `wan_noc_status` needed no direct change (it already derives from
 Reload Template Entities applied and live-verified. Also removed the now-unused `score`
 variable from the severity sensor's template.
 
+**Score-display follow-up 2026-08-29 — the displayed `wan_health_score` number could
+still read 0 on a single-target spike, even though CRITICAL detection was already fully
+decoupled from it (2026-08-27).** User re-raised the original complaint ("why 1 bad ping
+→ CRITICAL") against a session that hadn't yet re-verified the 2026-08-27 fix was live;
+confirmed it was (`high_count >= 2` gate, no score path, present and correct in both
+`packages/alerts/alerts_network.yaml` and `packages/network/network_helpers.yaml`) — that
+part needed no further change. But a real gap remained: `sensor.wan_health_score`'s
+latency term still used `sensor.wan_max_5min_latency` (max of the 3 targets' peaks), so
+one diverging target could still crater the *displayed* score to ~0 while severity
+correctly read WARNING — producing a self-contradicting push
+("⚠ WARNING – WAN health score: 0"), since the score is interpolated verbatim into the
+WAN Degraded notification body ([alerts_network.yaml:946](../../packages/alerts/alerts_network.yaml#L946)).
+**Fix:** switched the score's latency term from `wan_max_5min_latency` to the mean of the
+three existing 5-min avg sensors (`wan_cloudflare_5min_avg`/`wan_google_5min_avg`/
+`wan_microsoft_5min_avg` — the same three jitter already reads, no new sensors needed).
+Safe by construction: neither `wan_degraded_alert_active` nor
+`wan_degraded_alert_severity` nor `wan_noc_status` reads `wan_health_score` anymore
+(confirmed via grep across all `*.yaml`), so this cannot reintroduce the single-target
+CRITICAL flaw the 2026-08-27 fix eliminated — it only changes the cosmetic number.
+Considered also switching `wan_degraded_alert_active`'s trigger threshold (still
+`*_5min_max > 80` per target) to mean — explicitly **not done**: `delay_on: minutes: 5`
+(2026-08-18 fix) already anti-flaps short spikes, and a mean-based threshold would raise
+the bar for detecting a *sustained single-target* problem, which is a real behavioral
+change to what counts as "degraded" at all, not a display fix — left for a dedicated
+decision if it comes up again. Also removed `sensor.wan_health_crit`
+(`unique_id: wan_health_crit`, `score <= 30`) from `alerts_network.yaml` — orphaned since
+2026-08-27 (grep confirmed zero remaining references anywhere in `packages/`). `ha core
+check` not run this session (docs/verification session, no live HA access) — **flagged:
+run Check Configuration + Reload Template Entities before this is considered live**, see
+PROJECT_STATE.md session log.
+
 ### BUG-NET11 [HIGH] — ✅ FIXED 2026-08-18 — the 4 network notify toggles reset to
 `true` on every restart/reload, undoing the user's own attempt to silence WAN Degraded
 **File:** `packages/alerts/alerts_network.yaml`
@@ -519,6 +569,12 @@ entity, not fixed here, flagged for a future session. `ha core check` valid.
   score-based fallback added on the 23rd turned out to be just as
   single-target-triggerable via the jitter term — removed). A lone bad target
   now reads `degraded`/`warning` regardless of how bad its latency gets.
+- `sensor.wan_health_score` is **display-only** — as of 2026-08-29 nothing in
+  the alert/severity/NOC pipeline reads it (BUG-NET10 score-display
+  follow-up). Its latency term uses the mean of the 3 `wan_*_5min_avg`
+  sensors rather than `wan_max_5min_latency`, so it no longer craters on a
+  single diverging target — but changing this formula has zero effect on
+  what fires CRITICAL/degraded, since those already moved to `high_count`.
 
 ---
 
@@ -661,7 +717,7 @@ DSM → Control Panel → Hardware & Power → General:
 | ~~BUG-NET06~~ | ~~Medium~~ | ~~`network_device_down_alert_severity` has no periodic re-evaluation trigger — can stick at a stale `critical` indefinitely.~~ — **FIXED 2026-07-17**, see Section 6. |
 | ~~BUG-NET08~~ | ~~High~~ | ~~Jitter permanently 0 (missing avg statistics sensors); packet loss never actually fed `wan_health_score` despite BUG-NET03~~ — **FIXED 2026-07-27**, see Section 6. |
 | ~~BUG-NET09~~ | ~~Medium~~ | ~~`route_network_device_down_alert`'s severity-critical trigger had no `for:` duration, bypassing the 250s anti-flap gate; fired false criticals on harmless ~2s UniFi reconnect blips.~~ — **FIXED 2026-08-09**, see Section 6. |
-| ~~BUG-NET10~~ | ~~High~~ | ~~WAN Degraded had no anti-flap delay; a single-target latency spike swung health score to CRITICAL and notification-stormed. Anti-flap fixed 2026-08-18; underlying single-target-can-reach-critical design fixed 2026-08-23, then corrected 2026-08-27 after the score<=10 fallback added that day reproduced the same bug via the jitter term — CRITICAL now requires high_count>=2 only, no score-based path at all.~~ — **FIXED 2026-08-18 / 2026-08-23 / 2026-08-27**, see Section 6. |
+| ~~BUG-NET10~~ | ~~High~~ | ~~WAN Degraded had no anti-flap delay; a single-target latency spike swung health score to CRITICAL and notification-stormed. Anti-flap fixed 2026-08-18; underlying single-target-can-reach-critical design fixed 2026-08-23, then corrected 2026-08-27 after the score<=10 fallback added that day reproduced the same bug via the jitter term — CRITICAL now requires high_count>=2 only, no score-based path at all. 2026-08-29: closed a residual display-only gap — wan_health_score's latency term still used max(3 targets), so the displayed number (pushed in the notification body) could still read ~0 on a single-target spike despite severity correctly reading WARNING; switched to mean of the 3 existing avg sensors, and removed the orphaned wan_health_crit sensor.~~ — **FIXED 2026-08-18 / 2026-08-23 / 2026-08-27 / 2026-08-29**, see Section 6. |
 | ~~BUG-NET11~~ | ~~High~~ | ~~4 network notify toggles reset to `true` on every restart/reload via `initial: true`, silently undoing user's own mute; `alert.network_alert` double-delivered via redundant `notifiers:`.~~ — **FIXED 2026-08-18**, see Section 6. |
 | ~~IMP-NET01~~ | ~~Low~~ | ~~Add `sensor.network_alert_context` to `sensor.alert_device_entities` aggregator~~ — **✅ Confirmed wired, doc-drift correction 2026-08-21.** `sensor.network_alert_context` (`unique_id: network_alert_context`, `alerts_network.yaml`) matches the `_alert_context` substring filter `sensor.alert_device_entities` scans for (`alerts_summary.yaml`, confirmed live) — same mechanism ALERTS_CONTRACT.md's Camera Health section documents as the thing `sensor.camera_health_context` fails to match. Network's naming is correct and always has been. |
 | IMP-NET02 | Low | Add ISP name/plan to a descriptive input_text for context on dashboard |
@@ -791,6 +847,14 @@ the time — this investigation is what surfaced BUG-NET08 (Section 6).
 **⚠️ Requires a full HA restart** (`.storage/lovelace` rule, same as above).
 
 ---
+
+*Last updated: 2026-08-29 — BUG-NET10 score-display follow-up: re-verified the
+2026-08-27 CRITICAL fix (high_count>=2, no score path) is live and correct — no change.
+Closed a separate gap: wan_health_score's latency term still used max(3 targets), so the
+number itself (shown in the WAN Degraded push) could still read ~0 on one bad target.
+Switched to mean of the 3 existing avg sensors; removed the orphaned wan_health_crit
+sensor. Display-only — confirmed no CRITICAL/degraded/NOC consumer of wan_health_score.
+See Section 6.*
 
 *Last updated: 2026-08-18 — BUG-NET10 fixed (WAN Degraded had zero anti-flap delay —
 added `delay_on: minutes: 5`; root cause of a notification storm was Google WAN latency

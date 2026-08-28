@@ -5,6 +5,42 @@
 
 ## ⚠️ OPEN TODO
 
+- [ ] **2026-08-29 — BUG-NET10 score-display follow-up: re-verified 2026-08-27
+      CRITICAL fix is live, closed a separate display-only gap it left
+      standing.** Session opened re-litigating the original "why does 1 bad
+      ping → CRITICAL" complaint against a stale draft that hadn't checked
+      live state. Verified `sensor.wan_degraded_alert_severity`'s CRITICAL
+      branch is `high_count >= 2` only (no score path) and
+      `sensor.wan_noc_status` derives from it, not a raw score threshold —
+      both confirmed correct in
+      [alerts_network.yaml](../packages/alerts/alerts_network.yaml) and
+      [network_helpers.yaml](../packages/network/network_helpers.yaml) as of
+      2026-08-27; **no change needed there.** Found a real residual gap: the
+      *displayed* `sensor.wan_health_score` still used
+      `sensor.wan_max_5min_latency` (max of 3 targets) for its latency term,
+      so a single diverging target could still crater the number to ~0 even
+      while severity correctly read WARNING — the WAN Degraded push
+      interpolates this score verbatim, producing a self-contradicting
+      "⚠ WARNING – WAN health score: 0" notification. **Fix:** switched the
+      score's latency term to the mean of the 3 existing `wan_*_5min_avg`
+      sensors (same ones jitter already reads — no new sensors needed).
+      Confirmed via grep this cannot affect CRITICAL/degraded detection:
+      nothing downstream of `wan_health_score` except the notification
+      display and the now-removed `wan_health_crit` sensor reads it. Also
+      removed `sensor.wan_health_crit` (`score <= 30`) — orphaned since
+      2026-08-27, zero remaining references. Considered switching
+      `binary_sensor.wan_degraded_alert_active`'s trigger threshold to mean
+      too (per an earlier session's stated intent) — explicitly declined:
+      it's a real detection-sensitivity change, not a display fix, and the
+      existing `delay_on: minutes: 5` already anti-flaps transient spikes;
+      left for a dedicated decision if it recurs. **`ha core check` NOT run
+      this session — no live HA access from this session; flagged, run
+      Check Configuration + Reload Template Entities before this is
+      considered live on the box.** `NETWORK_CONTRACT.md` updated: Section 4
+      (formula + NOC mapping), Section 6 (BUG-NET10 dated follow-up),
+      Section 7, Section 8 summary table, header changelog, footer
+      changelog.
+
 - [x] **2026-08-27 — BUG-NET10 correction: the 2026-08-23 fix's `score <= 10`
       fallback reproduced the same single-target-CRITICAL bug via a different
       formula term; removed.** User reported still getting CRITICAL alerts with
