@@ -5,6 +5,65 @@
 
 ## ⚠️ OPEN TODO
 
+- [ ] **2026-08-29 — BUG-L20: stale-copy import of `lighting_arrival_night.yaml`
+      re-introduced five closed bugs; caught before reload, all re-fixed.
+      ⚠️ `automation.reload` still owed on the box.** User reported that
+      "alert + lighting files" edited in a separate session against the git
+      repo had been copied onto the HA box over SSH, and asked for
+      verification. **Scope check first:** only
+      [lighting_arrival_night.yaml](../packages/lighting/lighting_arrival_night.yaml)
+      actually differed from git HEAD. Every file under `packages/alerts/`
+      matched HEAD exactly; `alerts_network.yaml` and `network_helpers.yaml`
+      were rewritten on disk during the copy with **byte-identical content**
+      (mtime moved, content unchanged — they briefly showed as modified in
+      `git status` purely as stale stat-cache entries). Local and
+      `origin/master` were in sync. **If alert-side changes were intended,
+      they never reached this box.** **The lighting file was built on a
+      pre-2026-06-14 base**, so it silently reverted four closed fixes, and a
+      fifth was undone by its auto-off restructure: BUG-L14 (garage entity
+      back to `switch.stw_3gang_garage_switch_3` — an entity that has never
+      existed in the registry; channel `_3` on that Sonoff is actually
+      `switch.boundary_street_light`, and the real garage light is
+      `switch.garage_light` on `_1`), BUG-L12 (the 60s `last_arrival_time`
+      cooldown — structurally unworkable, since `presence_boundary.yaml`
+      stamps `last_arrival_time = now()` immediately *before* setting
+      `arrival_detected`, so the delta is ~0s and `> 60` never passes; the
+      trigger had also lost its `from: "off"` guard), BUG-L13
+      (`front_house_security_light` dropped from Scenario 1), BUG-L03
+      (Scenario 1 back to `binary_sensor.anyone_home`, leaving it asymmetric
+      with Scenario 2's `anyone_connected_home` — AP-dropped + phone-home
+      would have matched neither branch), and BUG-L15 (`bedtime_mode == 'on'`
+      dropped from the patio auto-off gate, restoring the exact
+      user-reported symptom of patio-off 5 min after any evening arrival).
+      A sixth, non-regression defect: `continue_on_error: true` stripped from
+      all three `script.notify_lighting_event` calls, so a notify failure
+      would abort Scenario 2 before its delay and auto-offs. **All six fixed
+      in place.** **Kept from the incoming file** (verified correct, genuine
+      improvements): the two post-delay gates are now separate `if`/`then`
+      blocks instead of bare `condition:` steps — a real fix, since a bare
+      `condition:` inside a `choose` sequence aborts the whole remaining
+      sequence; and a new pre-state-aware 5-min auto-off for
+      entrance_down/dining_room/laundry, gated on `bedtime_mode` being off
+      and skipping any of the three already on before the arrival.
+      **Changed by user request:** quiet-mode front-security auto-off is no
+      longer a flat 15 min gated on `bedtime_mode` — now 5 min if after
+      bedtime (`bedtime_mode` on **or** clock ≥ 21:30, incl. after midnight)
+      and 10 min otherwise, ungated, so the light is always released.
+      **Validation done:** YAML parses; all 15 entity references resolve
+      against `.storage/core.entity_registry`. **Not done — no jinja2 on the
+      SSH add-on container:** the `after_bedtime` and
+      `entry_lights_to_turn_off` templates were not render-tested; run them
+      through Developer Tools → Template, then Check Configuration +
+      `automation.reload`. The copy process left
+      `packages/lighting/lighting_arrival_night.yaml.bak.20260829001929` —
+      that is the **pre-copy original**, byte-identical to the then-HEAD
+      version, so it duplicates git history exactly and carries nothing not
+      already recoverable via `git show`. It has no `.yaml` extension so HA
+      won't load it; safe to delete whenever. `LIGHTING_CONTRACT.md` updated: Section 3 scenario
+      table + trigger notes, Section 7 gate-open handoff row, BUG-L20 added,
+      BUG-L03/L12/L13/L14/L15/L17/L19 annotated, Section 10 checklist, file
+      inventory line count 167 → 235, footer changelog.
+
 - [ ] **2026-08-29 — BUG-NET10 score-display follow-up: re-verified 2026-08-27
       CRITICAL fix is live, closed a separate display-only gap it left
       standing.** Session opened re-litigating the original "why does 1 bad
@@ -3556,7 +3615,7 @@ script.water_demand_set_winter_profile
 | 🔔 Alerts | Updated 2026-05-27 (stale — see ALERTS_CONTRACT.md for current state, re-audited 2026-08-21) | alert.camera_health added 2026-04-29 (alerts/ = **16 files** as of 2026-08-21, doc-drift corrected — was 14, then grew further with alerts_device_batteries.yaml). **2026-05-27:** alerts_batteries.yaml added (15th file) — full battery alert pipeline for Honor 10 Dash + Honor X7 Dash. Pipeline: per-device low + overcharge binary sensors → dash_battery_alert_context → alert.dash_battery_alert → aggregator. Screen brightness management added in packages/admin/tablets.yaml (night dim, away dim, morning/arrival restore). ⚠️ Requires HA restart (alert: entity). |
 | 🔔 Notifications | Scripts correct | All C-series bypasses resolved. BUG-N02 counter entity correct. |
 | 🧭 Presence | Alert pipeline live | Unknown AP alert + occupancy anomaly implemented. Trust chain intact. |
-| 💡 Lighting | Stable | All L01–L14 fixed. BUG-L11–L14 (2026-06-14): morning_wake noon ceiling; arrival cooldown always-blocked fix; nobody-home front security light added; wrong garage entity (stw_3gang→garage_light) in all 3 arrival scenarios. M1/M2/M3 implemented. ~~SOC-based energy saving trigger remains future work (power session).~~ **✅ Done — doc-drift correction 2026-08-21:** `energy_saving_mode_auto_enable`/`_auto_disable` shipped in `power_automations.yaml` 2026-06-19 (confirmed live during this session's LIGHTING_CONTRACT.md sweep). |
+| 💡 Lighting | Stable | All L01–L20 fixed. BUG-L11–L14 (2026-06-14): morning_wake noon ceiling; arrival cooldown always-blocked fix; nobody-home front security light added; wrong garage entity (stw_3gang→garage_light) in all 3 arrival scenarios. M1/M2/M3 implemented. ~~SOC-based energy saving trigger remains future work (power session).~~ **✅ Done — doc-drift correction 2026-08-21:** `energy_saving_mode_auto_enable`/`_auto_disable` shipped in `power_automations.yaml` 2026-06-19 (confirmed live during this session's LIGHTING_CONTRACT.md sweep). **BUG-L20 (2026-08-29):** an out-of-band copy of `lighting_arrival_night.yaml` built on a pre-2026-06-14 base re-introduced BUG-L03/L12/L13/L14/L15 at once; caught before reload and all re-fixed — ⚠️ `automation.reload` still owed. |
 | 🌐 Network | Updated 2026-05-28 | **2026-05-28:** sensor.ups_accessories_power (sum of USB1/2/3 + TypeC + DC out) and sensor.ups_visibility_score (accessories / total × 100) added to network_ups.yaml — mirrors load_visibility_score pattern from power domain. **2026-05-27:** network_ups.yaml added — EcoFlow River Pro UPS monitoring (packages/network/). Sensors: ups_on_battery, ups_runtime_seconds/friendly/eta, ups_status_card, ups_runtime_severity, ups_load_percent/status, ups_load_markdown. Helpers: 6 input_numbers + 1 input_boolean. Automations: AC Always On enforcement, on-battery notify, grid restore notify, battery warning/critical, load warning. All alerts via script.notify_power_event. | BUG-NET01 fixed 2026-04-28: unifi_cpu_5m_max availability → has_value(unifi_gateway_cpu_utilization). BUG-NET02 fixed 2026-04-28: unifi_memory_5m_max availability was self-referencing → has_value(unifi_gateway_memory_utilization). BUG-NET03 fixed 2026-04-28: packet loss removed from wan_health_score (ping_sum_5min is latency sum not pass count); score now uses latency + jitter only. BUG-NET04 fixed 2026-04-21. All verified live in network_helpers.yaml. |
 | 🏗️ Context | All fixed | BUG-CTX01 fixed 2026-04-30: context_presence.yaml → presence/presence_trust.yaml. BUG-CTX02 fixed 2026-04-28: context_schedules.yaml deleted, bedtime_mode in lighting_helpers. BUG-CTX03 fixed 2026-04-30: home_context now derives from security_nobody_home + night_confirmed, no longer imports sensor.security_mode from security/. |
 | 🔧 Infra | All fixed 2026-04-28 | BUG-CORE01 fixed (ha_events_per_second removed). BUG-INF01 fixed (printer_cartridge_low dangling }}). BUG-BKP01 fixed (github.yaml routed through notify_system_event). BUG-WEA01 confirmed already fixed. |
@@ -3702,6 +3761,11 @@ B2. Implement alerts_security.yaml — done 2026-04-14 (already complete)
       Fixed 2026-06-14: added to Scenario 1 switch list. lighting_arrival_night.yaml.
 ✅ BUG-L14 [MED]: all 3 arrival scenarios used switch.stw_3gang_garage_switch_3 (wrong entity) instead
       of switch.garage_light. Fixed 2026-06-14: replaced across all 3 scenarios. lighting_arrival_night.yaml.
+⚠️ BUG-L12 / L13 / L14 (above), plus BUG-L03 and BUG-L15, were ALL re-introduced at once on
+      2026-08-29 by a stale-copy import of lighting_arrival_night.yaml built on a pre-2026-06-14
+      base. Caught before reload and re-fixed — see BUG-L20 in LIGHTING_CONTRACT.md. Note
+      switch.stw_3gang_garage_switch_3 has never existed in the entity registry: on that Sonoff
+      3-gang (1002145922), _1 = switch.garage_light and _3 = switch.boundary_street_light.
       GAP ANALYSIS (2026-04-29):
       --- Entertainment mode ---
       • input_button.entertainment_mode_on exists (defined); input_boolean.entertainment_mode does NOT exist

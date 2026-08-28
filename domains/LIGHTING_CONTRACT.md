@@ -79,7 +79,7 @@ person.*                             ← HA mobile geo — UNRELIABLE for local 
 | `lighting_scenes.yaml` | 85 | All scene definitions |
 | `lighting_morning.yaml` | 257 | Morning wake routine (presence + time triggered) |
 | `lighting_evening.yaml` | 127 | Evening routine (civil night triggered) |
-| `lighting_arrival_night.yaml` | 167 | Night arrival scenarios (3 modes) |
+| `lighting_arrival_night.yaml` | 235 | Night arrival scenarios (3 modes) |
 | `lighting_departure.yaml` | 91 | Departure light cleanup (day + night) |
 | `lighting_bedtime.yaml` | 217 | Kids + full bedtime routines |
 | `lighting_boundary.yaml` | 230 | Boundary/street security lighting + gate-open assist (2026-08-03) |
@@ -166,9 +166,22 @@ Always-on (all scenarios): boundary_street_light, back_house_security_light
 
 | Scenario | Condition | Lights ON |
 |---|---|---|
-| Quiet mode | quiet_arrival_mode=on | garage_light, main_entrance, entrance_down_lights, laundry, front_house_security (2026-07-17) → front_house_security OFF after 15min if bedtime_mode=on |
-| Someone home | anyone_connected_home=on, not quiet | garage_light, main_entrance, entrance_down_lights, pool_patio, front_security, laundry → pool_patio + front_security OFF after 5min if bar not occupied AND bedtime_mode=on |
+| Quiet mode | quiet_arrival_mode=on | garage_light, main_entrance, entrance_down_lights, laundry, front_house_security (2026-07-17) → front_house_security OFF after **5min if after bedtime** (`bedtime_mode`=on **or** clock ≥21:30, incl. after midnight), else **10min** (2026-08-29) |
+| Someone home | anyone_connected_home=on, not quiet | garage_light, main_entrance, entrance_down_lights, dining_room, pool_patio, front_security, laundry → after 5min, two independent gates: (a) pool_patio + front_security OFF if bar not occupied AND bedtime_mode=on; (b) entrance_down + dining_room + laundry OFF if bedtime_mode=off, **skipping any of the three that were already on before the arrival** (2026-08-29) |
 | Nobody home | anyone_connected_home=off | garage_light, main_entrance, entrance_down_lights, front_house_security, pool_patio, dining_room, laundry |
+
+**Trigger:** `input_boolean.arrival_detected` `from: "off"` → `to: "on"`, condition
+`binary_sensor.night_confirmed` = on. `mode: restart`. The `from: "off"` guard is the
+re-trigger protection — do **not** replace it with a `last_arrival_time` cooldown
+(see BUG-L12 / BUG-L20).
+
+**Quiet-mode auto-off is no longer gated on `bedtime_mode`** (changed 2026-08-29). The light
+is always released; bedtime only decides whether the window is 5 or 10 minutes. Previously a
+quiet-mode arrival before `bedtime_mode` turned on left the front security light on all night.
+
+**Scenario 2's two auto-off gates are separate `if`/`then` blocks, not bare `condition:`
+steps.** A bare `condition:` inside a `choose` sequence aborts the *entire remaining
+sequence*, so gate (a) failing (bar still occupied) would silently skip gate (b) as well.
 
 ### Departure (`lighting_departure.yaml`)
 
@@ -212,7 +225,7 @@ switches inside the window:
 | `switch.garage_light` | it was already on at gate-open time | `boundary_security_on` / arrival / manual |
 | `switch.garage_light` | `garage_occupied` = on **and** `garage_door_sensor` = on at the 10 min mark | `lighting_garage.yaml` presence branch |
 | `switch.front_house_security_light` | it was already on at gate-open time | `boundary_security_on` (fires when someone is home) |
-| `switch.front_house_security_light` | `input_datetime.last_arrival_time` is within the last 10 min | `lighting_arrival_night.yaml` (5/15 min bedtime-gated auto-off) |
+| `switch.front_house_security_light` | `input_datetime.last_arrival_time` is within the last 10 min | `lighting_arrival_night.yaml` (5 min bedtime-gated auto-off in Scenario 2; 5/10 min ungated auto-off in Quiet mode — updated 2026-08-29) |
 
 Closing the garage door ends the garage half of the window early — see the garage row below.
 The main gap this fills: `boundary_security_on` only lights street + main entrance when
@@ -376,6 +389,9 @@ which is the HA mobile app geofence sensor — unreliable for local presence
 detection. The authoritative entity is `binary_sensor.anyone_connected_home`
 (AP-based). Scenario 1 silently never fired.
 **Fix:** Replace `binary_sensor.anyone_home` → `binary_sensor.anyone_connected_home`.
+**⚠️ REGRESSED and re-fixed 2026-08-29** — see BUG-L20. Scenario 1 was switched back to
+`binary_sensor.anyone_home` while Scenario 2 kept `anyone_connected_home`, which also opened
+a coverage gap: AP dropped + phone still reporting home matched neither branch.
 
 ---
 
@@ -443,6 +459,9 @@ is `switch.garage_light`, which is the main garage interior light also managed b
 `lighting_garage.yaml` presence detection.
 **Fix:** Replaced `switch.stw_3gang_garage_switch_3` → `switch.garage_light` across all
 three scenarios. Confirmed no other occurrences in config.
+**⚠️ REGRESSED and re-fixed 2026-08-29** — see BUG-L20. `switch.stw_3gang_garage_switch_3`
+has never existed in the entity registry; on that Sonoff 3-gang device (`1002145922`)
+channel `_1` is `switch.garage_light` and channel `_3` is `switch.boundary_street_light`.
 
 ---
 
@@ -460,6 +479,10 @@ lights never turned on in this common scenario.
 **Fix:** Removed the cooldown condition entirely. The `from: "off" to: "on"` trigger
 constraint already prevents re-fires within a single arrival cycle. The 5-min auto-clear
 (`presence_clear_arrival_flag`) ensures proper cycling.
+**⚠️ REGRESSED and re-fixed 2026-08-29** — see BUG-L20. A `last_arrival_time` cooldown
+cannot work as a re-trigger guard in this automation, because the same arrival that fires
+it stamps the timestamp. Any future "stop double-triggering" change here must use the
+`from: "off"` trigger guard, not this timestamp.
 
 ---
 
@@ -470,6 +493,7 @@ constraint already prevents re-fires within a single arrival cycle. The 5-min au
 but front_house_security_light was only in Scenario 2 (someone home). Arriving to an empty
 house at night left the front security light off.
 **Fix:** Added `switch.front_house_security_light` to Scenario 1 switch list.
+**⚠️ REGRESSED and re-fixed 2026-08-29** — see BUG-L20.
 
 ---
 
@@ -521,6 +545,12 @@ condition — `input_boolean.bedtime_mode == 'on'` — to the auto-off gate, alo
 existing `bar_occupied == off` check. The patio/front-security auto-off now only fires once
 bedtime has actually started (or the bar is in use); before bedtime, the patio light stays on.
 
+**⚠️ REGRESSED and re-fixed 2026-08-29** — see BUG-L20. The `bedtime_mode == 'on'` half of
+the gate was dropped, restoring the original reported symptom (patio off 5 min after any
+evening arrival, however early). The gate is now inside an `if`/`then` rather than a bare
+`condition:`, but both conditions are present. **This gate is load-bearing — do not remove
+`bedtime_mode` from it.**
+
 ---
 
 ### BUG-L16 [HIGH] Office/garage (and bedrooms/living areas/bar) lights never turned off via presence departure — underlying occupied sensors dead since 2026-05-17
@@ -565,6 +595,8 @@ the whole time, it just never received a real trigger edge.
 **Fix:** Presence-side deadlock fixed (BUG-P20). Same session: Quiet Mode scenario here also
 extended to turn on `switch.front_house_security_light` with a 15-min bedtime-gated auto-off
 (user request, unrelated to the root-cause fix) — see Section 3/4 scenario tables.
+**Superseded 2026-08-29:** that 15-min bedtime-gated cap is now a 5 min (after bedtime) /
+10 min (earlier) window with no `bedtime_mode` gate — see BUG-L20.
 
 ---
 
@@ -592,7 +624,7 @@ open.
 
 ### BUG-L19 [MEDIUM] — ✅ FIXED 2026-08-05 — Garage light didn't turn on for a 21:43 arrival; root cause is a Sonoff reload storm, not lighting logic
 **Files:** `packages/lighting/lighting_boundary.yaml` (`lighting_gate_open_assist`), `packages/lighting/lighting_garage.yaml` (`lighting_garage_smart_control`) — symptom. Root cause in `packages/alerts/alerts_doors.yaml`, see ALERTS_CONTRACT.md BUG-A17.
-**Reported by:** user, after a 2026-08-04 21:43 arrival where the garage light never came on and the front security light turned off "after a while" (the second part was working as designed — see the 15-min bedtime cap under Night Arrival above).
+**Reported by:** user, after a 2026-08-04 21:43 arrival where the garage light never came on and the front security light turned off "after a while" (the second part was working as designed — see the quiet-mode front-security cap under Night Arrival above; that cap was a flat 15 min gated on `bedtime_mode` at the time of this report, and became a 5/10 min ungated window on 2026-08-29).
 
 **Investigated live** via Supervisor REST API history + logbook replay of the actual arrival (not a re-derivation from docs): gate opened 21:43:45 → `lighting_gate_open_assist` fired its `switch.turn_on` on `switch.garage_light` + `switch.front_house_security_light`; `garage_occupied` went on at 21:44:07 → `lighting_garage_smart_control`'s presence branch also tried `switch.turn_on` on `switch.garage_light`. Both calls landed inside a window (21:40:50–21:45:15) where `switch.garage_light`'s physical Sonoff device was `unavailable` — the commands silently no-opped, and neither automation retriggers once a device comes back (both triggers are edge-based and had already fired). `front_house_security_light` is a different physical Sonoff device and was unaffected, which is why it turned on fine.
 
@@ -601,6 +633,69 @@ open.
 **Fix (lighting side):** both `lighting_gate_open_assist` and `lighting_garage_smart_control`'s presence/door-assist branches now wait 3s after `switch.turn_on` and retry once (with a logbook warning) if the target didn't confirm `on` — a safety net for any future transient device drop, independent of the BUG-A17 root-cause fix.
 
 **Deployed live:** YAML validated (`check_config` passed), `template` + `automation` reloaded via Supervisor API, no restart required.
+
+---
+
+### BUG-L20 [CRITICAL] — ✅ FIXED 2026-08-29 — Stale-copy import of `lighting_arrival_night.yaml` re-introduced five previously-closed bugs
+
+**File:** `packages/lighting/lighting_arrival_night.yaml`
+**Reported by:** user, asking to verify a set of alert + lighting files edited in a separate
+session against the git repo and copied onto the HA box over SSH.
+
+**Symptom:** none observed live — the regression was caught before the file was reloaded into
+HA (`automation.lighting_arrival_night` had no log entries for the copied version).
+
+**Root cause:** the incoming file was derived from a **pre-2026-06-14 copy** of
+`lighting_arrival_night.yaml`. It carried genuine new work on top (see "Kept" below), but the
+base it was built from predated four closed bug fixes, silently reverting them. A fifth
+(BUG-L15, closed 2026-06-28) was reverted by the same edit that restructured the auto-off gates.
+
+| Re-introduced | Originally closed | Effect if it had been reloaded |
+|---|---|---|
+| BUG-L14 — `switch.stw_3gang_garage_switch_3` in all 3 scenarios | 2026-06-14 | Entity does not exist in the registry. Garage light never turns on for any night arrival; unknown-entity error every run |
+| BUG-L12 — 60s `last_arrival_time` cooldown condition | 2026-06-14 | Automation blocked entirely on the presence-boundary path — `presence_boundary.yaml` stamps `last_arrival_time = now()` immediately *before* setting `arrival_detected`, so the delta is ~0s and `> 60` is always false. Trigger had also lost its `from: "off"` guard |
+| BUG-L13 — `front_house_security_light` missing from Scenario 1 | 2026-06-14 | Arriving to an empty house at night leaves the front security light off |
+| BUG-L03 — Scenario 1 gated on `binary_sensor.anyone_home` | 2026-07-10 | Mobile-geofence sensor instead of the authoritative AP sensor. Also asymmetric with Scenario 2's `anyone_connected_home`, so AP-dropped + phone-home matched **neither** branch and only the boundary/back-security lights would fire |
+| BUG-L15 — `bedtime_mode == 'on'` dropped from the patio/front-security auto-off gate | 2026-06-28 | Patio light switches off 5 min after *any* evening arrival regardless of how early — the exact symptom originally reported |
+
+A sixth defect was new, not a regression: `continue_on_error: true` was stripped from all
+three `script.notify_lighting_event` calls, so a notify failure would abort Scenario 2's
+sequence before the delay and auto-offs ever ran.
+
+**Fix:** all six corrected in place. `switch.garage_light` restored ×3; `from: "off"` restored
+on the trigger and the unworkable cooldown condition deleted; `front_house_security_light`
+restored to Scenarios 1 and 3; Scenario 1 back to `anyone_connected_home`; `bedtime_mode`
+restored to the patio gate; `continue_on_error: true` restored ×3.
+
+**Kept from the incoming file** (genuine improvements, verified correct):
+- The two post-delay gates in Scenario 2 are now separate `if`/`then` blocks instead of bare
+  `condition:` steps. This is a real fix — a bare `condition:` inside a `choose` sequence
+  aborts the *whole remaining sequence*, so the patio gate failing silently skipped
+  everything after it.
+- New Scenario 2 behaviour: `entrance_down_lights` / `dining_room_light` / `laundry_light`
+  now get the same 5-min auto-off as patio/front-security, gated on `bedtime_mode` being
+  **off** (once bedtime starts, the bedtime scene owns them), and skipping any of the three
+  that were already on *before* the arrival — captured into `variables:` at the top of the
+  sequence, same pre-state pattern as `lighting_gate_open_assist`.
+
+**Changed by user request in the same session:** the Quiet-mode front-security auto-off is no
+longer a flat 15 min gated on `bedtime_mode`; it is now 5 min if after bedtime
+(`bedtime_mode` on **or** clock ≥ 21:30, including after midnight) and 10 min otherwise, with
+no `bedtime_mode` gate — so the light is always released, and bedtime only sets the pace.
+
+**Scope note:** the user's session was described as covering *alerts and lighting* files, but
+only `lighting_arrival_night.yaml` differed from git. `packages/alerts/alerts_network.yaml`
+and `packages/network/network_helpers.yaml` were rewritten on disk during the copy with
+**byte-identical content** (mtime changed, content unchanged), and no other file under
+`packages/alerts/` differed from HEAD. If alert-side changes were intended, they did not
+reach this box.
+
+**Prevention:** when importing a file edited outside this box, diff it against `git HEAD`
+first and check every hit in this contract's bug catalog for that filename before applying —
+a stale base reverts closed fixes silently, and nothing in the YAML itself flags it.
+
+**Deployed live:** not yet — YAML validated and all entity references checked against
+`.storage/core.entity_registry`, but `automation.reload` still owed (see PROJECT_STATE.md).
 
 ---
 
@@ -695,6 +790,7 @@ CLOSED — All L01–L08 fixed (verified against live files 2026-04-29)
             explicit turn_off added to morning_wake_lights_on — fixed 2026-04-28
 ✅ BUG-L01+L02: scene_morning_routine_off applied after scene_night_away in departure — confirmed present
 ✅ BUG-L03: anyone_home → anyone_connected_home in arrival — confirmed present
+            (⚠️ REGRESSED by a stale-copy import and re-fixed 2026-08-29 — see BUG-L20)
 ✅ BUG-L04: time + cam14 motion fallback triggers in morning routine — confirmed present
 ✅ BUG-L05: entrance_down_lights + dining_room in scene_kids_bedtime + 30s cancel — fixed 2026-04-16
 ✅ BUG-L06: from:"off" on departure trigger — confirmed present
@@ -730,10 +826,13 @@ HARDENING NEEDED
 DONE 2026-06-14
 [✅] BUG-L14: all 3 arrival scenarios used switch.stw_3gang_garage_switch_3 (wrong). Fixed:
               replaced with switch.garage_light across quiet/someone-home/nobody-home scenarios.
+              ⚠️ REGRESSED by a stale-copy import and re-fixed 2026-08-29 — see BUG-L20.
 [✅] BUG-L12: arrival lights blocked by cooldown — presence_boundary sets last_arrival_time=now()
               immediately before arrival_detected=on; cooldown always evaluated 0>60=false.
               Fixed: cooldown condition removed entirely. from:"off" to:"on" trigger is sufficient.
+              ⚠️ REGRESSED by a stale-copy import and re-fixed 2026-08-29 — see BUG-L20.
 [✅] BUG-L13: nobody-home scenario missing front_house_security_light. Fixed: added to switch list.
+              ⚠️ REGRESSED by a stale-copy import and re-fixed 2026-08-29 — see BUG-L20.
 [✅] BUG-L11: morning_wake_lights_on had no upper-bound time gate. Condition only checked
               now() >= morning_start — at 23:09 this was true, so cam14 lounge motion triggered
               the morning routine at night. Fixed: condition now checks
@@ -769,4 +868,12 @@ been open (base bar lighting / patio lights / Apple TV) before firing, instead o
 *Updated: 2026-08-05 — BUG-L19 closed: garage light missed a real 21:43 arrival because its Sonoff
 device was mid-reconnect (root cause: ALERTS_CONTRACT.md BUG-A17, a 6-min reload storm). Added
 verify+retry to `lighting_gate_open_assist` and `lighting_garage_smart_control`'s turn_on calls.*
+*Updated: 2026-08-29 — BUG-L20 opened and closed: an out-of-band copy of
+`lighting_arrival_night.yaml` built on a pre-2026-06-14 base re-introduced BUG-L14, BUG-L12,
+BUG-L13, BUG-L03 and BUG-L15, plus stripped `continue_on_error` from the three notify calls.
+Caught before reload; all six re-fixed. Kept the incoming file's two genuine improvements
+(if/then auto-off gates, pre-state-aware entry-light auto-off). Quiet-mode front-security
+auto-off changed by user request from a flat 15 min bedtime-gated cap to 5 min after bedtime /
+10 min earlier, ungated. Scenario tables in Sections 3 and 7 updated; file inventory line count
+corrected 167 → 235.*
 *Next review: After new AI cameras installed (cam motion valid sensors change)*
