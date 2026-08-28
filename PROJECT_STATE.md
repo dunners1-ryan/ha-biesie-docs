@@ -2701,8 +2701,9 @@ check those (and this file's 2026-06-17 session log entry) before editing this b
   install PDF and the "9.89 kWp" figure, 23×430W); 435W — previously mislabeled onto the
   whole fleet in an earlier session — is specifically the one damaged panel's own rating.
 - **Inverters:** 2× SunSynk 5.5kW hybrid (48V), 11kW combined nameplate AC — **pending
-  replacement 2026-08-28** with a single 12kW Deye + 12× 620W Canadian bifacial panels
-  added (Vantage quote, confirmed install date; see `SOLAR_UPGRADE_ROI_2026.md`).
+  replacement, now 2026-08-31 (Monday)**, slipped from 2026-08-28 (user-reported
+  2026-08-29, no reason given) — with a single 12kW Deye + 12× 620W Canadian bifacial
+  panels added (Vantage quote; see `SOLAR_UPGRADE_ROI_2026.md`).
 - **Batteries:** **3× Greenrich AF1600 (GFM052-314-N00-A), 51.2V/314Ah/16kWh each — 48.2kWh
   bank total.** Swapped 2026-06-17 from the original 2× Freedom Won 15kWh (30kWh) units,
   which had 2 damaged cells traced back to a 2025-05-16 lightning/BMS event — do NOT use

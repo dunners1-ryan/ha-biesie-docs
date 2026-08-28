@@ -127,7 +127,12 @@ System capex only (not personal budget/cash-flow — that stays in
 | Date | Item | Total | Trade-in/offset | Net |
 |---|---|---|---|---|
 | 2026-06-17 | Battery swap: 2× Freedom Won → 3× Greenrich AF1600 (48.2kWh). Included maintenance, panel-string fix, string reorg | R114,872 | R56,000 (sale of old batteries) | **R58,872** |
-| Scheduled 2026-08-28 | 12× 620W Canadian Solar bifacial panels + inverter swap (2×5.5kW SunSynk → 12kW Deye) via Vantage quote — installation date confirmed (was "end Aug/early Sept 2026" estimate), not yet executed | ~R64,284 (R54,684 quote + R9,600 panels) | R10,000 net inverter trade-in already reflected in quote total | ~R64,284 |
+| Scheduled 2026-08-31 (was 2026-08-28, slipped — see below) | 12× 620W Canadian Solar bifacial panels + inverter swap (2×5.5kW SunSynk → 12kW Deye) via Vantage quote, not yet executed | ~R64,284 (R54,684 quote + R9,600 panels) | R10,000 net inverter trade-in already reflected in quote total | ~R64,284 |
+
+**2026-08-29 (user-reported):** install date slipped from 2026-08-28 to **2026-08-31
+(Monday)** — DB-consistent: solar production through 2026-08-28 still tracks the existing
+9.89kWp array's range (see `POWER_SYSTEM_PERFORMANCE_LOG.md`'s 2026-08-29 entry), not the
+17.33kWp post-upgrade profile. No reason given for the slip; not yet a concern.
 
 Full ROI/payback analysis for both line items: `private_docs/POWER_SYSTEM_AUDIT_2026.md`
 (battery swap — inconclusive as of 2026-08, see its §3.3/§5) and
