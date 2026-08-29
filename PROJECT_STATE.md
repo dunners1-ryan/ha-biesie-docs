@@ -5,6 +5,31 @@
 
 ## ⚠️ OPEN TODO
 
+- [ ] **2026-08-29 — NEW INTEGRATION: Ecovacs Deebot T80S Omni added (`ecovacs`
+      core integration, config entry created 2026-08-29T12:20, account
+      dunners1@gmail.com). Currently doing its initial house mapping run — no
+      automations/alerts/dashboard built yet.** 31 entities confirmed live in
+      the registry under device `deebot_t80s_biesie`: `vacuum.deebot_t80s_biesie`
+      (main control), `sensor.deebot_t80s_biesie_battery`,
+      `sensor.deebot_t80s_biesie_error`,
+      `binary_sensor.deebot_t80s_biesie_mop_attached`,
+      `sensor.deebot_t80s_biesie_main_brush_lifespan` /
+      `_filter_lifespan` / `_side_brush_lifespan`, `image.deebot_t80s_biesie_map`,
+      `select.deebot_t80s_biesie_active_map` / `_work_mode` / `_water_flow_level`,
+      `switch.deebot_t80s_biesie_advanced_mode` / `_continuous_cleaning` /
+      `_carpet_auto_boost_suction` / `_clean_preference` / `_true_detect`,
+      `number.deebot_t80s_biesie_volume` / `_clean_count`,
+      `button.deebot_t80s_biesie_relocate` / `_reset_main_brush_lifespan` /
+      `_reset_filter_lifespan` / `_reset_side_brush_lifespan`,
+      `event.deebot_t80s_biesie_last_job`, plus Wi-Fi/IP diagnostics
+      (`sensor.deebot_t80s_biesie_wi_fi_rssi/ssid`, `_ip_address`). No package
+      file exists yet — not in `packages/integrations/` and not in
+      CLAUDE.md's package table. **Full buildout backlog tracked as Group V
+      below — nothing implemented yet, this is planning only.** Don't build
+      map-dependent automations (room/zone cleaning, no-go zones) until the
+      Omni finishes its first full mapping pass and `select.active_map` /
+      room labels stabilize.
+
 - [x] **2026-08-29 — BUG-PWR-GEYSER04: Saturday used the weekday geyser schedule,
       tank cold by a 10am shower. ✅ Reload Helpers + Automations + Template
       Entities done and verified live.** User reported the geyser was cold at a
@@ -3674,6 +3699,59 @@ script.water_demand_set_winter_profile
 ---
 
 ## 🚀 Verified Priority Work Queue
+
+### Group V — Ecovacs Deebot T80S Omni Integration Buildout (opened 2026-08-29 — nothing implemented yet)
+```
+[ ] V1. Create packages/integrations/vacuum.yaml (or a new packages/vacuum/ domain if it
+        grows past one file — follow the layered convention: helpers → templates →
+        automations) documenting the 31 live entities under device
+        deebot_t80s_biesie. Add a row to CLAUDE.md's package table + this file's
+        Document Index once it exists. Wait for V2 (mapping to finish) before writing
+        anything that assumes room/zone names.
+
+[ ] V2. WAIT for initial mapping to finish, then record the stable map/room layout —
+        select.deebot_t80s_biesie_active_map + whatever room labels the Deebot app
+        assigns. Needed before any "clean living room only" / no-go-zone automation
+        is possible. Don't build room-aware logic against a map still being drawn.
+
+[ ] V3. Consumables + fault alerting — wire sensor.deebot_t80s_biesie_error and the
+        three lifespan sensors (main_brush/filter/side_brush) into the alerts
+        pipeline, same pattern as alerts_device_batteries.yaml /
+        office/printer cartridge monitoring: low-lifespan warning + genuine error
+        state → script.notify_system_event (never call notify.* directly — see
+        CODING_STANDARDS). Decide thresholds once lifespan sensors have real data
+        (currently fresh from setup).
+
+[ ] V4. Job-outcome notifications — event.deebot_t80s_biesie_last_job (or vacuum
+        state transitions on vacuum.deebot_t80s_biesie) → cleaning
+        started/completed/stuck notifications via script.notify_system_event,
+        following the same severity/quiet-hours routing as every other domain
+        (NOTIFICATIONS_CONTRACT.md).
+
+[ ] V5. Security/presence interaction check — once mapping is done and normal runs
+        start, confirm indoor motion cameras (cam14/cam15 etc., see
+        SECURITY_CONTRACT.md security_event_classification) don't misfire on
+        vacuum motion. If they do, this needs a suppression pattern similar to
+        dogs_inside_prompt (an input_boolean.vacuum_running-style gate), not a
+        camera sensitivity change.
+
+[ ] V6. Scheduling decision — fixed time-of-day schedule vs. gating cleans to solar
+        surplus like pool_pump_solar_control (power_automations.yaml Session E3
+        pattern). Needs the Deebot's actual charging/running power draw checked
+        first — if material, also decide whether to add it to
+        group.flexible_power_loads / known_load_power for load-visibility
+        accounting (see Session E7, power_templates.yaml).
+
+[ ] V7. Dashboard — vacuum card (image.deebot_t80s_biesie_map, battery, work_mode,
+        start/pause/dock controls) on either Home or a new Operations section.
+        Do this after V1/V3/V4 exist so there's real state to show, not after
+        raw integration setup.
+
+[ ] V8. Once entity IDs are confirmed stable post-mapping, add the device's key
+        entities (vacuum.deebot_t80s_biesie at minimum) to the "Locked Entity
+        Names" section below, matching the convention used for every other
+        integration's canonical entities.
+```
 
 ### Group A — Trust Model Chain (Fixes security + lighting + door alerts)
 ```
