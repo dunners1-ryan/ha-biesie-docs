@@ -1502,11 +1502,17 @@ input_boolean.geyser_reached_temp_today        ← set when geyser_at_temperatur
 input_select.geyser_manual_run_duration        ← "30" or "60" minutes for manual run
 
 # Window timing (added E4) — triggers are fixed at default values; see TRIGGER FLOOR NOTE
-input_number.geyser_morning_start_weekday  h  4.5  (Mon–Sat trigger 04:30 non-winter, 04:00 winter)
-input_number.geyser_morning_start_weekend  h  5.5  (Sunday trigger 05:30 non-winter, 05:00 winter)
+# E10 2026-08-29 (BUG-PWR-GEYSER04): weekday bucket is Mon–Fri only; Sat+Sun now
+# share the weekend bucket (was Sun-only — Saturday used to get the weekday
+# times, so an early-cutoff geyser left the tank cold for a ~10am Sat shower).
+input_number.geyser_morning_start_weekday  h  4.5  (Mon–Fri trigger 04:30 non-winter, 04:00 winter)
+input_number.geyser_morning_start_weekend  h  5.5  (Sat–Sun trigger 05:30 non-winter, 05:00 winter)
 input_number.geyser_morning_end_weekday    h  7.5  (trigger 07:30 non-winter, 08:00 winter)
-input_number.geyser_morning_end_weekend    h  8.5  (trigger 08:30 non-winter, 09:00 winter)
-input_number.geyser_winter_start_offset    min 30  (subtracts from start, adds to end in winter)
+input_number.geyser_morning_end_weekend    h  9.5  (Sat–Sun trigger 09:30 non-winter, 10:30 winter)
+input_number.geyser_winter_start_offset    min 30  (subtracts from weekday+weekend start, adds to weekday end, in winter)
+input_number.geyser_weekend_end_winter_offset min 60  (adds to weekend end only, in winter — separate from
+                                                        geyser_winter_start_offset since the requested weekend
+                                                        winter delta, 1h, doesn't match that 30min value)
 
 # Midday solar gate (added E4)
 input_number.geyser_midday_surplus_threshold W 300  (geyser draws 1.25 kW; 300W = solar covers most)
@@ -1604,10 +1610,10 @@ Evening hard-off:
 
 **Full schedule (all windows):**
 ```
-Morning  Mon–Sat winter    : 04:00 on / 08:00 off
-         Mon–Sat non-winter: 04:30 on / 07:30 off
-         Sunday winter     : 05:00 on / 09:00 off
-         Sunday non-winter : 05:30 on / 09:00 off
+Morning  Mon–Fri winter    : 04:00 on / 08:00 off
+         Mon–Fri non-winter: 04:30 on / 07:30 off
+         Sat–Sun winter    : 05:00 on / 10:30 off
+         Sat–Sun non-winter: 05:30 on / 09:30 off
 Midday   (solar-gated)     : 12:00/13:00/14:00 on → 15:00 off
 Evening  (adaptive)        : 17:00 winter / 17:30 non-winter / 18:30 fallback → hard-off varies by season/sports
 ```
@@ -1626,7 +1632,7 @@ automation.geyser_turn_on  (6 branches — morning ×3, midday, evening_early_wi
 
 automation.geyser_turn_off  (7 branches + default, mode: queued)
   AM protection    : 05:30/06:30/07:30/08:30 — grid off + SOC < prog2_soc + shedding (safety floor)
-  Morning hard-off : weekday 07:30 non-winter / 08:00 winter; Sunday 09:00 both seasons
+  Morning hard-off : weekday (Mon–Fri) 07:30 non-winter / 08:00 winter; weekend (Sat–Sun) 09:30 non-winter / 10:30 winter
   Midday hard-off  : 15:00 unconditional
   Evening winter   : 21:00 — winter + sports_night off
   Evening standard : 20:30 — non-winter + sports_night off
@@ -1687,6 +1693,8 @@ Force-on time = 15:00 − required minutes (90→13:30, 60→14:00, 30→14:30),
 - **09:00** (`geyser_morning_extend_max_hour`) — cold/poor-solar trigger, normal day. Covers a later morning gym-then-shower slot or a longer winter shower without running all the way to 11:00; the dynamic stop-on-heating-complete mechanism already prevents wasting grid power once the tank is actually hot, so this is purely how late the fallback can run.
 - **10:00** (`geyser_morning_extend_maidday_hour`) — cold/poor-solar trigger, on a maid day (Mon/Thu, `presence_trust.yaml` schedule) — extra household hot-water demand those days can need the extra hour.
 - **13:00** (`geyser_holiday_extend_max_hour`) — holiday_mode or manual override. Later because there's no wake-up/school run — mornings behave more like a lazy weekend, where a shower could land mid-morning or even early afternoon; the incident that prompted this path (2026-07-06) was a cold bath ~10am on a holiday morning.
+
+**Weekend interaction (added 2026-08-29, BUG-PWR-GEYSER04):** since the weekend hard-off is now later than the `geyser_morning_extend_max_hour` (9:00) and `_maidday_hour` (10:00) safety caps, a weekend cold/poor-solar extension effectively has no time-based fallback for the plain (non-holiday, non-maid-day) case — both caps have already passed by the time the normal weekend hard-off (winter 10:30 / non-winter 9:30) would even set `geyser_morning_extended_today`. Not unsafe: `extended_stopped_heating` (the state-based trigger) still terminates it the moment the tank actually reaches temperature, regardless of these fixed caps. Just means those two caps are effectively weekday-only in practice now.
 
 `geyser_morning_extended_today` and `geyser_morning_extend_override` both reset at 00:01 alongside `geyser_reached_temp_today`. The extended window is NOT treated as "sacred" by the orchestrator-emergency branch (Branch 7) — a `loadshedding_critical` event during the extension still cuts power, unlike the true morning window. Note: `input_boolean.holiday_mode` is a shared, multi-domain toggle (already used by `security_logic.yaml` for threat escalation and `lighting_bedtime.yaml` for bedtime scheduling) — turning it on for a holiday affects those too. `geyser_morning_extend_override` was added so a single day's extension doesn't require flipping that shared toggle.
 
@@ -2753,6 +2761,84 @@ minute all day — no side-to-side asymmetry found in the data, contrary to what
 check; may refer to something this granularity doesn't capture, e.g. per-string or
 per-physical-battery-unit, not per-inverter). No functional bug — fixed directly in
 Section 3.
+
+### Issue 31 — ✅ FIXED 2026-08-29: BUG-PWR-GEYSER04 — Saturday used the weekday morning schedule, tank cold by a 10am shower
+**Files:** `packages/power/geyser_automations.yaml` (`geyser_turn_on`, `geyser_turn_off`,
+`geyser_morning_backstop`, `geyser_period_energy_snapshot`), `packages/power/power_state.yaml`
+(`sensor.geyser_control_status`, `sensor.geyser_daily_status`), `packages/power/power_helpers.yaml`.
+**Reported by:** user — "geyser was cold when showered at 10 [Sat 29 Aug]."
+
+**Investigation (live Supervisor API, `sensor.season` = winter, day = Saturday):** history for
+`switch.geyser_heat_pump_switch` / `binary_sensor.geyser_at_temperature` showed the geyser turned
+on 04:15 (`geyser_morning_backstop` self-healed a missed 04:00 trigger — 15 min late, not the root
+cause), reached temperature 05:46, then was hard-turned-off at **08:00** by `geyser_turn_off`
+Branch 1 — the winter weekday morning hard-off. Since the tank was already at temperature (not
+"still heating"), the still-heating extension never engaged. Nothing runs again until the
+solar-gated 11:00 midday window. Two hours of unmanaged cooling later, the 10am shower was cold.
+
+**Root cause:** the morning window's day-of-week bucketing used `is_mon_sat` (`dow <= 5`) /
+`is_sunday` (`dow == 6`) — Saturday shared the *weekday* start/end times (04:00 on / 08:00 winter
+off), identical to a Tuesday, even though dedicated `geyser_morning_start_weekend` /
+`geyser_morning_end_weekend` helpers already existed and were wired only to Sunday. Confirmed as
+an inconsistency, not intent: the midday forced-minimum branch in the same file already treats
+Saturday as weekend (`now().weekday() >= 5`) for its 90-minute extended runtime — only the morning
+window logic missed that.
+
+**Fix 1 (weekday bucket → Mon–Fri, weekend bucket → Sat–Sun):** replaced `is_mon_sat`/`is_sunday`
+with `is_weekday` (`dow <= 4`) / `is_weekend` (`dow >= 5`) everywhere a day-of-week check gates the
+geyser morning window: `geyser_turn_on` Branch 1 (and its 4 trigger ids, renamed
+`morning_{winter,standard}_{weekday,weekend}`), `geyser_turn_off` Branch 1 (trigger ids renamed
+`morning_end_{standard,winter}_{weekday,weekend}`, weekend clock times changed — see Fix 2),
+`geyser_morning_backstop`'s window-bounds check, the orchestrator emergency-off morning-window
+check, and the two duplicate copies of the window-bounds formula in `power_state.yaml`
+(`sensor.geyser_control_status` and `sensor.geyser_daily_status`'s `morning_kwh`). Saturday and
+Sunday now both get the weekend start time (05:00 winter / 05:30 non-winter — unchanged from the
+old Sunday-only values).
+
+**Fix 2 (weekend hard-off pushed later, user request):** requested so the window stays open
+through a ~10am weekend shower *even once the tank is already at temperature*, rather than relying
+on the still-heating-only extension logic (which wouldn't have helped here — the tank *was* at
+temp at 08:00). `geyser_morning_end_weekend` raised from 8.5h to 9.5h (09:30 non-winter). For
+winter, the requested delta (09:30 → 10:30, i.e. 1h) doesn't match the existing 30min
+`geyser_winter_start_offset` used everywhere else, so added a new, weekend-end-only
+`geyser_weekend_end_winter_offset` helper (60min default) instead of overloading that one's
+meaning. Weekend winter hard-off: **10:30** (was 09:00). Weekday times unchanged
+(07:30 non-winter / 08:00 winter).
+
+**Fix 3 (energy-snapshot timing, found during the fix — not user-reported):**
+`geyser_period_energy_snapshot` captured `geyser_energy_at_morning_end` at a fixed 08:00/08:30
+regardless of day. With the weekend hard-off now at 09:30/10:30, leaving this fixed would snapshot
+morning energy *while the geyser was still running* on weekends, understating true morning energy
+and correspondingly inflating the midday delta used by Branch 3's evening-early-start gate — could
+silently suppress a needed evening top-up on a poor-solar weekend. Made this automation
+weekday/weekend + season aware too, firing at the same four times as the real hard-off triggers.
+
+**Deployed:** `check_config` via Supervisor API returned `valid`. Reload Helpers, Reload
+Automations, and Reload Template Entities all done via Supervisor API (200s, no errors). Live
+verification: `geyser_weekend_end_winter_offset` created correctly (60min); `automation.geyser_
+turn_on_morning_midday_evening`, `..._turn_off_am_protection_evening_sports_night`, `..._morning_
+backstop_self_heal_missed_turn_on`, and `..._period_energy_snapshot_morning_midday` all reloaded
+and confirmed `on`. **Caveat found live:** Reload Helpers updates a YAML `input_number`'s min/max/
+step/name but does **not** reset its current value to a changed `initial` for an already-existing
+entity (confirmed: `geyser_morning_end_weekend`'s min/max picked up 7.0/10.5 immediately, but its
+value stayed at the old 9.0 until an explicit `input_number.set_value` call) — pushed it to 9.5
+manually post-reload. Anyone changing an existing `input_number`'s `initial` in this codebase
+should expect the same and set the live value explicitly, not assume Reload Helpers alone applies
+it.
+
+### Issue 32 — 🔍 FOUND, NOT FIXED 2026-08-29: `sensor.geyser_control_status`'s hardcoded midday window (12:00–15:00) predates the 11:00 midday trigger
+**File:** `packages/power/power_state.yaml` (`sensor.geyser_control_status`, `in_midday` variable).
+**Found by:** live spot-check while verifying the BUG-PWR-GEYSER04 fix above (unrelated to it —
+noted here rather than folded into that entry, per the "record deferred findings" rule).
+
+At the time of checking (11:41 SAST), `switch.geyser_heat_pump_switch` was genuinely `on` (the
+midday solar branch had fired at 11:00 — added 2026-06-21, see "Earlier opportunistic midday
+trigger" note above), but `sensor.geyser_control_status` read **"Outside active windows"** instead
+of "Running — midday solar". Root cause: this sensor's `in_midday` template is hardcoded
+`12 <= now_h < 15`, never updated when the real `geyser_turn_on` midday window gained its earlier
+11:00 trigger. Any midday run between 11:00–12:00 shows as "Outside active windows" on the
+dashboard. **Not fixed** — out of scope for the session that found it; needs `in_midday` changed
+to `11 <= now_h < 15` to match `geyser_turn_on`'s actual trigger list.
 
 ---
 

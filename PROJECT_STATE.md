@@ -5,6 +5,55 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-08-29 — BUG-PWR-GEYSER04: Saturday used the weekday geyser schedule,
+      tank cold by a 10am shower. ✅ Reload Helpers + Automations + Template
+      Entities done and verified live.** User reported the geyser was cold at a
+      10am Saturday shower and asked for the weekend schedule to start a little
+      later, plus stay running past the old 08:00 cutoff even once at
+      temperature (since showers happen later on weekends). Live history (via
+      Supervisor API) showed the geyser reached temperature by 05:46 then was
+      hard-turned-off at 08:00 — the winter *weekday* hard-off — because
+      `geyser_automations.yaml` bucketed Saturday with Mon–Fri (`is_mon_sat`,
+      `dow <= 5`) instead of with the weekend (dedicated
+      `geyser_morning_start/end_weekend` helpers already existed but were wired
+      to Sunday only). Tank cooled unmanaged for 2h with no coverage until the
+      solar-gated 11:00 midday window. **Fixed:** weekday bucket is now Mon–Fri
+      only, Sat+Sun share the weekend bucket, everywhere the geyser morning
+      window is gated (`geyser_turn_on`, `geyser_turn_off`,
+      `geyser_morning_backstop`, orchestrator emergency-off, and the two
+      duplicate window-bounds copies in `power_state.yaml`). Weekend hard-off
+      pushed later per user request — 09:30 non-winter (was 08:30), **10:30
+      winter** (was 09:00) — via a new `geyser_weekend_end_winter_offset`
+      helper (60min; the 1h weekend delta didn't match the existing 30min
+      `geyser_winter_start_offset` used elsewhere). Also fixed
+      `geyser_period_energy_snapshot`, found stale during this change: it
+      captured `geyser_energy_at_morning_end` at a fixed 08:00/08:30 regardless
+      of day, which would have snapshotted mid-run on the new later weekend
+      schedule and inflated the midday-delta calc that gates the evening
+      early-start safety net. Full detail: BUG-PWR-GEYSER04 in
+      [POWER_CONTRACT.md](../docs/domains/POWER_CONTRACT.md) (Issue 31).
+      **Validation done:** `check_config` via Supervisor API returned `valid`;
+      Reload Helpers/Automations/Template Entities all done via Supervisor API;
+      new `geyser_weekend_end_winter_offset` helper confirmed live at 60min;
+      all 4 touched automations confirmed `on` post-reload. **Caveat found
+      live:** Reload Helpers does not reset an existing `input_number`'s
+      current value to a changed `initial` (only min/max/step/name update) —
+      `geyser_morning_end_weekend` needed an explicit `input_number.set_value`
+      to 9.5 after the reload. Worth remembering for any future `initial`
+      change on an already-created helper.
+
+- [ ] **2026-08-29 — BUG-PWR-GEYSER-DISPLAY01: `sensor.geyser_control_status`'s
+      hardcoded 12:00–15:00 midday window predates the 11:00 midday trigger —
+      found live, not fixed.** Spotted while verifying the BUG-PWR-GEYSER04 fix
+      above (unrelated to it): at 11:41 SAST the geyser was genuinely `on` (the
+      11:00 midday solar branch, added 2026-06-21), but the status sensor read
+      "Outside active windows" instead of "Running — midday solar" — its
+      `in_midday` template in `power_state.yaml` is still hardcoded
+      `12 <= now_h < 15`, never updated when `geyser_turn_on` gained the
+      earlier 11:00 trigger. Any midday run between 11:00–12:00 misdisplays.
+      Fix: change `in_midday` to `11 <= now_h < 15`. See Issue 32 in
+      [POWER_CONTRACT.md](../docs/domains/POWER_CONTRACT.md).
+
 - [ ] **2026-08-29 — BUG-L20: stale-copy import of `lighting_arrival_night.yaml`
       re-introduced five closed bugs; caught before reload, all re-fixed.
       ⚠️ `automation.reload` still owed on the box.** User reported that
