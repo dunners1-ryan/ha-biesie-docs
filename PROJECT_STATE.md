@@ -3919,6 +3919,28 @@ script.water_demand_set_winter_profile
         / activity+error+logbook) to actually fill the 3-column layout
         instead of leaving a gap. Both fixes verified live via a fresh
         `lovelace/config` fetch after saving.
+        **Third follow-up fix, same evening — user caught a real misread of
+        the sections model:** (5) kept the 2 separate `type: grid` sections
+        from the previous fix — this was wrong. In HA's Sections dashboards,
+        each `sections[]` entry is its own bounded, independently-drag-
+        handled box that claims one of the view's `max_columns` slots; it
+        does NOT stretch to fill the row on its own. With only 2 sections
+        defined and `max_columns: 4`, HA rendered 2 narrow ~25%-width boxes
+        side by side (each then cramming its 3 `columns:4` cards into that
+        already-narrow box — hence the earlier screenshot's truncated labels
+        like "M...98.28%") plus two empty add-card placeholders filling the
+        rest of the row. **Fix:** collapsed both sections into a single
+        `sections[]` entry holding all 6 vertical-stacks, each still
+        `grid_options: {columns: 4}` — with only one section, it expands to
+        the view's full width and the 6 cards wrap into 2 true rows of 3,
+        aligned across the whole page. `max_columns` dropped 4→3 to match
+        (now describes this one section, not a phantom 4-slot row). Verified
+        live via a fresh `lovelace/config` fetch: 1 section, 6 cards, all
+        `columns: 4`. **Lesson for next dashboard session:** `sections[]` ⇒
+        side-by-side boxed groups (use `max_columns` to control how many);
+        `grid_options.columns` (12-unit) ⇒ card width *within* one section.
+        Don't reach for multiple sections to build a single aligned N-column
+        layout — that's what grid_options is for, inside one section.
 
 [ ] V8. Once entity IDs are confirmed stable post-mapping, add the device's key
         entities (vacuum.deebot_t80s_biesie at minimum) to the "Locked Entity
