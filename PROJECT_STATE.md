@@ -3875,6 +3875,31 @@ script.water_demand_set_winter_profile
         dashboard configs. `.storage/lovelace_dashboards` unaffected — no new
         dashboard registered, both are edits to existing dashboards, so
         nothing to add to CLAUDE.md's package table for this.
+        **Fixed same evening, user caught it:** two gaps found and corrected
+        in a follow-up push. (1) Consumables reset-button row only had 2 of 3
+        buttons (missing Reset Side Brush) — added. (2) All three reset
+        buttons (`button.deebot_t80s_biesie_reset_main_brush_lifespan` /
+        `_filter_lifespan` / `_side_brush_lifespan`) were `disabled_by:
+        integration` in the entity registry — not in the state machine at
+        all, so the two that *were* on the card wouldn't have worked. Enabled
+        all three via `config/entity_registry/update` over the same
+        WebSocket connection; HA auto-reloaded the `ecovacs` config entry
+        after the reported 30s `reload_delay`; confirmed live (state
+        `unknown`, the normal never-pressed button state) before re-pushing
+        the card. (3) Separately, user reported the map picture wasn't
+        rendering — traced via `system_log/list` over the same WebSocket to a
+        real upstream bug, not a card/config issue: `deebot_client`'s
+        `getMapSet` (and `getCleanInfo`) calls have failed with `code: 20003,
+        msg: "rcp not support"` on this device continuously since the
+        integration was set up (2026-08-29 12:20 through now) — confirmed via
+        web search this is a known `deebot_client`/HA-core limitation on
+        several newer Omni models (T50/T90 Pro Omni, N10 MAX+), with an open
+        discussion specifically requesting T80S Omni support
+        (home-assistant/core issue #173158). **Not fixable from this repo** —
+        left the picture-entity card in place (self-resolves if upstream
+        ships support) with a markdown caveat explaining why it's broken and
+        linking the issue, instead of hiding the gap or leaving an
+        unexplained broken image.
 
 [ ] V8. Once entity IDs are confirmed stable post-mapping, add the device's key
         entities (vacuum.deebot_t80s_biesie at minimum) to the "Locked Entity
@@ -4239,6 +4264,7 @@ added GARDEN_CONTRACT.md, which had no row in this table at all.)*
 | `ids_hyyp` v1.9.0 | Zero automations in automations.yaml — integration not yet wired at HA level | Medium | Stub created (IMP-IDS01 ✅). Migrate entity interface when IDS is live. |
 | `localtuya` v5.2.3 | False reconnect event can trigger spurious water tank abort | Medium | See WATER_CONTRACT.md — input_boolean.water_refill_aborted_due_to_safety can get stuck |
 | Multiple weather integrations | OWM + OWM History + Met.no + Met Nowcast all installed — canonical source unclear | Low | Document which is used for what in INFRA_CONTRACT.md |
+| `ecovacs` (built-in, Deebot T80S Omni) | `deebot_client`'s `getMapSet`/`getCleanInfo` calls fail with `code: 20003, msg: "rcp not support"` on this device — confirmed via `system_log/list`, continuous since setup (2026-08-29 12:20). `image.deebot_t80s_biesie_map` never actually renders (entity state/timestamp updates fine, but `/api/image_proxy/...` 500s). Known upstream limitation affecting several newer Omni models (T50/T90 Pro Omni, N10 MAX+) — home-assistant/core issue #173158 is the open discussion specifically requesting T80S Omni support. | Medium | Not fixable from this repo. Left the dashboard map card in place with a caveat note (self-resolves once `deebot_client`/HA core ships support) rather than hiding it. Re-check after any future `ecovacs`/`deebot_client` version bump. |
 | `icloud` (built-in) | **Removed end of 2025.** Monthly 2FA session expiry requires manual `.storage/icloud` delete + HA restart + code entry. Non-primary Apple ID (family members) unsupported. Broke entirely on HA 2025.11.0 (`dict has no attribute user_info`, Issue #155933 — **confirmed fixed live on GitHub 2026-08-24**, PR #156485, shipped HA 2025.11.3; this instance runs 2026.8.3, past the fix). Value lost: GPS away-from-home location for all family devices. ~~+ Apple device battery/charging state~~ — **not actually lost, doc-drift correction 2026-08-21:** battery/charging state comes from the HA Companion App (`mobile_app` integration), not iCloud — unaffected by this breakage, and `alerts_device_batteries.yaml` (2026-08-21) already covers it live. Only GPS/location is genuinely blocked on this integration. | High | **DEFERRED — confirmed still correct 2026-08-24.** The specific crash (#155933) is fixed, but re-checked live against GitHub and the underlying reauth pain is a separate, still-open, ongoing bug class through mid-2026 (#160536, #167608, #170959 — filed May 2026 against HA 2026.5.2, still open; community reports through 2026.5.4; an unofficial third-party patched fork exists because the official integration still isn't reliable). Re-add only once one of those settles — see Group U for the full citation trail. Recovery automation (U1/U2) still planned; the battery pipeline (U3) is done and was never actually blocked on this. |
 
 ---
