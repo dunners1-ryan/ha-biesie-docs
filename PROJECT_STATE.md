@@ -5,6 +5,36 @@
 
 ## ⚠️ OPEN TODO
 
+- [ ] **2026-08-30 — Ecovacs Deebot T80S Omni: mapping finished, scenario/schedule
+      plan agreed, live telemetry confirmed working. Group V (see Verified
+      Priority Work Queue) V2/V6 marked done; V1/V3/V4/V5/V7/V8 still open.**
+      Map "Biesie Main House" done — 9 rooms: Bedroom Main, Bedroom Luke,
+      Bedroom Tayla, Bathroom Main, Bathroom kids, Kitchen, Corridor, Living
+      room, Sunroom. Three app-native scenarios agreed with user: **Daily
+      Clean** (Living room + Kitchen + Sunroom + Corridor, vac+mop, daily
+      09:00), **Bedroom Clean** (Bedroom Main/Luke/Tayla, Mon/Wed/Fri 10:30),
+      **Bathroom Clean** (Bathroom Main/kids, higher water flow, Tue/Thu/Sat
+      10:30) — Sunday runs Daily only. Trigger stays entirely inside the
+      Ecovacs app scheduler, not HA — user confirmed no HA-side start/stop
+      automation or solar-gating wanted (V6). User also confirmed no
+      dogs-near-vacuum gate is needed (dogs fine around it / kept elsewhere).
+      10:30 gap is a placeholder pending real duration data — user asked how
+      long a full clean takes and this isn't known yet; told them to check
+      `sensor.deebot_t80s_biesie_cleaning_duration` /
+      `_total_cleaning_duration` / `_area_cleaned` after each scenario's been
+      run for real, to revisit the gap. **Verified live via Supervisor API
+      this session (mid-session user question "is anything coming through")**:
+      `sensor.deebot_t80s_biesie_total_cleans` = 3,
+      `_total_cleaning_duration` = 5.75h, `_total_area_cleaned` = 176 m²,
+      last job = 13.0 min / 7 m², battery 99%, error = NoError, vacuum state
+      = docked — telemetry pipeline confirmed working end-to-end.
+      `event.deebot_t80s_biesie_last_job` reads `unknown`/`event_type: null` —
+      **not a bug**, HA `event`-platform entities never backfill from before
+      the entity existed, it will populate on the next job that completes
+      while HA is running. Camera-misfire check (V5) and consumable/fault
+      alerting (V3) remain genuinely untested/unbuilt — don't mark those done
+      based on this session.
+
 - [ ] **2026-08-29 — NEW INTEGRATION: Ecovacs Deebot T80S Omni added (`ecovacs`
       core integration, config entry created 2026-08-29T12:20, account
       dunners1@gmail.com). Currently doing its initial house mapping run — no
@@ -3700,19 +3730,28 @@ script.water_demand_set_winter_profile
 
 ## 🚀 Verified Priority Work Queue
 
-### Group V — Ecovacs Deebot T80S Omni Integration Buildout (opened 2026-08-29 — nothing implemented yet)
+### Group V — Ecovacs Deebot T80S Omni Integration Buildout (opened 2026-08-29 — scenario/schedule planned 2026-08-30, no HA-side code yet)
 ```
 [ ] V1. Create packages/integrations/vacuum.yaml (or a new packages/vacuum/ domain if it
         grows past one file — follow the layered convention: helpers → templates →
         automations) documenting the 31 live entities under device
         deebot_t80s_biesie. Add a row to CLAUDE.md's package table + this file's
-        Document Index once it exists. Wait for V2 (mapping to finish) before writing
-        anything that assumes room/zone names.
+        Document Index once it exists. Scope is monitoring only (V3/V4/V7) —
+        room-selection cleaning stays app-native, see V6.
 
-[ ] V2. WAIT for initial mapping to finish, then record the stable map/room layout —
-        select.deebot_t80s_biesie_active_map + whatever room labels the Deebot app
-        assigns. Needed before any "clean living room only" / no-go-zone automation
-        is possible. Don't build room-aware logic against a map still being drawn.
+[x] V2. Mapping finished 2026-08-30. Stable room layout confirmed:
+        Bedroom Main, Bedroom Luke, Bedroom Tayla, Bathroom Main, Bathroom kids,
+        Kitchen, Corridor, Living room, Sunroom (map "Biesie Main House", in use).
+        Scenario/schedule design done same day — see session note below and the
+        dated entry in OPEN TODO. Three app scenarios: Daily Clean (Living room +
+        Kitchen + Sunroom + Corridor, daily 09:00), Bedroom Clean (Bedroom Main/
+        Luke/Tayla, Mon/Wed/Fri 10:30), Bathroom Clean (Bathroom Main/kids,
+        Tue/Thu/Sat 10:30). Corridor bundled into Daily as the high-traffic
+        connector into the bedroom wing — user can move it to ride with
+        Bedroom/Bathroom instead if preferred. Duration numbers unverified — see
+        V1 note above; check sensor.deebot_t80s_biesie_cleaning_duration /
+        _total_cleaning_duration / _area_cleaned after first real runs of each
+        scenario and tighten the 10:30 gap if Daily overruns on mop days.
 
 [ ] V3. Consumables + fault alerting — wire sensor.deebot_t80s_biesie_error and the
         three lifespan sensors (main_brush/filter/side_brush) into the alerts
@@ -3728,19 +3767,29 @@ script.water_demand_set_winter_profile
         following the same severity/quiet-hours routing as every other domain
         (NOTIFICATIONS_CONTRACT.md).
 
-[ ] V5. Security/presence interaction check — once mapping is done and normal runs
-        start, confirm indoor motion cameras (cam14/cam15 etc., see
-        SECURITY_CONTRACT.md security_event_classification) don't misfire on
+[ ] V5. Security/presence interaction check — still OPEN, untested (no real runs yet).
+        Once normal runs start, confirm indoor motion cameras (cam14/cam15 etc.,
+        see SECURITY_CONTRACT.md security_event_classification) don't misfire on
         vacuum motion. If they do, this needs a suppression pattern similar to
         dogs_inside_prompt (an input_boolean.vacuum_running-style gate), not a
-        camera sensitivity change.
+        camera sensitivity change. (Separate question — whether the dogs
+        physically need to be kept clear of the robot — asked and answered
+        2026-08-30: user says no gate needed, dogs are fine around it / kept
+        elsewhere at clean time. That's a different concern from this camera
+        item, which is still unverified.)
 
-[ ] V6. Scheduling decision — fixed time-of-day schedule vs. gating cleans to solar
-        surplus like pool_pump_solar_control (power_automations.yaml Session E3
-        pattern). Needs the Deebot's actual charging/running power draw checked
-        first — if material, also decide whether to add it to
-        group.flexible_power_loads / known_load_power for load-visibility
-        accounting (see Session E7, power_templates.yaml).
+[x] V6. Scheduling decision made 2026-08-30: fixed time-of-day schedule set
+        natively in the Ecovacs app scheduler (see V2's schedule table) — NOT
+        HA-driven, NOT solar-gated. HA will not start/stop/pause cleans. Chosen
+        times (09:00 / 10:30, nothing after ~11:00, nothing Sunday afternoon)
+        were picked by hand to satisfy the user's stated constraint — don't run
+        once everyone's home for the evening (after 6/7pm) and not Sunday
+        afternoons — so no HA presence-gating automation is needed either.
+        Still open/optional: check the Deebot's actual charging/running power
+        draw and decide whether it's material enough for
+        group.flexible_power_loads / known_load_power (Session E7 pattern) —
+        low priority, revisit only if it shows up as a meaningful unknown-draw
+        contributor.
 
 [ ] V7. Dashboard — vacuum card (image.deebot_t80s_biesie_map, battery, work_mode,
         start/pause/dock controls) on either Home or a new Operations section.
