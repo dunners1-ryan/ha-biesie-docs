@@ -3900,6 +3900,25 @@ script.water_demand_set_winter_profile
         ships support) with a markdown caveat explaining why it's broken and
         linking the issue, instead of hiding the gap or leaving an
         unexplained broken image.
+        **Second follow-up fix, same evening, user caught it again:** (4) the
+        Activity card used `custom:logbook-card` (the HACS card) with an
+        `entities:` list — wrong config shape for that specific custom card,
+        rendered as a visible "Configuration error — Please define an
+        entity." card. Fixed by switching to the native HA `type: logbook`
+        card instead (same `entities:`/`hours_to_show` shape works there) —
+        copied verbatim from how `lighting_arrival_night`'s dashboard cards
+        already use it successfully elsewhere in this house, rather than
+        guessing at the custom card's real schema. (5) Both sections were
+        rendering 2-wide instead of 3 — none of the vertical-stack cards had
+        `grid_options` set, so they fell back to a default width. Fixed by
+        giving every vertical-stack `grid_options: {columns: 4, rows: auto}`
+        — confirmed from other views in this same dashboard that the sections
+        grid is a 12-unit-per-row system (columns:12 = full width, columns:6
+        = half, so columns:4 = a third → 3 per row). Also reorganized section
+        1 from 2 uneven stacks into 3 even ones (status+controls / map+caveat
+        / activity+error+logbook) to actually fill the 3-column layout
+        instead of leaving a gap. Both fixes verified live via a fresh
+        `lovelace/config` fetch after saving.
 
 [ ] V8. Once entity IDs are confirmed stable post-mapping, add the device's key
         entities (vacuum.deebot_t80s_biesie at minimum) to the "Locked Entity
