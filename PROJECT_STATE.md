@@ -10,8 +10,8 @@
       Priority Work Queue) V2/V6 marked done; V1/V3/V4/V5/V7/V8 still open.**
       Map "Biesie Main House" done — 9 rooms: Bedroom Main, Bedroom Luke,
       Bedroom Tayla, Bathroom Main, Bathroom kids, Kitchen, Corridor, Living
-      room, Sunroom. Three app-native scenarios agreed with user: **Daily
-      Clean** (Living room + Kitchen + Sunroom + Corridor, vac+mop, daily
+      room, Reading room. Three app-native scenarios agreed with user: **Daily
+      Clean** (Living room + Kitchen + Reading room + Corridor, vac+mop, daily
       09:00), **Bedroom Clean** (Bedroom Main/Luke/Tayla, Mon/Wed/Fri 10:30),
       **Bathroom Clean** (Bathroom Main/kids, higher water flow, Tue/Thu/Sat
       10:30) — Sunday runs Daily only. Trigger stays entirely inside the
@@ -34,6 +34,20 @@
       while HA is running. Camera-misfire check (V5) and consumable/fault
       alerting (V3) remain genuinely untested/unbuilt — don't mark those done
       based on this session.
+
+- [ ] **2026-08-30 (later same day) — Room renamed Sunroom → Reading room in the
+      Deebot app map; renamed to match everywhere above and in Group V below.
+      User reports "a couple cleans" done but not all three scenarios yet —
+      re-checked live via Supervisor API, numbers are unchanged from the
+      earlier check this session (`total_cleans` still 3, last job still
+      13.0 min / 7 m²), confirming these were partial/spot runs, not full
+      Daily/Bedroom/Bathroom scenario completions. Per-scenario duration
+      still genuinely unknown — don't guess it. Once Daily, Bedroom Clean,
+      and Bathroom Clean have each completed at least once, re-check
+      `sensor.deebot_t80s_biesie_cleaning_duration` (last job) right after
+      each one finishes (it gets overwritten by the next job) and report
+      back or ask for a re-check — that's what tightens the 10:30 start gap
+      in the schedule.
 
 - [ ] **2026-08-29 — NEW INTEGRATION: Ecovacs Deebot T80S Omni added (`ecovacs`
       core integration, config entry created 2026-08-29T12:20, account
@@ -3741,10 +3755,10 @@ script.water_demand_set_winter_profile
 
 [x] V2. Mapping finished 2026-08-30. Stable room layout confirmed:
         Bedroom Main, Bedroom Luke, Bedroom Tayla, Bathroom Main, Bathroom kids,
-        Kitchen, Corridor, Living room, Sunroom (map "Biesie Main House", in use).
+        Kitchen, Corridor, Living room, Reading room (map "Biesie Main House", in use).
         Scenario/schedule design done same day — see session note below and the
         dated entry in OPEN TODO. Three app scenarios: Daily Clean (Living room +
-        Kitchen + Sunroom + Corridor, daily 09:00), Bedroom Clean (Bedroom Main/
+        Kitchen + Reading room + Corridor, daily 09:00), Bedroom Clean (Bedroom Main/
         Luke/Tayla, Mon/Wed/Fri 10:30), Bathroom Clean (Bathroom Main/kids,
         Tue/Thu/Sat 10:30). Corridor bundled into Daily as the high-traffic
         connector into the bedroom wing — user can move it to ride with
