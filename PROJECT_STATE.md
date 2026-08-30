@@ -49,6 +49,30 @@
       back or ask for a re-check — that's what tightens the 10:30 start gap
       in the schedule.
 
+- [ ] **2026-08-30 (evening) — Plan changed: user is trialling whole-house
+      "Auto Clean" (AI) via the app's own Schedule screen instead of the
+      3-scenario split above, for now.** Two schedule slots created in-app:
+      **06:00 Auto Clean / Workday** (weekdays) and **08:00 Auto Clean /
+      Weekend**. Confirmed with user: "Auto Clean" is whole-house — AI decides
+      coverage, not restricted to the Daily Clean room set (Living room/
+      Kitchen/Reading room/Corridor). **This means bedrooms and bathrooms now
+      get cleaned daily, not every 2nd day as originally requested** — flagged
+      to the user as a real trade-off (extra mop/brush wear on rooms that
+      didn't need daily attention), accepted as a trial, not walked back.
+      The separate Bedroom Clean (Mon/Wed/Fri) / Bathroom Clean (Tue/Thu/Sat)
+      scenario schedule from the 2026-08-30 morning entry above is **not
+      currently active** — nothing is scheduled against those two named
+      scenarios right now, only the two Auto Clean slots. If the whole-house
+      daily trial doesn't work out, reverting to the original per-room
+      3-scenario schedule (Daily 09:00 / Bedroom Mon-Wed-Fri 10:30 / Bathroom
+      Tue-Thu-Sat 10:30) is the fallback — those scenario definitions are
+      still valid, just currently unscheduled. Duration data still pending
+      either way (see entry above) — once Auto Clean has run a few times,
+      pull `sensor.deebot_t80s_biesie_cleaning_duration` /
+      `_total_cleaning_duration` to see how long a real whole-house AI run
+      actually takes, which also answers whether 06:00 finishes with enough
+      margin before people are up on workdays.
+
 - [ ] **2026-08-29 — NEW INTEGRATION: Ecovacs Deebot T80S Omni added (`ecovacs`
       core integration, config entry created 2026-08-29T12:20, account
       dunners1@gmail.com). Currently doing its initial house mapping run — no
@@ -3804,6 +3828,13 @@ script.water_demand_set_winter_profile
         group.flexible_power_loads / known_load_power (Session E7 pattern) —
         low priority, revisit only if it shows up as a meaningful unknown-draw
         contributor.
+        **UPDATE 2026-08-30 evening:** user is now trialling whole-house
+        "Auto Clean" (AI) at 06:00 workday / 08:00 weekend via the app's own
+        Schedule screen instead — the 3-scenario schedule above is currently
+        unscheduled (still valid as a fallback, just not active). Trade-off
+        flagged and accepted: bedrooms/bathrooms clean daily now, not every
+        2nd day. Re-open this item if the trial gets walked back to the
+        per-room split.
 
 [ ] V7. Dashboard — vacuum card (image.deebot_t80s_biesie_map, battery, work_mode,
         start/pause/dock controls) on either Home or a new Operations section.
