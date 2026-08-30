@@ -5,6 +5,18 @@
 
 ## ⚠️ OPEN TODO
 
+- [ ] **2026-08-30 (night) — Ecovacs Deebot: dashboard built + mat reminder
+      automation shipped. Group V: V1 partial, V7/V9 done; V3/V4/V5/V8/V10
+      still open.** `packages/integrations/vacuum.yaml` created — mat-removal
+      reminder (input_datetime × 2, input_boolean, 2 automations), validated
+      + reloaded live via Supervisor API, not yet committed to CLAUDE.md's
+      package table. New Operations → Vacuum dashboard view + a Home summary
+      card pushed live via the Lovelace WebSocket API (no restart) — see V7
+      for full content. Discovered but NOT used yet: `vacuum.clean_area`
+      (targets HA Areas, unverified whether it maps to this device's rooms)
+      and `vacuum.send_command` — see V10. Confirmed no camera entity exists
+      for this device. Full detail in Group V below.
+
 - [ ] **2026-08-30 — Ecovacs Deebot T80S Omni: mapping finished, scenario/schedule
       plan agreed, live telemetry confirmed working. Group V (see Verified
       Priority Work Queue) V2/V6 marked done; V1/V3/V4/V5/V7/V8 still open.**
@@ -3770,12 +3782,17 @@ script.water_demand_set_winter_profile
 
 ### Group V — Ecovacs Deebot T80S Omni Integration Buildout (opened 2026-08-29 — scenario/schedule planned 2026-08-30, no HA-side code yet)
 ```
-[ ] V1. Create packages/integrations/vacuum.yaml (or a new packages/vacuum/ domain if it
-        grows past one file — follow the layered convention: helpers → templates →
-        automations) documenting the 31 live entities under device
-        deebot_t80s_biesie. Add a row to CLAUDE.md's package table + this file's
-        Document Index once it exists. Scope is monitoring only (V3/V4/V7) —
-        room-selection cleaning stays app-native, see V6.
+[~] V1. packages/integrations/vacuum.yaml created 2026-08-30 — PARTIAL. Contains
+        the mat-removal reminder only (see new V9 below): input_datetime.
+        vacuum_reminder_time_workday/_weekend, input_boolean.
+        vacuum_mat_reminder_enabled, automation.vacuum_mat_removal_reminder_
+        workday/_weekend (note: entity_id derives from `alias`, not `id` — both
+        confirmed live via Supervisor API, `ha core check` valid, input_datetime/
+        input_boolean/automation all reloaded live). Still NOT done: documenting
+        the full 31-entity inventory in this file, and the CLAUDE.md package
+        table + this file's Document Index row. V3/V4 (alert/notification
+        wiring) still genuinely unbuilt — don't infer them from this file's
+        existence.
 
 [x] V2. Mapping finished 2026-08-30. Stable room layout confirmed:
         Bedroom Main, Bedroom Luke, Bedroom Tayla, Bathroom Main, Bathroom kids,
@@ -3836,15 +3853,59 @@ script.water_demand_set_winter_profile
         2nd day. Re-open this item if the trial gets walked back to the
         per-room split.
 
-[ ] V7. Dashboard — vacuum card (image.deebot_t80s_biesie_map, battery, work_mode,
-        start/pause/dock controls) on either Home or a new Operations section.
-        Do this after V1/V3/V4 exist so there's real state to show, not after
-        raw integration setup.
+[x] V7. Done 2026-08-30 — pushed live via the Lovelace WebSocket API
+        (`lovelace/config` + `lovelace/config/save`, Supervisor-token auth,
+        no HA restart — same no-restart technique as the 2026-06-14 dashboard
+        re-enable session, this time scripted directly rather than ad hoc).
+        **Operations → new "Vacuum" view** (path `vacuum`, matches the house's
+        `type: sections` / `ios-dark-mode-dark-blue-alternative` theme
+        convention, footer navbar copied verbatim from the `office` view):
+        mushroom-vacuum-card (start/pause/stop/return_home/locate +
+        battery/fan-speed built in), live map (image.deebot_t80s_biesie_map),
+        today's-activity + lifetime-totals markdown, conditional error banner,
+        consumables (brush/filter lifespan %, mop-attached), controls
+        (work_mode/water_flow/active_map/clean_count/toggles/relocate),
+        logbook-card activity feed, and a manually-maintained schedule note
+        card (HA can't read the app's Schedule screen — this needs hand-
+        updating if the app schedule changes again, per the V6 update above).
+        **Home dashboard**: compact status block inserted into section 0
+        (heading badges + mushroom-template-card, tap → Operations/vacuum),
+        conditional error chip, matches the existing "Network Health"-style
+        block pattern. Both pushes verified live afterward by re-fetching the
+        dashboard configs. `.storage/lovelace_dashboards` unaffected — no new
+        dashboard registered, both are edits to existing dashboards, so
+        nothing to add to CLAUDE.md's package table for this.
 
 [ ] V8. Once entity IDs are confirmed stable post-mapping, add the device's key
         entities (vacuum.deebot_t80s_biesie at minimum) to the "Locked Entity
         Names" section below, matching the convention used for every other
         integration's canonical entities.
+
+[x] V9. Mat-removal reminder — done 2026-08-30 as part of V1 (user asked for
+        this directly: "reminder to remove mats from bathroom and main
+        bedroom so it doesn't get stuck"). Two time-triggered automations
+        (weekday/weekend, gated on input_boolean.vacuum_mat_reminder_enabled)
+        fire 10 min before whichever Auto Clean time is currently live (see
+        V6), via script.notify_system_event (continue_on_error: true, per
+        CODING_STANDARDS). Trigger times are input_datetime helpers, not
+        hardcoded — deliberately, since the app schedule already changed once
+        in one session and HA can't read it directly. **If the app schedule
+        changes again, these two helpers need updating to match** (and the
+        Operations Vacuum view's schedule note card, and this checklist).
+
+[ ] V10. Investigated 2026-08-30 (control-points question) — worth a dedicated
+         follow-up: `vacuum.clean_area` service exists (targets HA **Areas**,
+         not the vacuum's own mapped rooms — untested whether this device's
+         internal rooms actually resolve against this house's existing Areas
+         like `kitchen`/`main_bathroom`) and `vacuum.send_command` (raw
+         channel, API's own example is `set_dnd_timer`). Neither has been
+         called yet. If `clean_area` genuinely targets the right rooms, it's
+         the real path to HA-native per-room scheduling (properly resolving
+         V6's every-2nd-day bedroom/bathroom ask from HA instead of relying
+         on the app) — test cautiously and supervised via Developer Tools →
+         Actions before ever wiring it into an automation. No camera entity
+         exists for this device at all — confirmed not available, not a
+         config gap.
 ```
 
 ### Group A — Trust Model Chain (Fixes security + lighting + door alerts)
