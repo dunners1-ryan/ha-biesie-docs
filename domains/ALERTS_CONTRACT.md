@@ -7,6 +7,14 @@
 #
 # Scope: All 16 packages/alerts/*.yaml files
 #        Plus cross-domain aggregation in alerts_summary.yaml
+# Last updated: 2026-08-31 (later) — BUG-A23: "Ryan Macbook Pro" STALE alert traced to a
+# dead duplicate `mobile_app` device registration, not the live Mac — an orphaned
+# 2025-01-10 registration never reconnected after the 2026-08-24 HA restart, while the
+# live Mac was really the unlabelled `AP-0223-1001` row (no custom name set). Deleted the
+# dead device's config entry outright (REST DELETE — two WebSocket API command names
+# tried first, both `unknown_command` on this HA version) and set the live device's
+# `name_by_user`. Resolves the "flagged, not deduped" open question standing since the
+# 2026-08-21 rollout. Registry-only fix, no YAML changed, so no line-count change.
 # Last updated: 2026-08-31 — BUG-A22: the 2026-08-29 ZHA network reload took all 10
 # SNZB-04P door/gate Zigbee battery entities unavailable-then-back within ~9s, resetting
 # `last_reported` for all of them at once — they then crossed the global 24h stale
@@ -499,7 +507,11 @@ devices. See BUG-A22 for the full incident writeup.
 (`ezviz_main_gate_doorbell_battery`), 4 iPhones, 2 Apple Watches, 2 laptops
 (`ap_0223_1001_internal_battery_level`, `ryan_macbook_pro_mobile_app_internal_battery_level`
 — both registered under device name "AP-0223-1001"; flagged, not deduped, since it's
-unclear from the registry alone whether these are one Mac re-registered or two). No
+unclear from the registry alone whether these are one Mac re-registered or two).
+**Resolved 2026-08-31, BUG-A23:** confirmed one Mac, re-registered — the second entity
+was a dead duplicate from an orphaned 2025-01-10 registration, deleted outright; only
+`ap_0223_1001_internal_battery_level` remains, now custom-named "Ryan Macbook Pro
+Mobile App". No
 non-dashboard tablet currently has a battery entity — the two known iPads
 (`device_tracker.tayla_ipadair5th`, `device_tracker.ipadpro_luke`) are network-presence
 trackers only (unifi), no HA Companion App installed, so the dashboard's Tablets section
@@ -1603,6 +1615,63 @@ once the restart happened.
 
 ---
 
+### BUG-A23 — "Ryan Macbook Pro" battery entity was a dead duplicate device registration, not the live MacBook
+
+**Severity:** Low (cosmetic/hygiene — the alert was technically accurate about the entity
+it watched, but that entity could never recover)
+**File:** `packages/alerts/alerts_device_batteries.yaml` scope only in effect — actual fix
+was entity/device/config-entry registry surgery, no YAML changed
+**Status:** ✅ FIXED 2026-08-31, verified live
+
+**User-reported**, immediate follow-up to BUG-A22 from the same dashboard screenshot:
+"Ryan Macbook Pro Mobile App" showing STALE (169h+, frozen at 100%) while a second,
+unlabelled row displaying the raw hostname `AP-0223-1001` sat at a live, moving SOC —
+user asked whether the stale alert was even naming the right device.
+
+**Root cause, confirmed via `.storage/core.device_registry`:** Ryan's MacBook
+(`Mac14,10`, hostname "AP-0223-1001") had **two separate `mobile_app` device
+registrations** — this was flagged as an open, unresolved ambiguity as far back as the
+2026-08-21 device-battery rollout ("both registered under device name AP-0223-1001;
+flagged, not deduped, since it's unclear... whether these are one Mac re-registered or
+two"), never actually investigated until now:
+- **Old** (`b6d5b89a...`, created 2025-01-10, config entry `01JH87XY6X1DQVYEHY2J4NNW81`):
+  custom-named "Ryan Macbook Pro Mobile App" by a past session, carried the
+  `battery_monitor` label — this is the entity the STALE alert was watching. Its battery
+  sensor's `last_reported` was frozen at exactly **2026-08-24T18:16Z**, the same instant
+  as HA's last restart (`sensor.home_assistant_uptime`) — it never reconnected after
+  that restart and never would have, regardless of any stale-hours tuning.
+- **New** (`3f38e34a...`, created 2026-05-19, config entry `01KS0Z9R3M4T0ZQNR375V8XKN9`):
+  no custom name (`name_by_user: null`), so it displayed as the raw hostname
+  `AP-0223-1001` on the dashboard — this is the one actually live, reporting minutes
+  before the check (79%→78% across the fix window).
+
+Both share the same manufacturer/model (`Apple`/`Mac14,10`) confirming this is one
+physical machine, not two — the Companion App re-registered under a fresh device ID at
+some point (most likely a reinstall/re-link around 2026-05-19), orphaning the original.
+
+**Fix, in two steps per explicit user confirmation:** (1) interim — stripped
+`battery_monitor` from the dead entity so it stopped false-flagging STALE without yet
+deleting anything; user then asked "aren't you removing the duplicate?", so (2) the dead
+device was deleted outright: `DELETE /api/config/config_entries/entry/
+01JH87XY6X1DQVYEHY2J4NNW81` via the Supervisor-proxied HA REST API. Two WebSocket API
+command names were tried first and both came back `unknown_command` on this HA version
+(`config_entries/remove`, `config_entries/delete`) — `config_entries/get` (list/read)
+worked fine over the WebSocket API, but the actual delete operation turned out to be
+REST-only on this build. Since `mobile_app` registers one config entry per app
+install, deleting it cleanly removed the dead device and its ~23 entities (location,
+storage, notify service, etc.) with zero effect on the live registration — confirmed via
+a 404 on the dead entity's state and a `core.device_registry` re-check showing the
+device gone entirely. (3) Set `name_by_user: "Ryan Macbook Pro Mobile App"` on the live
+device (`config/device_registry/update`, WebSocket API) so the dashboard now shows the
+real name instead of the raw hostname.
+
+**Verified live:** `sensor.device_battery_fleet` shows a single MacBook row —
+`sensor.ap_0223_1001_internal_battery_level`, name "Ryan Macbook Pro Mobile App",
+`severity: normal`. No YAML/package change was needed for this fix — pure registry
+surgery, no restart or reload required.
+
+---
+
 ## Section 9: Summary of Pipeline Audit Results
 
 | Domain | Binary | Context | Alert entity | Aggregator | Result | Updated |
@@ -1619,7 +1688,7 @@ once the restart happened.
 | Presence | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-16 B1; 2026-07-06 delivery fixed (BUG-A10); 2026-08-18 Cancel Alert added (BUG-A19) |
 | Garden | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-29 new; 2026-07-06 delivery fixed (BUG-A10); 2026-07-07 action button restored (BUG-A12); 2026-08-18 Cancel Alert added alongside Turn Off Pump (BUG-A19) |
 | Dash Batteries | ✅ (x5) | ✅ | ✅ | ✅ (triggered) | PASS | 2026-05-27 new; 2026-07-06 delivery fixed (BUG-A10); 2026-08-18 Cancel Alert added (BUG-A19) |
-| Device Batteries | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-08-21 new, label-onboarded fleet (door/gate sensors, doorbell, phones, watches, laptops); 2026-08-24 staleness tier added (BUG-A20), display names fixed (BUG-A21); 2026-08-31 per-device sparse-reporter stale override added (BUG-A22) — see Section 4 for full pipeline detail, previously missing from this table |
+| Device Batteries | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-08-21 new, label-onboarded fleet (door/gate sensors, doorbell, phones, watches, laptops); 2026-08-24 staleness tier added (BUG-A20), display names fixed (BUG-A21); 2026-08-31 per-device sparse-reporter stale override added (BUG-A22), dead duplicate MacBook registration removed (BUG-A23) — see Section 4 for full pipeline detail, previously missing from this table |
 | Camera Health | — | ✅ | ✅ | Not confirmed | PASS with note | 2026-07-06 added to contract; BUG-A11 fixed, restart completed 2026-07-07; 2026-08-18 audited for BUG-A19 — no live repeat delivery exists to cancel (flagged separately, not fixed) |
 
 ---
@@ -1650,9 +1719,10 @@ once the restart happened.
 | BUG-A20 | **Medium** | ✅ Fixed 2026-08-24, restart-verified | Device Battery pipeline re-fired CRITICAL on a frozen 5% reading (mobile_app had stopped reporting) — added a `stale` severity tier keyed on `last_reported` age instead of trusting an old SOC | alerts_device_batteries.yaml |
 | BUG-A21 | **Low** | ✅ Fixed 2026-08-24 | Battery dashboard showed raw vendor device names (`eWeLink SNZB-04P` ×10, `"Charles Leclerc "` for Luke's phone) instead of the `name_by_user` custom names already set on every device — `device_attr(e,'name')` doesn't fall back to `name_by_user` the way the frontend does | alerts_device_batteries.yaml |
 | BUG-A22 | **Low** | ✅ Fixed 2026-08-31, verified live | All 10 SNZB-04P Zigbee door/gate battery entities false-flagged STALE together for 50+ hours — a single 2026-08-29 ZHA network reload reset `last_reported` for all of them at once, and these sleepy end-devices report battery far less often than the global 24h threshold even normally; added a per-device sparse-reporter stale override (new label + `input_number.device_battery_stale_hours_sparse`, 96h) | alerts_device_batteries.yaml |
+| BUG-A23 | **Low** | ✅ Fixed 2026-08-31, verified live | "Ryan Macbook Pro" STALE alert was a dead duplicate `mobile_app` device registration (orphaned 2025-01-10 entry, never reconnected after the 2026-08-24 restart) — the live MacBook was really the unlabelled `AP-0223-1001` row. Deleted the dead device's config entry outright, renamed the live one | alerts_device_batteries.yaml (registry-only fix, no YAML change) |
 
 **Open: 0 issues**  
-**Fixed 2026-08-31: BUG-A22**
+**Fixed 2026-08-31: BUG-A22, BUG-A23**
 **Fixed 2026-08-24: BUG-A20 (restart-verified same day), BUG-A21**
 **Fixed 2026-08-18: BUG-A19**
 **Fixed 2026-08-15: BUG-A18**
@@ -1667,6 +1737,13 @@ once the restart happened.
 ---
 
 *Contract generated: 2026-04-13*
+*Last updated: 2026-08-31 (later) — BUG-A23 ("Ryan Macbook Pro" STALE alert was a dead
+duplicate `mobile_app` device registration, not the live Mac — orphaned since a
+2025-01-10 registration never reconnected after the 2026-08-24 restart, while the live
+Mac displayed as the unlabelled raw hostname "AP-0223-1001". Deleted the dead device's
+config entry via REST DELETE (two WebSocket API command names tried first, both
+`unknown_command`), renamed the live one. Resolves the "flagged, not deduped" open
+question standing since 2026-08-21. Registry-only, no YAML/restart)*
 *Last updated: 2026-08-31 — BUG-A22 (all 10 SNZB-04P Zigbee door/gate battery entities
 false-flagged STALE together for 50+ hours after a single ZHA network reload reset their
 `last_reported` in lockstep; added a per-device sparse-reporter stale override — new label

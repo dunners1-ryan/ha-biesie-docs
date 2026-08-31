@@ -5,6 +5,100 @@
 
 ## ⚠️ OPEN TODO
 
+- [ ] **2026-08-31 (evening) — New domain: Water Cooler tracker, first
+      subsystem of a new `utilities/` package (user's steer: a home for
+      recurring consumable-delivery utilities, distinct from `packages/
+      water/`'s tank/plumbing system — a future one, e.g. gas bottles, gets
+      its own files in the same package). Built from a real Aquazania
+      invoice the user attached (account J077431, Jul 2026): stock estimate,
+      order→delivery→invoice lifecycle, cost tracking, Operations dashboard
+      view + Home summary card. Full detail in `docs/domains/
+      UTILITIES_CONTRACT.md`.** Stock model mirrors the vacuum's water/
+      detergent estimator exactly (no sensor exists — manual-log button +
+      EMA elapsed-time estimate): `input_button.watercooler_log_bottle_
+      changed` decrements spare stock, EMA-refines `avg_days_per_bottle`
+      (seed 3.9d = 8 bottles/~31 days from the invoice), and `sensor.
+      watercooler_current_bottle_fraction_remaining` estimates the mounted
+      bottle's level purely from elapsed time — seeded to reproduce the
+      user's stated "~1 full spare + ~1/4 bottle mounted" at deploy.
+      Order/delivery is a 3-step lifecycle (Place Order → morning-of
+      Delivery Reminder → Confirm Delivery), `sensor.watercooler_next_
+      delivery_options` shows upcoming Mon/Wed/Fri dates as **guidance only,
+      no hard cutoff** (user's explicit answer — "generally 2 work days,
+      tighter toward the weekend"). **Real design pivot mid-session, worth
+      flagging**: the approved plan for cost history was a pyscript service
+      writing a JSON file — live-tested against this HA build (2026.8.3, not
+      assumed) and found dead on both fronts: pyscript's `BUILTIN_EXCLUDE`
+      explicitly bans `open()` (no file I/O possible from pyscript at all
+      here), and `recorder.import_statistics` isn't registered as a service
+      in this build either (checked via the Supervisor API services list).
+      Landed on something better anyway: the user's actual workflow is
+      "paste the invoice into a Claude Code session," so `watercooler_
+      invoice_history.json` is maintained directly by Claude (Bash/Edit, no
+      HA runtime code, dedup-checked on `reference` before every append),
+      surfaced into HA via a `command_line:` sensor (`sensor.watercooler_
+      invoice_history`) — a well-worn core-HA pattern, zero custom code, one
+      less service to maintain than the original plan. Seeded with the real
+      Jul 2026 invoice (8 delivered/7 returned, R936.79 total) so the
+      tracker launches with one real data point, not an empty graph. Cost
+      constants are all **ex-VAT**, confirmed against the invoice's own line
+      math (15% VAT verified two ways) per user's explicit ask to check
+      before trusting them; monthly rental is flagged as a reference-only
+      estimate since Aquazania bills a variable usage-based factor, not a
+      fixed formula — the real figure only ever comes from the invoice log.
+      Dashboard: new Operations → "Water Cooler" view (`watercooler-
+      control`, mirrors `prepaid-control`'s layout) + a Home-dashboard
+      summary card next to the existing Vacuum card, same tap→navigate
+      pattern. `ha core check` clean (one `alert:` schema warning caught and
+      fixed — missing `repeat`/`notifiers` block, copied from `vacuum.
+      yaml`'s `deebot_alert`). **Not yet done this session**: HA restart
+      (needed to activate the new `alert:` entity and pick up both `.storage/
+      lovelace` dashboard edits reliably — batched per CODING_STANDARDS, not
+      yet triggered), and live button-press verification in the dashboard.
+      User flagged more invoices (last year's) coming in a later session for
+      bulk backfill — same file + dedup mechanism handles that already.
+      **Also noted this session, unrelated**: user corrected the vacuum room
+      map — "Corridor" in HA is called "Passage" in the Ecovacs app, and the
+      room behind the bottom-right "add zone" icon on the app's room-select
+      screen is "Reading room". Not applied to `SMART_CLEANING_CONTRACT.md`
+      here — another session was actively committing vacuum/room-mapping
+      work to that exact file at the same time (commits through `551383ec`,
+      21:56) — flagging so it isn't lost, not overwriting concurrent work.
+
+- [x] **2026-08-31 (later) — Alerts BUG-A23: dead duplicate MacBook battery entity
+      found + removed, live one renamed.** Follow-up to the BUG-A22 investigation
+      above — user asked "is ryan macbook stale alert correct as name is ap
+      something?" about the "Ryan Macbook Pro" stale entry in the same dashboard
+      screenshot. **Traced via `.storage/core.device_registry` + live states:**
+      Ryan's MacBook (`Mac14,10`, hostname "AP-0223-1001") had TWO separate
+      `mobile_app` device registrations — the original from 2025-01-10 (custom-named
+      "Ryan Macbook Pro Mobile App" by a past session, labelled `battery_monitor`,
+      hence the one showing in the alert) and a newer one from 2026-05-19 (no custom
+      name, so it displayed as the raw hostname "AP-0223-1001"). The old one's
+      `sensor.*_internal_battery_level` stopped reporting at exactly HA's
+      2026-08-24T18:16 restart and never came back — confirmed dead, not just slow;
+      the new one was live and current (`sensor.ap_0223_1001_internal_battery_level`,
+      last reported minutes before the check, 79%→78% across the fix). This resolves
+      the "flagged, not deduped, unclear if one Mac or two" open question from the
+      2026-08-21 battery-fleet rollout entry below — confirmed: one Mac, re-registered.
+      **Fix, user-approved via two explicit confirmations:** (1) stripped
+      `battery_monitor` from the dead entity first as an interim measure; user then
+      asked "aren't you removing the duplicate?", so (2) deleted the dead registration
+      outright — `DELETE /api/config/config_entries/entry/01JH87XY6X1DQVYEHY2J4NNW81`
+      via the Supervisor-proxied HA REST API (found after `config_entries/remove` and
+      `config_entries/delete` over the WebSocket API both came back `unknown_command`
+      — the REST config-entries-delete endpoint is the one that actually exists on
+      this HA version). mobile_app registers one config entry per app install, so this
+      cleanly removed the dead device and its ~23 entities with zero effect on the
+      live one — confirmed via `GET .../states/<dead entity>` → 404 and a
+      `core.device_registry` re-check showing the device gone. (3) Set
+      `name_by_user: "Ryan Macbook Pro Mobile App"` on the live device
+      (`config/device_registry/update`, WebSocket API) so the dashboard now shows the
+      real name instead of the raw hostname. `sensor.device_battery_fleet` re-verified
+      live post-fix: one MacBook row, correctly named, `severity: normal`. Docs: see
+      ALERTS_CONTRACT.md BUG-A23 for the full incident writeup; Locked Entity Names
+      below updated to remove the dead entity and annotate the live one.
+
 - [x] **2026-08-31 (late) — /update-docs sweep on the vacuum work (this session's
       own commits, 33812e15 through f8cb4da9) — found and fixed real secondary
       drift in SMART_CLEANING_CONTRACT.md, not just a clean pass.** Per-commit
@@ -1269,7 +1363,9 @@
       registered under device name "AP-0223-1001" (`sensor.ap_0223_1001_internal_battery_level`,
       `sensor.ryan_macbook_pro_mobile_app_internal_battery_level`) — unclear from the
       registry alone whether this is one Mac re-registered or two; left both labelled and
-      flagged for the user to check. No iPad currently has a battery entity (only unifi
+      flagged for the user to check. **Resolved 2026-08-31, BUG-A23** (see this file's
+      top session log) — confirmed one Mac, re-registered; the second entity was a dead
+      orphaned registration, deleted outright. No iPad currently has a battery entity (only unifi
       presence trackers) — Tablets section will read empty with an onboarding hint until
       one exists. `sensor.ha_system_monitor_battery` (HA host/Pi — no real battery)
       deliberately excluded from the label.
@@ -3520,8 +3616,20 @@ sensor.iphone14_tayla_mobile_app_battery_level  # renamed 2026-08-24, was tayla_
 sensor.luke_iphone15_mobile_app_battery_level
 sensor.iphone16promax_ryan_watch_battery_level
 sensor.luke_iphone15_mobile_app_watch_battery_level
-sensor.ap_0223_1001_internal_battery_level
-sensor.ryan_macbook_pro_mobile_app_internal_battery_level
+sensor.ap_0223_1001_internal_battery_level  # name_by_user set 2026-08-31 -> "Ryan Macbook
+                                             #   Pro Mobile App" (BUG-A23) — this IS Ryan's
+                                             #   MacBook (Mac14,10), was displaying its raw
+                                             #   hostname because no custom name had been set
+# sensor.ryan_macbook_pro_mobile_app_internal_battery_level — REMOVED 2026-08-31 (BUG-A23).
+#   Confirmed duplicate mobile_app device registration of the SAME physical Mac as
+#   ap_0223_1001 above (both device model Mac14,10, both hostname "AP-0223-1001") — this
+#   was the ORIGINAL Jan-2025 registration, orphaned since the Companion App re-registered
+#   under a new device ID in May 2026; it stopped reporting at HA's 2026-08-24T18:16 restart
+#   and would never report again. Deleted outright (DELETE /api/config/config_entries/entry/
+#   {id} on config entry 01JH87XY6X1DQVYEHY2J4NNW81 — mobile_app registers one config entry
+#   per app install, so this cleanly removed the dead device + its ~23 entities with no
+#   effect on the live one). Resolves the "flagged, not deduped" open question from the
+#   2026-08-21 rollout entry below.
 # + 5 new (2026-08-23):
 sensor.kitchen_door_sensor_battery                ★
 sensor.reading_room_door_sensor_battery           ★
