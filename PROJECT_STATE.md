@@ -4149,6 +4149,28 @@ script.water_demand_set_winter_profile
          actual scope ("Smart Cleaning", vacuum-specific content unchanged)
          and note how a second device should be added (new section, not a
          new file) if one ever shows up.
+
+[x] V15. Power spike investigation — done 2026-08-31, user asked ("pushed
+         grid import from about 3kw to 7 today... will get power monitor
+         plug to make sure"). **Checked with real data before agreeing —
+         the vacuum was NOT the cause.** At the exact peak
+         (14:24:44, sensor.house_grid_power 8100W), sensor.house_load_power
+         (actual house consumption) was only 200-2600W the whole window —
+         normal. sensor.house_battery_power was -6000 to -6377W (charging)
+         with inverter_battery_soc climbing 90.0%→91.0% live, and
+         select.inverter_1/2_program_4_charging = "Grid" confirms this was
+         the documented P4 Grid Charge automation (14:00-17:00 window,
+         Session E5 in the changelog) doing exactly what it's designed to
+         do — topping the battery from grid. Cross-checked the vacuum too:
+         at the exact spike moments it was paused/docked following an
+         error, not mid-clean. **Conclusion: nothing wrong, unrelated to
+         the vacuum, no action needed on the power side.** User's plan to
+         get a power-monitor smart plug is still worthwhile for its stated
+         purpose though — dashboard status (cleaning/drying/charging)
+         inferred from real power draw, same technique as
+         binary_sensor.geyser_at_temperature — and would also close V6's
+         still-open "check actual power draw for load-visibility" sub-item.
+         Not done yet — waiting on the user to actually get the plug.
 ```
 
 ### Group A — Trust Model Chain (Fixes security + lighting + door alerts)
