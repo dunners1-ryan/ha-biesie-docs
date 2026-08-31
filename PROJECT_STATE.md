@@ -5,6 +5,49 @@
 
 ## ⚠️ OPEN TODO
 
+- [ ] **2026-08-31 — Ecovacs Deebot: fault-alert pipeline (V3) + water/
+      detergent estimator (V12) built; map bug self-resolved; dashboard
+      layout correction (user's fix, not mine) + several small fixes.
+      Group V: V1 partial, V2/V3/V6/V7/V9/V12 done, V4/V5/V8/V10/V11 open.**
+      **User had manually fixed the dashboard layout session-start** ("Updated
+      it myself as you messed it up") — the 2026-08-30 night session's
+      single-section/columns:4 approach was wrong; the user's real fix uses
+      **multiple sections, each card `grid_options: {columns: "full"}`, plus
+      view-level `dense_section_placement: true`** — this pattern already
+      existed precedented elsewhere in this dashboard (network-control,
+      network-debug, both `max_columns: 3`) and would have saved a wasted
+      round if checked first. All further dashboard edits this session built
+      on the user's layout via a fresh `lovelace/config` fetch each time,
+      never re-pushed the old cached file. **Map confirmed working** (user
+      screenshot: full render, live position) — the `deebot_client`
+      "rcp not support" bug from the prior session self-resolved within
+      ~24h with no config change; caveat card removed, Known Integration
+      Issues row closed (see below). **Alert pipeline (V3)** built —
+      user's direct ask ("why am I not getting priority alerts... same
+      pattern as normal alerts with cancel alert etc") — copied
+      alerts_batteries.yaml's canonical shape exactly; real trigger the same
+      day was error code 103 (wheel jam, confirmed meaning) + code 323
+      ×3 (meaning unconfirmed, plausibly a newer water/station code — see
+      V3 for the full citation trail). **Schedule correction**: user changed
+      the app's workday Auto Clean start 06:00→07:00 in-app ("machine gets
+      in way when they getting ready") — `input_datetime.
+      vacuum_reminder_time_workday` was already correctly at 06:50 live
+      (user must have updated it by hand too), YAML `initial` + dashboard
+      schedule card text corrected to match. **Water/detergent estimator
+      (V12)** built from scratch — no sensor exists for any of clean-water/
+      dirty-water/detergent levels, so it's 3 manual-log buttons +
+      self-calibrating EMA estimates, detergent math fully deterministic
+      from the user's own stated 1:200/15mL-per-refill ratio. **User
+      feedback on the whole-house Auto Clean trial** (V6): "seems overkill
+      vacuum and mopping everywhere" — 2 dirty-water empties + 1 refill in
+      one day, last job alone was 302 min. Not acted on this session — flagged
+      here as a signal that the every-2nd-day per-room scenario schedule
+      (still valid, currently unscheduled — see V6) may be the better
+      default once duration data is available. **Dashboard also got**: the
+      "Today's Activity" combined markdown split into two side-by-side cards
+      ("Today" / "Lifetime", user request mid-session), a new "Alert Status"
+      + "Water & Detergent" section. Full detail in Group V below.
+
 - [ ] **2026-08-30 (night) — Ecovacs Deebot: dashboard built + mat reminder
       automation shipped. Group V: V1 partial, V7/V9 done; V3/V4/V5/V8/V10
       still open.** `packages/integrations/vacuum.yaml` created — mat-removal
@@ -3808,13 +3851,45 @@ script.water_demand_set_winter_profile
         _total_cleaning_duration / _area_cleaned after first real runs of each
         scenario and tighten the 10:30 gap if Daily overruns on mop days.
 
-[ ] V3. Consumables + fault alerting — wire sensor.deebot_t80s_biesie_error and the
-        three lifespan sensors (main_brush/filter/side_brush) into the alerts
-        pipeline, same pattern as alerts_device_batteries.yaml /
-        office/printer cartridge monitoring: low-lifespan warning + genuine error
-        state → script.notify_system_event (never call notify.* directly — see
-        CODING_STANDARDS). Decide thresholds once lifespan sensors have real data
-        (currently fresh from setup).
+[x] V3. Fault alerting done 2026-08-31 (user asked directly — "why am I not
+        getting priority alerts... same pattern as normal alerts with cancel
+        alert etc"). Built in packages/integrations/vacuum.yaml, copied
+        verbatim from alerts_batteries.yaml's canonical pipeline:
+        binary_sensor.deebot_alert_active (sensor.deebot_t80s_biesie_error
+        not in [0,unknown,unavailable], delay_on 20s — the error sensor
+        bounces through unknown/unavailable/0 on every integration reload,
+        confirmed live) → sensor.deebot_alert_context (severity: critical
+        when vacuum.state=='error' i.e. genuinely halted/stuck, else warning)
+        → automation.route_deebot_alert (real delivery — script.
+        notify_system_event, NOT the alert: entity's own notifiers:
+        STD_Alerts, which alerts_batteries.yaml's own header already
+        documents as broken/zero-delivery) with a Cancel Alert action button
+        (mobile + Telegram) wired to input_boolean.deebot_alert_snoozed,
+        auto-reset when the fault clears. `alert.deebot_alert` also added for
+        aggregator/dashboard visibility — **needs one HA restart to
+        activate** (alert: entities can't be reloaded, same restriction
+        documented in alerts_batteries.yaml); real notification delivery
+        does NOT depend on it and is already live. Naming follows the
+        "sensor.<base>_alert_context" / "alert.<base>_alert" convention
+        exactly, so sensor.alert_device_entities (alerts_summary.yaml)
+        picks this up automatically — zero changes needed to the aggregator
+        itself, confirmed by reading its resolver logic (base="deebot" →
+        tries alert.deebot then alert.deebot_alert). **Real trigger found
+        same day, not synthetic**: error code 103 (WheelAbnormal — wheel
+        jammed, confirmed via web search against trunetto.com's Deebot 103
+        troubleshooting page) fired twice 2026-08-31, code 323 fired three
+        times (meaning unconfirmed — not in the community deebot_client
+        error-code tables checked; codes 301-319 in that table are the
+        water-tank range, e.g. 305="Dirty Water Tank is full", so 323 is
+        plausibly a newer Omni-station water/dock code not yet catalogued,
+        but this is a guess, not confirmed — the new pipeline captures the
+        live description text automatically next time it fires, closing
+        this gap with real data instead of more guessing). Consumable
+        lifespan warnings (the other half of this item) NOT done — only
+        fault/error alerting was built; low-lifespan thresholds still open,
+        genuinely low priority (all three sensors reading 92-97% as of
+        today) — split into new V11 below so V3 doesn't stay ambiguously
+        half-open.
 
 [ ] V4. Job-outcome notifications — event.deebot_t80s_biesie_last_job (or vacuum
         state transitions on vacuum.deebot_t80s_biesie) → cleaning
@@ -3972,6 +4047,44 @@ script.water_demand_set_winter_profile
          Actions before ever wiring it into an automation. No camera entity
          exists for this device at all — confirmed not available, not a
          config gap.
+
+[ ] V11. Consumable lifespan warnings — split out from V3 2026-08-31 (V3 ended
+         up being fault/error alerting only, not the full original scope).
+         Main brush/side brush/filter all reading 92-97% as of 2026-08-31 —
+         genuinely low priority right now. When it's worth doing: same
+         alert-pipeline pattern as V3 (binary_sensor low-lifespan → context
+         sensor → route automation → script.notify_system_event), threshold
+         probably ~15-20% per sensor, informational severity not critical.
+
+[x] V12. Water/dirty-water/detergent consumption estimator — done 2026-08-31,
+         user request after a full day running whole-house Auto Clean:
+         "have had to empty dirty water twice and refill water once... add
+         water levels or timing against when errors raised... add estimate
+         for when to purchase new detergent." No sensor exists for any of
+         clean-water level, dirty-water level, or detergent level (confirmed
+         — not in the 31-entity registry, not something the integration
+         tracks at all, same category of gap as the earlier map/water
+         findings). Built entirely on manual logging since there's no other
+         signal: 3 input_button entities
+         (vacuum_log_water_refill/_dirty_water_empty/_detergent_new_bottle)
+         the user presses when they physically do each thing, each
+         snapshotting sensor.deebot_t80s_biesie_total_area_cleaned and the
+         current time. Two self-calibrating EMA pairs (avg area per event,
+         avg days per event — new = old×0.6 + latest×0.4, same smoothing
+         weight used elsewhere in this repo) drive
+         sensor.vacuum_water_refill_estimate / _dirty_water_estimate (days
+         until next needed). Detergent is the one fully deterministic piece
+         — user gave the exact ratio (3L tank, 1:200 mix = 15mL/refill = 15
+         cap-fulls, matches their own math exactly): 1L bottle ÷ 15mL =
+         66 refills/bottle, so sensor.vacuum_detergent_level counts down
+         1.5%/refill with zero calibration needed, plus a one-shot low-
+         detergent notification below 15%. All seed values (190 m²/refill,
+         95 m²/dirty-empty, 1.0/0.5 days) are explicitly flagged in the YAML
+         as guesses from the single real day of data available (2026-08-30)
+         — **expect rough estimates for 1-2 weeks**, same caveat this repo
+         already applies to geyser_last_heat_up_minutes-style trend capture.
+         Dashboard: new "Water & Detergent" card with the 3 estimates + the
+         3 log buttons + an explanatory note, added to the Vacuum view.
 ```
 
 ### Group A — Trust Model Chain (Fixes security + lighting + door alerts)
@@ -4305,7 +4418,7 @@ added GARDEN_CONTRACT.md, which had no row in this table at all.)*
 | `ids_hyyp` v1.9.0 | Zero automations in automations.yaml — integration not yet wired at HA level | Medium | Stub created (IMP-IDS01 ✅). Migrate entity interface when IDS is live. |
 | `localtuya` v5.2.3 | False reconnect event can trigger spurious water tank abort | Medium | See WATER_CONTRACT.md — input_boolean.water_refill_aborted_due_to_safety can get stuck |
 | Multiple weather integrations | OWM + OWM History + Met.no + Met Nowcast all installed — canonical source unclear | Low | Document which is used for what in INFRA_CONTRACT.md |
-| `ecovacs` (built-in, Deebot T80S Omni) | `deebot_client`'s `getMapSet`/`getCleanInfo` calls fail with `code: 20003, msg: "rcp not support"` on this device — confirmed via `system_log/list`, continuous since setup (2026-08-29 12:20). `image.deebot_t80s_biesie_map` never actually renders (entity state/timestamp updates fine, but `/api/image_proxy/...` 500s). Known upstream limitation affecting several newer Omni models (T50/T90 Pro Omni, N10 MAX+) — home-assistant/core issue #173158 is the open discussion specifically requesting T80S Omni support. | Medium | Not fixable from this repo. Left the dashboard map card in place with a caveat note (self-resolves once `deebot_client`/HA core ships support) rather than hiding it. Re-check after any future `ecovacs`/`deebot_client` version bump. |
+| `ecovacs` (built-in, Deebot T80S Omni) | ~~`deebot_client`'s `getMapSet`/`getCleanInfo` calls fail with `code: 20003, msg: "rcp not support"`~~ — **RESOLVED, confirmed live 2026-08-31 (user screenshot: full house map rendering with live room colors + position dot).** Was broken continuously 2026-08-29 12:20 through the 2026-08-30 evening session (confirmed via `system_log/list`); self-resolved with no config change on our side within ~24h — most likely a cloud-side/device-side fix given the timing, not a `deebot_client` version bump (versions weren't tracked precisely enough to confirm which). Caveat card removed from the dashboard 2026-08-31. Known upstream limitation class still real and affects other newer Omni models (T50/T90 Pro Omni, N10 MAX+) — home-assistant/core issue #173158 is the still-open discussion for T80S Omni specifically, kept here for reference in case it regresses. | Low (was Medium) | Closed. Re-open this row if the map breaks again — same diagnostic path (`system_log/list` over the WebSocket API) applies. |
 | `icloud` (built-in) | **Removed end of 2025.** Monthly 2FA session expiry requires manual `.storage/icloud` delete + HA restart + code entry. Non-primary Apple ID (family members) unsupported. Broke entirely on HA 2025.11.0 (`dict has no attribute user_info`, Issue #155933 — **confirmed fixed live on GitHub 2026-08-24**, PR #156485, shipped HA 2025.11.3; this instance runs 2026.8.3, past the fix). Value lost: GPS away-from-home location for all family devices. ~~+ Apple device battery/charging state~~ — **not actually lost, doc-drift correction 2026-08-21:** battery/charging state comes from the HA Companion App (`mobile_app` integration), not iCloud — unaffected by this breakage, and `alerts_device_batteries.yaml` (2026-08-21) already covers it live. Only GPS/location is genuinely blocked on this integration. | High | **DEFERRED — confirmed still correct 2026-08-24.** The specific crash (#155933) is fixed, but re-checked live against GitHub and the underlying reauth pain is a separate, still-open, ongoing bug class through mid-2026 (#160536, #167608, #170959 — filed May 2026 against HA 2026.5.2, still open; community reports through 2026.5.4; an unofficial third-party patched fork exists because the official integration still isn't reliable). Re-add only once one of those settles — see Group U for the full citation trail. Recovery automation (U1/U2) still planned; the battery pipeline (U3) is done and was never actually blocked on this. |
 
 ---
