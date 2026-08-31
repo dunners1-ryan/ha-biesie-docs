@@ -32,6 +32,24 @@
 > context`, `binary_sensor.device_battery_alert_active`, `alert.device_battery_alert`,
 > now also covering the `stale` severity path) before this pipeline can be considered
 > covered by this plan.
+>
+> **⚠️ 2026-08-31: BUG-S77 changed visitor-alert delivery mechanics and TEST 6 doesn't
+> cover them at all** — Method A/B and the Expected Results table below only exercise
+> `sensor.security_threat_level` → `binary_sensor.security_alert_active` (the repeat-
+> reminder pipeline). The "Visitor at gate" push (`security_event_router`'s `visitor`
+> branch, `security_automations.yaml`) is a separate, one-shot classifier-transition
+> notification never touched by this test. This session added: a staff-aware cooldown
+> (30s non-staff / 1800s staff-loitering, via `sensor.security_event_classification`'s
+> new `staff` attribute), a scoped mute (`input_boolean.security_visitor_alerts_
+> suppressed`), and a Cancel Alert action button (`input_boolean.visitor_alert_snoozed` +
+> `automation.security_visitor_alert_cancel_from_notification` / `_snooze_reset`) — see
+> SECURITY_CONTRACT.md BUG-S77. None of this has been exercised against a real gate event
+> since shipping. When TEST 6 is finally run, add checks for: (1) a staff-hours gate-
+> loitering event gets exactly one critical push then stays silent for 30min while staff
+> remain, (2) a non-staff visitor still gets a fresh push every 30s, (3) tapping Cancel
+> Alert (phone action + Telegram button) silences further pushes until staff leave or the
+> gate's quiet 10min, (4) `security_visitor_alerts_suppressed` ON blocks the push entirely
+> without affecting arrival/departure/intruder.
 
 ---
 

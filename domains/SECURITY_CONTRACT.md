@@ -301,7 +301,7 @@ Once `regionentrance` is primary:
 | `security_core.yaml` | Binary sensors for boundary_permissive_window, visibility/weather conditions, lighting state; Sensors for security_mode, trust_mode, lighting_intent |
 | `security_logic.yaml` | Core logic sensors: event classification, trigger camera selection, correlation engine, movement confidence/path, intruder level, threat score and threat level |
 | `security_zones.yaml` | Zone aggregation binary sensors: perimeter front/rear/combined, grounds, external, inside house |
-| `security_automations.yaml` | All automations: snapshot capture (×2 overlapping), movement path tracking, event lifecycle start/end, event router, visitor detection, arrival detection, grounds/rear/house motion, rear perimeter, gate open action |
+| `security_automations.yaml` | All automations: snapshot capture (×2 overlapping), movement path tracking, event lifecycle start/end, event router, visitor detection, arrival detection, grounds/rear/house motion, rear perimeter, gate open action, visitor-alert Cancel Alert pattern (BUG-S77, 2026-08-31) |
 | `security_alarm.yaml` | Interface stub for the IDS Hyyp alarm panel integration — documents the expected entity interface, migration target for IDS automations once the integration is wired to HA. Not yet live (IMP-IDS01) — no IDS automations exist anywhere in the repo yet. |
 | `security_history_cleanup.yaml` | `script.security_history_cleanup` — one-shot manual utility to purge stale bare-filename/`security_`-prefixed camera history `input_text` entries left over from a pre-2026-05-17 automation format. Run manually via Developer Tools; safe to delete once no longer needed. |
 
@@ -442,6 +442,8 @@ No security-domain helpers were found to be UI-created. All are YAML-defined in
 | `input_boolean.unknown_entry_event` | boolean | — | Unknown entry flag |
 | `input_boolean.security_event_active` | boolean | — | Active event flag (write-back from automations) |
 | `input_boolean.security_alert_active` | boolean | — | Alert active flag (consumed by alerts domain) |
+| `input_boolean.security_visitor_alerts_suppressed` | boolean | — | **Added 2026-08-31 (BUG-S77).** Manual dashboard mute, `visitor` router branch only — arrival/departure/intruder/perimeter_threat unaffected. |
+| `input_boolean.visitor_alert_snoozed` | boolean | — | **Added 2026-08-31 (BUG-S77).** Per-cycle mute set by the "Cancel Alert" action button on a Visitor-at-gate push/Telegram message; auto-clears via `security_visitor_alert_snooze_reset` (10min gate-quiet OR `staff_on_site` off). Not meant to be toggled by hand. |
 | `counter.security_grounds_low_confidence_count` | counter | — | **Added 2026-07-17 (IMPROVEMENT-S67).** Consecutive `grounds_low_confidence` firings; reset by `security_reset_grounds_low_confidence_counter` after 15min grounds-quiet. Drives the daytime warning→information downgrade. |
 | `input_number.perimeter_open_escalation_minutes` | number | 1–60 | Escalation timeout |
 | `input_number.house_entry_escalation_minutes` | number | 1–60 | Escalation timeout |
@@ -1089,13 +1091,26 @@ Entity `binary_sensor.security_visibility_low` does NOT exist. The correct entit
 ---
 
 ### BUG-S40 — Staff/gardener visitor spam (30s cooldown insufficient for morning garden work)
-**Priority: MEDIUM | Status: ✅ FIXED 2026-05-23 (S13)**
+**Priority: MEDIUM | Status: ⚠️ Marked FIXED 2026-05-23 (S13) but never actually shipped —
+found stale during a 2026-08-31 doc-drift sweep, ~3 months after the "fix" date, when the
+exact same symptom recurred live (BUG-S77 below). ACTUALLY fixed 2026-08-31, see BUG-S77.**
+
+**What happened:** the 2026-05-23 session log (`PROJECT_STATE.md`) and this contract's own
+Section 9 Implementation Checklist both recorded this as done ("visitor cooldown 1800s when
+staff_on_site ON") — but the **Fix plan below was never applied to the code.**
+`security_automations.yaml`'s visitor branch condition stayed a flat `> 30` with no
+staff/`gate_loitering` awareness all the way through 2026-08-29, when a gardener working at
+the gate for 30+ minutes produced the identical repeated-critical-alert symptom, screenshots
+and all. Root cause of the doc drift itself: the checklist item and session-log line were
+written when the fix was *planned*/committed to, not verified against a code diff — same
+"contract says fixed, code doesn't match" failure class flagged generally by
+`SESSION_CHECKLIST.md`'s drift patterns, just never caught by a sweep until now.
 
 **Symptom:** Saturday morning gardener worked outside front gate for ~2hrs (08:00–10:00). Repeated visitor notifications every ~30s. Screenshot confirmed: `staff: yes | conf: medium | cam: ipcam01_street_driveway_up` with gardener and plants visible at gate.
 
 **Root cause:** S10 correctly removed `not staff` from RUNG 5 (visitor must fire even when maid on site, so maid-at-gate is visible). But Saturday gardener does sustained work outside front gate — continuous ipcam01 motion triggers → visitor fires → 30s cooldown expires → fires again. Staff flag is shown in notification but cooldown is flat 30s regardless of staff_on_site state.
 
-**Fix plan:** security_automations.yaml visitor branch: extend cooldown to 1800s (30min) when `binary_sensor.staff_on_site` is ON at time of visitor fire (use separate input_datetime or check elapsed since last_visitor_event).
+**Fix plan (this is what was never applied until BUG-S77):** security_automations.yaml visitor branch: extend cooldown to 1800s (30min) when `binary_sensor.staff_on_site` is ON at time of visitor fire (use separate input_datetime or check elapsed since last_visitor_event).
 
 ---
 
@@ -2388,6 +2403,81 @@ zoned — instead of the old `perimeter_threat` / `cam15_passage` mismatch.
 
 ---
 
+### BUG-S77 — Visitor branch's flat 30s cooldown never actually got the staff-aware extension BUG-S40 planned (3 months later, same symptom recurred); no way to mute or cancel the push at all
+**Priority: MEDIUM | Status: ✅ FIXED 2026-08-31**
+
+**Symptom:** Live incident 2026-08-29 (Saturday) — gardener working at/near the front gate
+generated a "🚨 Visitor at gate" critical push every ~30s–6min for over half an hour (5
+stacked notifications visible in the phone's notification centre, `staff: yes` shown in
+every one). User tried the iOS **Snooze 5/15/60min** menu — no effect, because that's a
+phone-OS notification snooze, not an HA action; it never touches
+`sensor.security_event_classification` or `input_datetime.last_visitor_event`, so the next
+real classifier trigger fires normally regardless. User then tried toggling
+`input_boolean.security_alert_notify` ("Security Alert Notify") off — also no effect,
+because that boolean only gates the separate repeat-reminder pipeline in
+`alerts_security.yaml` (`binary_sensor.security_alert_active` → periodic "still active"
+nags) and is never referenced anywhere in `security_automations.yaml`/`security_logic.yaml`
+— it has zero connection to this push. Only `input_boolean.security_system_enabled` (the
+router's master kill switch) actually stopped it, and that also silences arrival/departure/
+intruder/perimeter_threat detection — not a usable "let staff work at the gate" control.
+
+**Root cause 1 (BUG-S40 never shipped):** see corrected BUG-S40 entry above — the
+2026-05-23 "1800s staff cooldown" fix was recorded as done but the code was never changed;
+the flat 30s cooldown (`security_automations.yaml` visitor branch) persisted untouched.
+
+**Root cause 2 (no scoped mute existed):** no `input_boolean` gated the visitor branch at
+all before this fix. `security_alert_notify`/`security_alert_active`
+(`alerts_security.yaml`) are a same-named-sounding but functionally unrelated pipeline
+(repeat-reminder nag for a *sustained* `sensor.security_threat_level`, not the one-shot
+classifier-transition push this branch sends). `security_system_enabled` is the only real
+gate, and it's all-or-nothing across the whole router.
+
+**Root cause 3 (no HA-side cancel):** unlike the doors/gates/power/water/etc. repeat-reminder
+streams (BUG-A13/BUG-A19, `alerts_*.yaml`), the visitor push had no `actions:`/
+`telegram_action:` at all — nothing to tap that HA could act on.
+
+**Fix (`security_logic.yaml`, `security_helpers.yaml`, `security_automations.yaml`):**
+1. **Staff-aware cooldown, finally implemented:** `sensor.security_event_classification` now
+   exposes a real `staff` boolean attribute (was previously only embedded inside the `reason`
+   string). The visitor branch reads it via `trigger.to_state.attributes.staff` and picks the
+   cooldown window per-event: **30s for a genuine non-staff visitor** (unchanged — safety-
+   critical, must not be throttled), **1800s (30min) for a staff-loitering event** (same
+   window already used by the perimeter_front/RUNG 5b branch) — one critical ping per staff
+   work session at the gate, not one per gate-zone crossing. Note: this keys off
+   `binary_sensor.low_trust_present` (RUNG 5's own `staff` variable), a related but distinct
+   entity from BUG-S40's originally-planned `binary_sensor.staff_on_site` — see
+   PRESENCE_CONTRACT.md for the low_trust_present/staff_on_site distinction.
+2. **New scoped dashboard toggle:** `input_boolean.security_visitor_alerts_suppressed`
+   ("Visitor Alerts Suppressed (Gate)") — manual, persistent, mutes only the `visitor`
+   router branch. Arrival/departure/intruder/perimeter_threat/service_person are unaffected.
+   Distinct from (and now documented as distinct from) `security_alert_notify`.
+3. **Real "Cancel Alert" action button**, following the exact BUG-A13/BUG-A19 pattern used
+   elsewhere in the repo (`alerts_security.yaml`'s `security_alert_snoozed`, and the vacuum
+   fault-alert pipeline): the visitor push now carries a `CANCEL_VISITOR_ALERT` phone action
+   + a `/cancel_visitor_alert` Telegram inline button. Tapping either sets
+   `input_boolean.visitor_alert_snoozed` (per-cycle mute, checked as a router condition).
+   Auto-resets — whichever comes first — 10 minutes after
+   `binary_sensor.ipcam01_street_driveway_up_entrance_valid` goes quiet, or immediately when
+   `binary_sensor.staff_on_site` turns off (added same session, closes the gap where an
+   unrelated visitor arriving inside that 10min quiet window would otherwise have inherited
+   the mute) — new automations `security_visitor_alert_cancel_from_notification` and
+   `security_visitor_alert_snooze_reset`. Naming deviates slightly from the BUG-A19
+   convention (`security_visitor_alert_*` vs plain `visitor_alert_*`) to match the existing
+   `security_*`-prefixed automation IDs already in this file.
+
+**Not done — deferred, user's explicit call:** `gate_activity` (RUNG 5c) shares the same
+`last_visitor_event` cooldown timestamp and the same "someone/something at the gate,
+arrival not yet confirmed" nuisance class, but was NOT given the suppress/snooze/staff-
+cooldown treatment this session ("leave gate for now"). If it recurs as a separate
+complaint, extend the same three mechanisms to that branch.
+
+**Verification:** `security_logic.yaml`/`security_helpers.yaml`/`security_automations.yaml`
+parsed clean (`yaml.safe_load`, all 3 files). Not yet exercised against a live gate event
+(no gardener visit since the fix shipped) — functional confirmation is open, see
+`docs/Testing/Alert_Test_Plan.md` flag below.
+
+---
+
 ### S18 — Notification severity/sound classification overhaul (2026-07-06)
 
 **Priority: MEDIUM | Status: ✅ APPLIED 2026-07-06**
@@ -2753,8 +2843,13 @@ SPRINT 13 — BUG-S39/S37/S43/S40/S41/S38/S42 batch fix (2026-05-23)
 [✅] BUG-S43: security_lighting_required visibility entity name wrong.
       security_visibility_low → security_weather_low_light in security_core.yaml.
 
-[✅] BUG-S40: Gardener visitor spam — 30s cooldown extended to 1800s (30min) when
-      binary_sensor.staff_on_site is ON at time of visitor fire.
+[❌→✅] BUG-S40: Gardener visitor spam — this line claimed the 30s→1800s staff cooldown
+      was shipped 2026-05-23; it was NOT — the code was never changed and the identical
+      symptom recurred live 2026-08-29. Found during 2026-08-31 doc-drift sweep. Actually
+      fixed 2026-08-31 as BUG-S77 (Section 6) — staff-aware cooldown via
+      `sensor.security_event_classification`'s new `staff` attribute, plus a scoped mute
+      boolean and a Cancel Alert action button neither of which this checklist item ever
+      promised.
 
 [✅] BUG-S41: Stage 2 arrival shows carport image (cam04 overwrites grounds_front slot).
       input_text.security_image_arrival_locked added. Stage 1 locks the driveway image

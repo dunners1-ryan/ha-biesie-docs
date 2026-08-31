@@ -5,6 +5,58 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-08-31 — Security BUG-S77: gardener/staff visitor-at-gate alert spam fixed
+      (staff-aware cooldown + scoped mute + Cancel Alert button); also caught BUG-S40
+      falsely marked FIXED for 3 months with no code shipped.** User reported the
+      2026-08-29 incident (screenshots): a gardener working at the front gate for 30+
+      minutes generated a "🚨 Visitor at gate" critical push every ~30s–6min, iOS Snooze
+      had no effect (phone-OS only, never touches HA), and toggling
+      `input_boolean.security_alert_notify` did nothing — traced to that boolean only
+      gating the unrelated repeat-reminder pipeline in `alerts_security.yaml`, never
+      wired to `security_event_router`'s one-shot classifier-transition push at all; only
+      `security_system_enabled` (the whole-router kill switch) actually stopped it.
+      **Root cause:** `sensor.security_event_classification` RUNG 5 classifies a
+      gate-loitering staff member (gardener/maid, 7s+ continuous presence in the ipcam01
+      zone) as `visitor` (critical) rather than the silent `service_person` — by design,
+      since staff *passing through* the gate is filtered separately — but the visitor
+      branch's cooldown was a flat 30s regardless, so every on/off `gate_loitering` edge
+      re-fired a fresh critical for the whole work session. **This flat-30s cooldown is
+      exactly what BUG-S40 (2026-05-23) was supposed to have already fixed** — its own
+      session log line below (2026-05-23 S13) and `SECURITY_CONTRACT.md`'s Implementation
+      Checklist both claimed "1800s staff cooldown shipped," but the actual code diff
+      never happened; found only because the identical symptom recurred live 3 months
+      later. **Fix (BUG-S77):** (1) `sensor.security_event_classification` gained a real
+      `staff` boolean attribute (`security_logic.yaml`) so the router can read it directly
+      instead of parsing the `reason` string; (2) visitor branch cooldown is now 30s for a
+      genuine non-staff visitor (unchanged, safety-critical) / 1800s for a staff-loitering
+      event (`security_automations.yaml`); (3) new scoped dashboard toggle
+      `input_boolean.security_visitor_alerts_suppressed` — mutes only this branch, doesn't
+      touch arrival/departure/intruder/perimeter_threat; (4) new Cancel Alert action
+      button on the push (phone `CANCEL_VISITOR_ALERT` + Telegram
+      `/cancel_visitor_alert`), following the exact BUG-A13/BUG-A19 pattern — sets
+      `input_boolean.visitor_alert_snoozed`, auto-resets on whichever comes first: 10min
+      of gate-zone quiet, or `binary_sensor.staff_on_site` turning off (the staff-off
+      trigger added same session, per user follow-up, so an unrelated visitor arriving
+      right after the gardener leaves can't inherit the mute). New automations
+      `security_visitor_alert_cancel_from_notification` /
+      `security_visitor_alert_snooze_reset`. **Also added:** expandable one-line
+      descriptions (via `custom:fold-entity-row` + `custom:template-entity-row`, both
+      already-installed HACS resources) on ~20 `input_boolean` rows across the Camera
+      System Control / Camera Control (Manual) / Presence Control / Door Control cards on
+      the live Operations dashboard (`.storage/lovelace.dashboard_operations`, gitignored
+      — edited directly, requires an HA restart to pick up since dashboard storage is
+      cached in memory) — user was toggling booleans (`security_alert_notify`, etc.)
+      whose actual effect didn't match their names/instincts; descriptions now say what
+      each one really does, including the security_alert_notify gap above. **Deferred,
+      user's explicit call:** `gate_activity` (RUNG 5c) shares the same cooldown timer and
+      nuisance class but was NOT given the same treatment this session ("leave gate for
+      now"). **Files:** `security_logic.yaml`, `security_helpers.yaml`,
+      `security_automations.yaml`. Reload: Input Helpers + Automations + Template
+      Entities. Not yet exercised against a live gate event since shipping — see
+      `docs/Testing/Alert_Test_Plan.md` TEST 6 flag. `SECURITY_CONTRACT.md` BUG-S40
+      status corrected, BUG-S77 full entry added (Section 6), Section 9 checklist item
+      corrected, Section 3 entity rows added, Section 2 file description updated.
+
 - [ ] **2026-08-31 — Ecovacs Deebot: fault-alert pipeline (V3) + water/
       detergent estimator (V12) built; map bug self-resolved; dashboard
       layout correction (user's fix, not mine) + several small fixes.
@@ -3109,6 +3161,7 @@ input_boolean.security_system_enabled
 input_boolean.inside_cameras_armed              ← auto-managed by arming automation
 input_boolean.inside_cameras_schedule_override  ← dashboard override, force-arms cam14/cam15
 binary_sensor.security_gate_loitering           ← added 2026-07-02 (S17), delay_on 7s on ipcam01 regionentrance
+input_boolean.security_visitor_alerts_suppressed ← added 2026-08-31 (BUG-S77), scoped mute for the visitor router branch only
 ```
 
 ### Presence Persons
@@ -3207,6 +3260,17 @@ input_boolean.presence_alert_snoozed                        # alerts_presence.ya
 input_boolean.garden_alert_snoozed                          # alerts_garden.yaml (alongside existing
                                                               # TURN_OFF_POND_PUMP action button)
 input_boolean.critical_sensor_health_alert_snoozed          # alerts_system_health.yaml
+# --- Same snooze/cancel/auto-reset pattern, but NOT part of BUG-A19's rollout (that was
+# specifically the repeat-reminder streams, alert:/binary_sensor.*_active architecture).
+# BUG-S77 (2026-08-31) reused the pattern for a different alert class — a one-shot
+# classifier-transition push, no repeat: schedule involved:
+input_boolean.visitor_alert_snoozed                          # security_automations.yaml
+                                                              # (BUG-S77) — automations are
+                                                              # security_visitor_alert_cancel_
+                                                              # from_notification / _snooze_reset
+                                                              # (security_ prefix, not the plain
+                                                              # visitor_alert_* BUG-A19 convention,
+                                                              # to match this file's existing IDs)
 # Each has a matching automation.<x>_alert_cancel_from_notification (handles the
 # CANCEL_<X>_ALERT phone action / /cancel_<x>_alert Telegram tap) and
 # automation.<x>_alert_snooze_reset (auto-clears on the underlying binary_sensor/
