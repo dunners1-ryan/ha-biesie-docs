@@ -4109,6 +4109,39 @@ script.water_demand_set_winter_profile
          in use. New automation:
          vacuum_detergent_bought_from_notification. Validated + reloaded
          live, confirmed `on`.
+
+[x] V13. Water/Detergent dashboard upgraded to colour-threshold markdown
+         cards — user request 2026-08-31 ("markdown cards seem to work well
+         for this with colour thresholds"). Replaced the plain entities-list
+         card with 4 markdown cards in a 2×2 layout: Clean Water and Dirty
+         Water (red/orange/green on the days-remaining estimate — ≤0
+         Overdue, <1 Due soon, else OK), Detergent (red/orange/green on %
+         remaining — <15/<30/else), and a 4th "Cleaned" card (last job +
+         lifetime totals) since "how much vacuum cleaned" was part of the
+         same ask and fits naturally alongside the water context. No
+         existing colour-threshold-markdown precedent found elsewhere in
+         this dashboard to copy — used inline HTML `<span style="color:...">`
+         (HA's markdown card renders raw HTML), colour hex chosen to read
+         clearly in both themes (#e53935 red / #fb8c00 orange / #43a047
+         green). Verified the Jinja renders correctly via the HA template
+         API before pushing (`/api/template`). Confirmed live with real
+         data: both water estimates showed **red "Overdue"** at push time
+         (344 m² mopped since either was last logged — genuinely true,
+         nobody had pressed the log buttons since V12 shipped), a good
+         real-world proof the thresholds work, not just a happy-path test.
+
+[x] V14. VACUUM_CONTRACT.md created 2026-08-31 — user asked directly ("did we
+         add this as a new contract or maybe add to home appliance
+         contract?"); answer was no, nothing existed. Followed
+         GARDEN_CONTRACT.md's exact structure (8 sections: Overview, File
+         Inventory, Pipeline Architecture, Entity Registry, Pipeline Audit,
+         Must NOT, Known Issues, Future Scope) as the precedent for a
+         single-device domain getting its own contract rather than folding
+         into INFRA_CONTRACT.md. Added to PROJECT_STATE.md's Document Index
+         and CLAUDE.md's domain-contracts list — also fixed a pre-existing
+         gap found while there: GARDEN_CONTRACT.md itself was never added to
+         CLAUDE.md's list despite existing since 2026-04-29. CLAUDE.md's
+         package table row for `integrations/` updated 1 file → 2 files.
 ```
 
 ### Group A — Trust Model Chain (Fixes security + lighting + door alerts)
@@ -4415,6 +4448,7 @@ added GARDEN_CONTRACT.md, which had no row in this table at all.)*
 | `docs/domains/CONTEXT_CONTRACT.md` | Context — night mode; CTX01/02/03 all resolved 2026-04-30 | ✅ Authoritative (deep-drift swept 2026-08-21) |
 | `docs/domains/INFRA_CONTRACT.md` | Infra — core/backup/office/weather/integrations/HACS | ✅ Authoritative (deep-drift swept 2026-08-21) |
 | `docs/domains/GARDEN_CONTRACT.md` | Garden — pond pump alert pipeline | ✅ Authoritative (deep-drift swept 2026-08-21; was missing from this table entirely) |
+| `docs/domains/VACUUM_CONTRACT.md` | Vacuum — Ecovacs Deebot alerts, water/detergent estimator | ✅ Created 2026-08-31 (also missing until user asked directly whether it existed) |
 
 > **The `*_CONTRACT.md` files are authoritative.** They were produced by reading actual config files.
 > The older `*_CONTEXT.md` files are quick-reference summaries — use contracts for real work.
