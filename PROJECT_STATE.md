@@ -3843,6 +3843,24 @@ script.water_demand_set_winter_profile
 # washing_partial_friday, washing_partial_saturday, washing_partial_sunday
 ```
 
+### Smart Cleaning (Vacuum) Entities (added 2026-08-31, V8)
+```
+vacuum.deebot_t80s_biesie                          ← the device's own entity, canonical
+sensor.deebot_t80s_biesie_error                    ← fault code source, message always live-read not hardcoded
+sensor.deebot_t80s_biesie_battery
+image.deebot_t80s_biesie_map                       ← was broken 2026-08-29/30 (upstream), self-resolved 2026-08-31
+binary_sensor.deebot_alert_active                  ← ours — fault OR low-lifespan (V11), NOT the raw error sensor
+sensor.deebot_alert_context                        ← aggregator feed, base "deebot" resolves to alert.deebot_alert
+alert.deebot_alert                                 ← needs 1 HA restart to activate, see SMART_CLEANING_CONTRACT.md
+sensor.vacuum_water_refill_estimate
+sensor.vacuum_dirty_water_estimate
+sensor.vacuum_detergent_level
+input_button.vacuum_log_water_refill
+input_button.vacuum_log_dirty_water_empty
+input_button.vacuum_log_detergent_new_bottle
+# Full entity registry + pipeline: docs/domains/SMART_CLEANING_CONTRACT.md
+```
+
 ---
 
 ## 🔴 DO NOT TOUCH Without Full Review
@@ -3955,22 +3973,36 @@ script.water_demand_set_winter_profile
         today) — split into new V11 below so V3 doesn't stay ambiguously
         half-open.
 
-[ ] V4. Job-outcome notifications — event.deebot_t80s_biesie_last_job (or vacuum
-        state transitions on vacuum.deebot_t80s_biesie) → cleaning
-        started/completed/stuck notifications via script.notify_system_event,
-        following the same severity/quiet-hours routing as every other domain
-        (NOTIFICATIONS_CONTRACT.md).
+[x] V4. Done 2026-08-31 — NOT built around event.deebot_t80s_biesie_last_job:
+        checked 3 days of real history first (dozens of completed jobs since
+        2026-08-29) and it has never fired once — same class of gap as the
+        getMapSet bug, don't rely on it without re-checking first. Also NOT
+        a per-segment started/completed push — Auto Clean runs many short
+        cleaning→docked room segments per session (15+ seen in one morning
+        live), so per-segment notifications would be pure spam. Built
+        instead: one daily summary push, triggered when vacuum.
+        deebot_t80s_biesie has been docked continuously for 10 min (session
+        genuinely over, not just between rooms) AND at least one job ran
+        that day (gated on a midnight snapshot of the integration's own
+        lifetime counters via input_number.vacuum_total_cleans/area/
+        duration_at_midnight, reset daily at 00:01 by
+        automation.vacuum_daily_snapshot_reset). Message: "Cleaned X m² in
+        Y min across Z jobs today." "Stuck" is intentionally NOT duplicated
+        here — already covered by V3's fault alert on vacuum.state=='error'.
+        Seeded today's midnight snapshot manually via
+        `automation.trigger` immediately after building this (today's
+        00:01 had already passed) so the first real summary isn't inflated
+        by lifetime totals.
 
-[ ] V5. Security/presence interaction check — still OPEN, untested (no real runs yet).
-        Once normal runs start, confirm indoor motion cameras (cam14/cam15 etc.,
-        see SECURITY_CONTRACT.md security_event_classification) don't misfire on
-        vacuum motion. If they do, this needs a suppression pattern similar to
-        dogs_inside_prompt (an input_boolean.vacuum_running-style gate), not a
-        camera sensitivity change. (Separate question — whether the dogs
-        physically need to be kept clear of the robot — asked and answered
-        2026-08-30: user says no gate needed, dogs are fine around it / kept
-        elsewhere at clean time. That's a different concern from this camera
-        item, which is still unverified.)
+[~] V5. User input 2026-08-31: "v5 not needed - though haven't run at night
+        when lounge/passage would fire". Read as: not worth building a
+        suppression fix proactively, but explicitly NOT closed as
+        verified-fine either — the real risk window (a night Auto Clean run
+        near cam14/cam15's lounge/passage coverage) genuinely hasn't
+        happened yet, all runs so far have been daytime. Left untested,
+        deliberately not marked [x]. Revisit if/when a night run actually
+        happens — check SECURITY_CONTRACT.md security_event_classification
+        for a false RUNG fire before assuming it's fine.
 
 [x] V6. Scheduling decision made 2026-08-30: fixed time-of-day schedule set
         natively in the Ecovacs app scheduler (see V2's schedule table) — NOT
@@ -4095,10 +4127,12 @@ script.water_demand_set_winter_profile
         Don't reach for multiple sections to build a single aligned N-column
         layout — that's what grid_options is for, inside one section.
 
-[ ] V8. Once entity IDs are confirmed stable post-mapping, add the device's key
-        entities (vacuum.deebot_t80s_biesie at minimum) to the "Locked Entity
-        Names" section below, matching the convention used for every other
-        integration's canonical entities.
+[x] V8. Done 2026-08-31 — new "Smart Cleaning (Vacuum) Entities" subsection
+        added to Locked Entity Names below: the core device entity, the
+        error/battery/map sensors, all 3 of our own alert-pipeline entities,
+        the 3 water/detergent estimate sensors, and the 3 log buttons.
+        Points to SMART_CLEANING_CONTRACT.md for the full registry rather
+        than duplicating all ~45 entities here.
 
 [x] V9. Mat-removal reminder — done 2026-08-30 as part of V1 (user asked for
         this directly: "reminder to remove mats from bathroom and main
@@ -4126,13 +4160,21 @@ script.water_demand_set_winter_profile
          exists for this device at all — confirmed not available, not a
          config gap.
 
-[ ] V11. Consumable lifespan warnings — split out from V3 2026-08-31 (V3 ended
-         up being fault/error alerting only, not the full original scope).
-         Main brush/side brush/filter all reading 92-97% as of 2026-08-31 —
-         genuinely low priority right now. When it's worth doing: same
-         alert-pipeline pattern as V3 (binary_sensor low-lifespan → context
-         sensor → route automation → script.notify_system_event), threshold
-         probably ~15-20% per sensor, informational severity not critical.
+[x] V11. Done 2026-08-31, later same session — user said "go with rest".
+         Folded into V3's existing pipeline rather than a parallel one:
+         binary_sensor.deebot_alert_active now also fires when
+         min(main_brush, side_brush, filter) < input_number.
+         vacuum_lifespan_warning_threshold (15%, adjustable), and
+         sensor.deebot_alert_context's severity logic + devices attribute
+         extended to cover it — warning only, never critical (a worn brush
+         doesn't halt the robot, unlike a fault code with vacuum.state==
+         'error'). route_deebot_alert's message and the alert: entity's own
+         message both changed to build from sensor.deebot_alert_context's
+         devices attribute generically, since a trigger can now be a fault
+         code, a lifespan warning, or in principle both at once — no longer
+         assumes it's always an error code. Validated + reloaded live,
+         confirmed sensor.deebot_alert_context reads normal with real
+         current lifespans (all 92-97%).
 
 [x] V12. Water/dirty-water/detergent consumption estimator — done 2026-08-31,
          user request after a full day running whole-house Auto Clean:
