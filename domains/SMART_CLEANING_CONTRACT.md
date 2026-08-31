@@ -353,11 +353,11 @@ open as of 2026-08-31) — summarized here for contract completeness:
 
 | Feature | Status | Notes |
 |---|---|---|
-| Job-outcome notifications (start/complete/stuck) | Open (V4) | `event.deebot_t80s_biesie_last_job` once it fires reliably |
-| Security/presence camera false-trigger check | Open (V5), untested | No real runs checked yet against cam14/cam15 |
-| Locked Entity Names entry | Open (V8) | Add once entity IDs are confirmed fully stable |
-| `vacuum.clean_area` / `vacuum.send_command` real capability test | Open (V10) | If `clean_area` genuinely targets this device's mapped rooms (untested — it's an HA Area selector, not confirmed to resolve against Deebot's own room mapping), it's the real path to HA-native per-room scheduling, superseding the app-only scenario approach |
-| Consumable lifespan (brush/filter %) low-value alerting | Open (V11), low priority | All three reading 92-97% as of 2026-08-31 |
+| Job-outcome notifications | Done (V4) | Not `event.deebot_t80s_biesie_last_job` — never fired once across 3 days of real jobs. Built as one daily summary push instead (docked 10 min + midnight-snapshot delta), see Section 3d below |
+| Security/presence camera false-trigger check | Open (V5), deliberately not closed | User: not worth building a fix proactively, but the real risk window (night run near cam14/cam15) hasn't happened — all runs so far are daytime. Check `security_event_classification` the first time a night run happens |
+| Locked Entity Names entry | Done (V8) | Added to PROJECT_STATE.md |
+| `vacuum.clean_area` room-to-area mapping | Open (V10), mechanism fully understood, blocked on device data | Tested live 2026-08-31 (2 attempts). Mapping lives at entity registry `options.vacuum.area_mapping` (`dict[area_id, list[segment_id]]`, confirmed from HA core source — `homeassistant/components/vacuum/__init__.py`). The read side, `vacuum/get_segments` (WebSocket, admin-only) — same call the frontend's "Configure areas" dialog uses — works with no error, but currently returns `{"segments": []}`: the device isn't reporting room boundaries to HA yet (a `RoomsEvent` the `ecovacs` integration listens for, separate from the map image which does render). Not fixable by writing a guessed mapping — segment IDs are device-generated (`f"{map_id}_{room.id}"`). Re-check `vacuum/get_segments` after the vacuum's next fully completed job. `vacuum.send_command` still untested, lower priority |
+| Consumable lifespan (brush/filter %) low-value alerting | Done (V11) | Folded into the existing V3 pipeline rather than a parallel one — see Section 3b |
 | Full per-room scenario schedule (Daily/Bedroom/Bathroom) | Designed, not scheduled | Currently superseded by a whole-house Auto Clean trial the user is running instead (06:00→07:00 workday / 08:00 weekend) — user feedback 2026-08-31: "seems overkill" (2 dirty-water empties + 1 refill in one day). The per-room split remains the likely better default once duration data exists; not reverted yet. |
 
 ---

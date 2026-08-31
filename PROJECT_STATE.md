@@ -4146,19 +4146,39 @@ input_button.vacuum_log_detergent_new_bottle
         changes again, these two helpers need updating to match** (and the
         Operations Vacuum view's schedule note card, and this checklist).
 
-[ ] V10. Investigated 2026-08-30 (control-points question) — worth a dedicated
-         follow-up: `vacuum.clean_area` service exists (targets HA **Areas**,
-         not the vacuum's own mapped rooms — untested whether this device's
-         internal rooms actually resolve against this house's existing Areas
-         like `kitchen`/`main_bathroom`) and `vacuum.send_command` (raw
-         channel, API's own example is `set_dnd_timer`). Neither has been
-         called yet. If `clean_area` genuinely targets the right rooms, it's
-         the real path to HA-native per-room scheduling (properly resolving
-         V6's every-2nd-day bedroom/bathroom ask from HA instead of relying
-         on the app) — test cautiously and supervised via Developer Tools →
-         Actions before ever wiring it into an automation. No camera entity
-         exists for this device at all — confirmed not available, not a
-         config gap.
+[~] V10. Tested live 2026-08-31, user supervising as agreed. Confirmed safe
+         both attempts: vacuum.deebot_t80s_biesie's state/last_changed
+         timestamp was unchanged after each call — the robot never moved.
+         **Attempt 1**: called `vacuum.clean_area` (cleaning_area_id:
+         ["kitchen"]) via REST — real 500, root cause pulled from HA's own
+         error log: `ServiceValidationError: Area mapping is not configured
+         for vacuum.deebot_t80s_biesie. Configure the segment-to-area
+         mapping before using this action`. Checked
+         `.storage/core.entity_registry` — confirmed genuinely unset.
+         **Attempt 2 (user: "use the picture of the map i shared for
+         mapping")**: found the actual mechanism via HA core source
+         (fetched `homeassistant/components/vacuum/__init__.py` +
+         `websocket.py` + `ecovacs/vacuum.py` from GitHub rather than
+         guessing) — the mapping lives at entity registry
+         `options.vacuum.area_mapping` (`dict[area_id, list[segment_id]]`,
+         `DOMAIN` key confirmed from source), and the exact same
+         `vacuum/get_segments` WebSocket command HA's own "Configure areas"
+         dialog uses is callable directly (admin-only, confirmed working —
+         no error). Called it for real: **`{"segments": []}`** — the device
+         is reporting zero rooms to HA right now. Not a dead end, not a
+         guessing failure — this is a second, separate gap in what the
+         `ecovacs` integration receives from the device (room-boundary data
+         via a `RoomsEvent` the integration listens for, distinct from the
+         map image itself, which does render now). Deliberately did NOT
+         invent/guess segment IDs to write into `area_mapping` — they're
+         device-generated (`f"{map_id}_{room.id}"` per source), a photo
+         can't substitute for HA actually receiving them, and a wrong write
+         risks the robot going to an unintended real room. **Next step**:
+         re-run `vacuum/get_segments` after the vacuum's next fully
+         completed job — worth checking without being asked again, same as
+         the map bug this may just need a real clean cycle to populate.
+         `vacuum.send_command` still untested, lower priority. No camera
+         entity exists for this device at all — confirmed not available.
 
 [x] V11. Done 2026-08-31, later same session — user said "go with rest".
          Folded into V3's existing pipeline rather than a parallel one:

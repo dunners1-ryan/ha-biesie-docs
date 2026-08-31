@@ -7,6 +7,22 @@
 #
 # Scope: All 16 packages/alerts/*.yaml files
 #        Plus cross-domain aggregation in alerts_summary.yaml
+# Last updated: 2026-08-31 — BUG-A22: the 2026-08-29 ZHA network reload took all 10
+# SNZB-04P door/gate Zigbee battery entities unavailable-then-back within ~9s, resetting
+# `last_reported` for all of them at once — they then crossed the global 24h stale
+# threshold together and sat falsely flagged STALE for 50+ hours (user noticed via the
+# Alerts dashboard, root cause traced live via the Supervisor REST + HA WebSocket APIs).
+# Added a per-device stale-hours override: new label `battery_monitor_sparse_reporter`
+# (core.label_registry) + new `input_number.device_battery_stale_hours_sparse` (96h
+# default) — entities carrying the label use this threshold instead of the global
+# `device_battery_stale_hours`. Tagged the 10 real SNZB-04P entities live via the HA
+# WebSocket API (`config/entity_registry/update`); `garage_door_sensor_battery` (Sonoff,
+# not ZHA) and the EZVIZ doorbell deliberately NOT tagged — they report normally. File
+# grew 463→505 lines. Also corrects this file's own now-stale BUG-A20 restart caveat
+# below — `sensor.home_assistant_uptime` shows HA's last restart was 2026-08-24T18:16Z,
+# after that day's fix landed, so BUG-A20 IS restart-verified; it just never got the doc
+# correction once the restart actually happened. See PROJECT_STATE.md 2026-08-31 session
+# log for full incident writeup and the accidental-commit-bundling note.
 # Last updated: 2026-08-24 — BUG-A20: Device Battery pipeline was re-firing CRITICAL on
 # a frozen `mobile_app` battery reading (5% since 2026-08-23T16:16Z, device had stopped
 # reporting). Added a `stale` severity tier keyed on `states[e].last_reported` age vs
@@ -141,7 +157,7 @@ fully correct. All domains route through the central notification script.
 | `alerts_security.yaml` | 253 | ✅ Active | Security alert pipeline — implemented 2026-04-14 |
 | `alerts_garden.yaml` | 282 | ✅ Active | Garden/pond pump unscheduled alert — implemented 2026-04-29 |
 | `alerts_batteries.yaml` | 446 | ✅ Active | Dashboard tablet battery low/overcharge alert — implemented 2026-05-27 |
-| `alerts_device_batteries.yaml` | 463 | ✅ Active | All OTHER battery devices (door/gate sensors, doorbell, phones, watches, laptops) — label-onboarded (`battery_monitor`), excludes inverter/UPS/dash-tablets — implemented 2026-08-21; staleness tier added 2026-08-24 (BUG-A20) |
+| `alerts_device_batteries.yaml` | 505 | ✅ Active | All OTHER battery devices (door/gate sensors, doorbell, phones, watches, laptops) — label-onboarded (`battery_monitor`), excludes inverter/UPS/dash-tablets — implemented 2026-08-21; staleness tier added 2026-08-24 (BUG-A20); per-device sparse-reporter stale override added 2026-08-31 (BUG-A22) |
 | `alerts_camera_health.yaml` | 316 | ✅ Active | Camera fleet health (`alert.camera_health`) — missing from this inventory until 2026-07-06 |
 
 *Line counts re-verified against `wc -l packages/alerts/*.yaml` 2026-08-21 — every count above was stale (the 2026-04-13 baseline never got updated as files grew with subsequent bug fixes/features); all 16 corrected to live values, none were placeholders (`~N`) any more.*
@@ -447,6 +463,34 @@ the frozen SOC — critical/warning is only assigned to a reading actually heard
 recently. `stale` still feeds the full alert pipeline (binary_sensor/alert_context/
 `alert:` all treat it the same as warning/critical) but the message reads "last seen Xh
 ago (last known N%)" instead of a false battery claim. See BUG-A20 for the full incident.
+**Restart-verified 2026-08-31** — `sensor.home_assistant_uptime` confirms HA's last
+restart was 2026-08-24T18:16Z, after that day's fix landed; this doc's earlier "not yet
+restart-verified" caveat was itself stale, corrected while investigating BUG-A22 below.
+
+**Sparse-reporter stale override (added 2026-08-31, BUG-A22):** the global 24h stale
+threshold above is a poor fit for sleepy Zigbee end-devices — a single ZHA network
+reload can reset `last_reported` for every SNZB-04P contact sensor's battery entity at
+once, and these devices push battery attribute reports far less often than phones/
+watches even under normal operation, so they cross 24h and false-flag STALE in lockstep.
+Entities that carry BOTH `battery_monitor` and the new label
+`battery_monitor_sparse_reporter` (core.label_registry) use
+`input_number.device_battery_stale_hours_sparse` (96h/4-day default, tunable 24–168h)
+instead of the global `device_battery_stale_hours` — see `eff_stale_h` in
+`sensor.device_battery_fleet`. Applied 2026-08-31 to the 10 real SNZB-04P door/gate
+battery entities (`gate_sensor_battery` [Main Gate], `front_door_sensor_battery`,
+`lounge_door_sensor_battery`, `front_security_gate_sensor_battery`,
+`bar_door_sensor_battery`, `laundry_door_sensor_battery`, `kitchen_door_sensor_battery`,
+`reading_room_door_sensor_battery`, `garage_security_gate_sensor_battery`,
+`laundry_security_gate_sensor_battery`) via the HA WebSocket API
+(`config/entity_registry/update`) — deliberately NOT applied to
+`garage_door_sensor_battery` (Sonoff platform, not ZHA — unaffected by ZHA reloads,
+reports normally) or the EZVIZ doorbell. Template-only + helper change — no `alert:`
+restart needed, resolves via Reload Helpers + Reload Template Entities. Verified live:
+all 10 tagged entities read `severity: normal` post-reload (their fake staleness cleared
+the moment `last_reported` reset from the registry-update write itself); the three
+phones/watch/laptop still correctly show `stale` under the unchanged global 24h
+threshold (71h/162.5h/169.3h), confirming the override is scoped to only the tagged
+devices. See BUG-A22 for the full incident writeup.
 
 **Initial onboarding (2026-08-21):** 15 entities labelled — 6 door/gate sensors
 (`bar_door_sensor_battery`, `front_door_sensor_battery`,
@@ -825,6 +869,7 @@ All thresholds are `input_number` entities:
 | `input_number.device_battery_critical_threshold` | 5% | alerts_device_batteries — critical severity |
 | `input_number.device_battery_critical_days_remaining` | 1 day | alerts_device_batteries — rate-based critical trigger (fitted drain rate projects empty within this many days) |
 | `input_number.device_battery_stale_hours` | 24h | alerts_device_batteries — added 2026-08-24 (BUG-A20); `last_reported` older than this → severity `stale` instead of trusting the frozen SOC |
+| `input_number.device_battery_stale_hours_sparse` | 96h | alerts_device_batteries — added 2026-08-31 (BUG-A22); overrides `device_battery_stale_hours` for entities also labelled `battery_monitor_sparse_reporter` (sleepy Zigbee end-devices that report battery far less often than 24h even normally, e.g. the 10 SNZB-04P door/gate sensors) |
 | `input_number.storage_temp_high_trigger` | 55°C | alerts_temperature |
 | `input_number.perimeter_open_escalation_minutes` | 10 min | alerts_doors |
 | `input_number.door_warning_escalation_minutes` | 15 min | alerts_doors |
@@ -1501,6 +1546,63 @@ restart, no `alert:`-entity impact.
 
 ---
 
+### BUG-A22 — All 10 SNZB-04P Zigbee door/gate battery entities false-flagged STALE together for 50+ hours after a ZHA network reload
+
+**Severity:** Low (cosmetic — the alert pipeline behaved exactly as designed; the design's
+one global threshold was just too tight for this device class)
+**File:** `packages/alerts/alerts_device_batteries.yaml`
+**Status:** ✅ FIXED 2026-08-31, verified live (no restart required)
+
+**User-reported** from the Alerts dashboard: 9 door/gate sensor rows (Main Gate, Front
+Door, Lounge Door, Front Security Gate, Bar Door, Kitchen Door, Reading Room Door, Garage
+Security Gate, Laundry Security Gate) all showing `STALE`, all reading "last seen 50.9h
+ago" — identical age to the decimal, across every one of them.
+
+**Root cause, traced live** (Supervisor REST API for state/logbook history, HA WebSocket
+API for entity/label registry): at 2026-08-29T16:18:35Z the entire ZHA network (SONOFF
+Dongle-M) briefly reloaded — every ZHA entity, not just the door/gate sensors (also the
+washer/dishwasher/airfryer/fridge plugs and ZBSM switches on the same network) went
+`unavailable` then back to a restored state ~9 seconds later, at 16:18:44Z. That single
+event reset `last_reported` for all 10 SNZB-04P battery entities to the same instant.
+Nothing has sent a genuine new battery report since — expected behaviour, not a fault:
+these are sleepy Zigbee end-devices that only push a battery attribute report on an
+infrequent periodic checkin, naturally sparser than the pipeline's global 24h stale
+threshold (`input_number.device_battery_stale_hours`, BUG-A20) even under normal
+operation. Confirmed via `binary_sensor.main_gate_sensor`'s logbook history that this was
+a single one-off blip (no other `unavailable` events in the 50+ hours since, and other
+ZHA devices on the same network kept updating normally throughout) — not an ongoing mesh
+problem.
+
+**Fix:** added a per-device override to the BUG-A20 staleness mechanism rather than
+loosening the global threshold (which would also delay catching a genuinely dead phone/
+watch battery sensor). New label `battery_monitor_sparse_reporter` (core.label_registry)
++ new `input_number.device_battery_stale_hours_sparse` (96h/4-day default) — an entity
+carrying both `battery_monitor` and the new label uses the sparse threshold instead of
+the global one in `sensor.device_battery_fleet`'s per-device `eff_stale_h` calc. Applied
+live to the 10 real SNZB-04P battery entities via `config/entity_registry/update`
+(`garage_door_sensor_battery` is Sonoff, not ZHA, and the EZVIZ doorbell reports
+normally — both deliberately excluded). One implementation slip caught and corrected
+same session: the label's actual `label_id` came back auto-slugified by HA as
+`battery_monitor_sparse_reporter`, not the `battery_monitor_sparse` id assumed when
+first tagging entities — left a dangling label reference on all 10 entities until a
+follow-up `config/entity_registry/update` pass fixed it.
+
+`ha core check` passed; `input_number`/`template` reloaded live, no `alert:`-entity
+restart needed (the override touches the fleet template's severity calc only, not the
+alert entity itself). Verified live via Supervisor API: all 10 tagged entities read
+`severity: normal`; the three genuinely-stale mobile devices (Vicky's iPhone 71h, Luke's
+Watch 162.5h, Ryan's MacBook 169.3h) are unaffected and still correctly flag `stale`
+under the unchanged global threshold, confirming the override is scoped only to tagged
+entities.
+
+**Doc-drift found and corrected in the same pass:** this file's Device Battery Domain
+section still said BUG-A20 was "not yet restart-verified" — `sensor.home_assistant_uptime`
+shows HA's last restart was 2026-08-24T18:16Z, same day as and after the BUG-A20 fix, so
+it has in fact been live and restart-verified since; the caveat just never got removed
+once the restart happened.
+
+---
+
 ## Section 9: Summary of Pipeline Audit Results
 
 | Domain | Binary | Context | Alert entity | Aggregator | Result | Updated |
@@ -1517,6 +1619,7 @@ restart, no `alert:`-entity impact.
 | Presence | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-16 B1; 2026-07-06 delivery fixed (BUG-A10); 2026-08-18 Cancel Alert added (BUG-A19) |
 | Garden | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-29 new; 2026-07-06 delivery fixed (BUG-A10); 2026-07-07 action button restored (BUG-A12); 2026-08-18 Cancel Alert added alongside Turn Off Pump (BUG-A19) |
 | Dash Batteries | ✅ (x5) | ✅ | ✅ | ✅ (triggered) | PASS | 2026-05-27 new; 2026-07-06 delivery fixed (BUG-A10); 2026-08-18 Cancel Alert added (BUG-A19) |
+| Device Batteries | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-08-21 new, label-onboarded fleet (door/gate sensors, doorbell, phones, watches, laptops); 2026-08-24 staleness tier added (BUG-A20), display names fixed (BUG-A21); 2026-08-31 per-device sparse-reporter stale override added (BUG-A22) — see Section 4 for full pipeline detail, previously missing from this table |
 | Camera Health | — | ✅ | ✅ | Not confirmed | PASS with note | 2026-07-06 added to contract; BUG-A11 fixed, restart completed 2026-07-07; 2026-08-18 audited for BUG-A19 — no live repeat delivery exists to cancel (flagged separately, not fixed) |
 
 ---
@@ -1544,11 +1647,13 @@ restart, no `alert:`-entity impact.
 | BUG-A17 | **Medium** | ✅ Fixed 2026-08-05 | `garage_door_stale` keyed on "door sensor hasn't toggled in 5min" (normal, not stale) — reloaded the whole Sonoff config entry ~every 6 min, 24/7, for ~4 months; one such reload's slow reconnect silently ate a real garage-light turn_on during a 21:43 arrival. Fixed: staleness now requires the entity to actually be unavailable/unknown | alerts_doors.yaml (see LIGHTING_CONTRACT.md BUG-L19) |
 | BUG-A18 | **Medium** | ✅ Fixed 2026-08-14/15 | `route_door_sustained_open_escalation` had no camera branch for Tier-2 entry doors (garage/front door) — a garage-only critical escalation rendered no image; extended to all 4 doors, garage camera corrected to the carport-facing view | alerts_doors.yaml |
 | BUG-A19 | **Medium** | ✅ Fixed 2026-08-18 | Only doors/gates could cancel a repeat-reminder cycle (BUG-A13) — every other critical alert domain (power, water ×3, temperature ×4, device power, media, network ×4, security, batteries, presence, garden) had no way to stop a repeating push short of the underlying condition clearing or a global notify-toggle; rolled the BUG-A13 pattern (per-cycle snooze boolean + Cancel Alert button, phone + Telegram + auto-reset) out to all of them | 4 notify_*.yaml scripts + 11 alerts_*.yaml files |
-| BUG-A20 | **Medium** | ✅ Fixed in code 2026-08-24, not yet restart-verified | Device Battery pipeline re-fired CRITICAL on a frozen 5% reading (mobile_app had stopped reporting) — added a `stale` severity tier keyed on `last_reported` age instead of trusting an old SOC | alerts_device_batteries.yaml |
+| BUG-A20 | **Medium** | ✅ Fixed 2026-08-24, restart-verified | Device Battery pipeline re-fired CRITICAL on a frozen 5% reading (mobile_app had stopped reporting) — added a `stale` severity tier keyed on `last_reported` age instead of trusting an old SOC | alerts_device_batteries.yaml |
 | BUG-A21 | **Low** | ✅ Fixed 2026-08-24 | Battery dashboard showed raw vendor device names (`eWeLink SNZB-04P` ×10, `"Charles Leclerc "` for Luke's phone) instead of the `name_by_user` custom names already set on every device — `device_attr(e,'name')` doesn't fall back to `name_by_user` the way the frontend does | alerts_device_batteries.yaml |
+| BUG-A22 | **Low** | ✅ Fixed 2026-08-31, verified live | All 10 SNZB-04P Zigbee door/gate battery entities false-flagged STALE together for 50+ hours — a single 2026-08-29 ZHA network reload reset `last_reported` for all of them at once, and these sleepy end-devices report battery far less often than the global 24h threshold even normally; added a per-device sparse-reporter stale override (new label + `input_number.device_battery_stale_hours_sparse`, 96h) | alerts_device_batteries.yaml |
 
-**Open: 0 issues (BUG-A20 shipped, pending its own package's standard restart)**  
-**Fixed 2026-08-24: BUG-A20, BUG-A21**
+**Open: 0 issues**  
+**Fixed 2026-08-31: BUG-A22**
+**Fixed 2026-08-24: BUG-A20 (restart-verified same day), BUG-A21**
 **Fixed 2026-08-18: BUG-A19**
 **Fixed 2026-08-15: BUG-A18**
 **Fixed 2026-08-04: BUG-A16**
@@ -1562,6 +1667,13 @@ restart, no `alert:`-entity impact.
 ---
 
 *Contract generated: 2026-04-13*
+*Last updated: 2026-08-31 — BUG-A22 (all 10 SNZB-04P Zigbee door/gate battery entities
+false-flagged STALE together for 50+ hours after a single ZHA network reload reset their
+`last_reported` in lockstep; added a per-device sparse-reporter stale override — new label
+`battery_monitor_sparse_reporter` + `input_number.device_battery_stale_hours_sparse`, 96h
+default — instead of loosening the global 24h threshold that phones/watches still rely on;
+also corrected BUG-A20's stale "not yet restart-verified" caveat, added a missing "Device
+Batteries" row to Section 9's summary table, and Section 10's Open-issues tally)*
 *Last updated: 2026-08-18 — BUG-A19 (only doors/gates could cancel a repeat-reminder cycle;
 rolled the BUG-A13 per-cycle snooze + Cancel Alert button pattern out to all 11 remaining
 domains with live repeat delivery — power, water ×3 streams, temperature ×4 streams, device
