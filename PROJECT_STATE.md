@@ -4085,6 +4085,16 @@ script.water_demand_set_winter_profile
          already applies to geyser_last_heat_up_minutes-style trend capture.
          Dashboard: new "Water & Detergent" card with the 3 estimates + the
          3 log buttons + an explanatory note, added to the Vacuum view.
+         **UPDATE 2026-08-31 (same day, follow-up ask):** low-detergent
+         notification now carries a "Detergent Bought" action button (phone
+         + Telegram), mirroring the fault pipeline's Cancel Alert pattern —
+         but instead of only silencing, tapping it presses
+         input_button.vacuum_log_detergent_new_bottle (reuses
+         vacuum_log_detergent_new_bottle's existing reset logic rather than
+         duplicating it), since buying detergent means a new bottle is now
+         in use. New automation:
+         vacuum_detergent_bought_from_notification. Validated + reloaded
+         live, confirmed `on`.
 ```
 
 ### Group A — Trust Model Chain (Fixes security + lighting + door alerts)
