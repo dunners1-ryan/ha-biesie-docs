@@ -5,6 +5,63 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-08-31 — Alerts BUG-A22: 9-10 Zigbee door/gate battery sensors falsely
+      STALE together for 50+ hours, root-caused live, per-device stale override
+      shipped.** User asked "what are these stale alerts?" from an Alerts dashboard
+      screenshot showing every door/gate sensor (Main Gate, Front Door, Lounge Door,
+      Front Security Gate, Bar Door, Kitchen Door, Reading Room Door, Garage Security
+      Gate, Laundry Security Gate) reading "STALE... last seen 50.9h ago" — identical age
+      across all of them — plus 3 unrelated genuinely-stale phones/watch/laptop.
+      **Investigation (all live, via Supervisor REST API for states/logbook history + HA
+      WebSocket API for entity/label registry, using `$SUPERVISOR_TOKEN` — no code
+      changed for this part):** confirmed all 10 SNZB-04P battery entities'
+      `last_reported` matched to the millisecond; traced via logbook to a single ZHA
+      network (SONOFF Dongle-M) reload at 2026-08-29T16:18:35Z — every ZHA entity, not
+      just door/gates (also washer/dishwasher/airfryer/fridge plugs, ZBSM switches) went
+      `unavailable` then restored ~9s later at 16:18:44Z, resetting `last_reported` for
+      all of them at once. Confirmed one-off, not ongoing (no further `unavailable`
+      events on any ZHA device in the 50+ hours since). Root explanation: SNZB-04P are
+      sleepy Zigbee end-devices that report a battery attribute only on an infrequent
+      periodic checkin — naturally sparser than the pipeline's global 24h
+      `device_battery_stale_hours` (BUG-A20) even under normal operation, so the whole
+      fleet crossed it together and stayed flagged.
+      **Fix (user asked to "tag zigbee devices and add an override to global 24hr"):**
+      new label `battery_monitor_sparse_reporter` (`core.label_registry`) + new
+      `input_number.device_battery_stale_hours_sparse` (96h/4-day default,
+      `packages/alerts/alerts_device_batteries.yaml`) — an entity carrying both
+      `battery_monitor` and the new label uses the sparse threshold instead of the
+      global one in `sensor.device_battery_fleet`'s per-device `eff_stale_h` calc.
+      Tagged the 10 real SNZB-04P battery entities live via `config/entity_registry/
+      update` (see Locked Entity Names + core.label_registry below for the full list);
+      deliberately did NOT tag `garage_door_sensor_battery` (Sonoff platform, not ZHA —
+      unaffected, reports normally) or the EZVIZ doorbell. **Self-caught slip:** HA
+      auto-slugified the label's real `label_id` as `battery_monitor_sparse_reporter`
+      from the name given at creation, not the `battery_monitor_sparse` id assumed when
+      first tagging entities — left a dangling label reference on all 10 for one
+      round-trip, fixed with a second `config/entity_registry/update` pass before moving
+      on to the YAML. `ha core check` passed; `input_number`/`template` reloaded live, no
+      restart needed. **Verified live:** all 10 tagged entities read `severity: normal`
+      post-fix; the 3 genuinely-stale mobile devices (71h/162.5h/169.3h) still correctly
+      flag `stale` under the unchanged global threshold, confirming the override is
+      scoped only to tagged entities. **Also corrected in the same pass:** this file and
+      ALERTS_CONTRACT.md both still said BUG-A20 was "not yet restart-verified" —
+      `sensor.home_assistant_uptime` shows HA's last restart was 2026-08-24T18:16Z, same
+      day as and after that fix landed, so it's actually been live since; the caveat had
+      just never been removed. Docs: ALERTS_CONTRACT.md (top changelog, File Inventory,
+      Device Battery Domain section, new BUG-A22 entry, Section 6 threshold table,
+      Section 9 — added a missing "Device Batteries" row that had never existed, Section
+      10 table + tally), `docs/Testing/Alert_Test_Plan.md` (extended its existing
+      2026-08-24 "needs a new TEST section" flag to cover the sparse override too).
+      **⚠️ Process note, not a code issue:** the YAML edit for this landed on disk before
+      `./gitupdate.sh` was run for it, and in the meantime a *different* concurrent
+      session ran `./gitupdate.sh` for unrelated vacuum work (commit `ac8e216f`, "vacuum:
+      V4 daily job summary..." at 21:32:28) — `gitupdate.sh` does `git add .`, so it swept
+      up this session's already-written `alerts_device_batteries.yaml` change into that
+      commit under a message that doesn't mention it at all. Already pushed to
+      `origin/master` by the time this was noticed, so left as-is rather than rewriting
+      pushed history — flagging here as the audit trail for anyone who goes looking for
+      the battery-alert change under a battery-alert commit message and doesn't find one.
+
 - [x] **2026-08-31 — Security BUG-S77: gardener/staff visitor-at-gate alert spam fixed
       (staff-aware cooldown + scoped mute + Cancel Alert button); also caught BUG-S40
       falsely marked FIXED for 3 months with no code shipped.** User reported the
@@ -3362,7 +3419,7 @@ automation.tablets_brightness_return_restore      ← nobody_home OFF → day br
 #   binary_sensor.honorx7_dash_doze_mode    — device doze/sleep state
 ```
 
-### Device Battery Alert Entities (added 2026-08-21)
+### Device Battery Alert Entities (added 2026-08-21, sparse-reporter override added 2026-08-31)
 ```
 # alerts_device_batteries.yaml — ALL other battery devices (door/gate sensors,
 # gate doorbell, phones, watches, laptops). Excludes inverter/UPS (Power domain)
@@ -3374,6 +3431,9 @@ input_boolean.device_battery_alert_snoozed             ← BUG-A13 per-cycle Can
 input_number.device_battery_warning_threshold          ← 10% low alert trigger (fleet-wide, not per-device)
 input_number.device_battery_critical_threshold         ← 5% critical severity
 input_number.device_battery_critical_days_remaining    ← 1 day — rate-based critical trigger
+input_number.device_battery_stale_hours_sparse         ← 96h — BUG-A22 (2026-08-31), overrides
+                                                           device_battery_stale_hours for entities
+                                                           ALSO labelled battery_monitor_sparse_reporter
 sensor.device_battery_history_log                      ← self-referencing daily snapshot log, 14-day window per entity
 sensor.device_battery_fleet                             ← full roster (all severities) — dashboard reads this directly
 sensor.device_battery_alert_context                     ← canonical context sensor for aggregator (non-normal devices only)
@@ -3386,6 +3446,20 @@ label_id: battery_monitor   ← name "Battery Monitor" — apply to any new batt
                                both this alert pipeline and the Batteries dashboard
                                view automatically, no restart needed for onboarding
 
+label_id: battery_monitor_sparse_reporter   ← name "Battery Monitor (Sparse Reporter)",
+                               added 2026-08-31 (BUG-A22). Apply ALONGSIDE battery_monitor
+                               (not instead of it) to a device whose battery attribute
+                               reports are naturally infrequent — makes
+                               sensor.device_battery_fleet use
+                               input_number.device_battery_stale_hours_sparse (96h)
+                               instead of the global device_battery_stale_hours (24h) for
+                               that entity's staleness check. Applied 2026-08-31 to the
+                               10 SNZB-04P Zigbee door/gate battery entities below
+                               (marked ★) via config/entity_registry/update — do NOT
+                               apply to phones/watches/laptops or the non-ZHA
+                               garage_door_sensor_battery/doorbell, which report
+                               normally and should keep using the global threshold.
+
 # Initial 2026-08-21 rollout was documented as 15 entities labelled battery_monitor —
 # ⚠️ 2026-08-23: found live at ZERO entities labelled (sensor.device_battery_fleet
 # reporting an empty roster) despite this doc and ALERTS_CONTRACT.md both saying PASS.
@@ -3394,13 +3468,13 @@ label_id: battery_monitor   ← name "Battery Monitor" — apply to any new batt
 # 2026-08-23 session log entry) — 20 entities labelled as of 2026-08-23, applied live
 # via the HA WebSocket API (config/entity_registry/update), verified live via
 # sensor.device_battery_fleet showing all 20.
-sensor.bar_door_sensor_battery
-sensor.front_door_sensor_battery
-sensor.front_security_gate_sensor_battery
-sensor.gate_sensor_battery
-sensor.lounge_door_sensor_battery
-sensor.garage_door_sensor_battery
-sensor.ezviz_main_gate_doorbell_battery
+sensor.bar_door_sensor_battery                    ★
+sensor.front_door_sensor_battery                  ★
+sensor.front_security_gate_sensor_battery         ★
+sensor.gate_sensor_battery                        ★  (Main Gate)
+sensor.lounge_door_sensor_battery                 ★
+sensor.garage_door_sensor_battery                    # Sonoff platform, NOT ZHA — no ★, reports normally
+sensor.ezviz_main_gate_doorbell_battery              # no ★, reports normally
 sensor.ryan_iphone16_mobile_app_battery_level
 sensor.iphone13promax_vicky_battery_level
 sensor.iphone14_tayla_mobile_app_battery_level  # renamed 2026-08-24, was tayla_iphone14_mobile_app_*
@@ -3410,11 +3484,13 @@ sensor.luke_iphone15_mobile_app_watch_battery_level
 sensor.ap_0223_1001_internal_battery_level
 sensor.ryan_macbook_pro_mobile_app_internal_battery_level
 # + 5 new (2026-08-23):
-sensor.kitchen_door_sensor_battery
-sensor.reading_room_door_sensor_battery
-sensor.garage_security_gate_sensor_battery
-sensor.laundry_door_sensor_battery
-sensor.laundry_security_gate_sensor_battery
+sensor.kitchen_door_sensor_battery                ★
+sensor.reading_room_door_sensor_battery           ★
+sensor.garage_security_gate_sensor_battery        ★
+sensor.laundry_door_sensor_battery                ★
+sensor.laundry_security_gate_sensor_battery       ★
+# ★ = also carries battery_monitor_sparse_reporter (BUG-A22, 2026-08-31) — all 10 are
+#     the real SNZB-04P Zigbee platform entities; see label_registry note above.
 # Deliberately NOT labelled: sensor.ha_system_monitor_battery (HA host/Pi has no
 # real battery). No iPad has a battery entity yet (device_tracker.tayla_ipadair5th
 # / device_tracker.ipadpro_luke are unifi presence trackers only, no HA app) —

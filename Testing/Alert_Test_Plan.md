@@ -33,6 +33,19 @@
 > now also covering the `stale` severity path) before this pipeline can be considered
 > covered by this plan.
 >
+> **⚠️ 2026-08-31: same still-unwritten Device Battery Fleet TEST section now also needs
+> to cover BUG-A22** — the `stale` severity path above got a second dimension: entities
+> labelled `battery_monitor_sparse_reporter` (currently the 10 SNZB-04P Zigbee door/gate
+> battery sensors) now check `input_number.device_battery_stale_hours_sparse` (96h)
+> instead of the global `input_number.device_battery_stale_hours` (24h) in
+> `sensor.device_battery_fleet`'s `eff_stale_h` calc. Live-verified this session that the
+> override applies only to labelled entities (unaffected phones/watch/laptop still flagged
+> `stale` correctly under the global threshold) but that was a state-inspection check via
+> the Supervisor/WebSocket APIs, not a run through this plan. When the new TEST section
+> above is finally written, add a case for: a `battery_monitor`-labelled entity that also
+> carries `battery_monitor_sparse_reporter` should NOT go `stale` until
+> `device_battery_stale_hours_sparse` hours have passed, even past the global threshold.
+>
 > **⚠️ 2026-08-31: BUG-S77 changed visitor-alert delivery mechanics and TEST 6 doesn't
 > cover them at all** — Method A/B and the Expected Results table below only exercise
 > `sensor.security_threat_level` → `binary_sensor.security_alert_active` (the repeat-
