@@ -4142,6 +4142,13 @@ script.water_demand_set_winter_profile
          gap found while there: GARDEN_CONTRACT.md itself was never added to
          CLAUDE.md's list despite existing since 2026-04-29. CLAUDE.md's
          package table row for `integrations/` updated 1 file → 2 files.
+         **Renamed same day** VACUUM_CONTRACT.md → SMART_CLEANING_CONTRACT.md
+         (user: "so if add something else it has a home") — `git mv`,
+         updated CLAUDE.md's two references + this file's Document Index +
+         the contract's own header/Section 1 wording to name the file's
+         actual scope ("Smart Cleaning", vacuum-specific content unchanged)
+         and note how a second device should be added (new section, not a
+         new file) if one ever shows up.
 ```
 
 ### Group A — Trust Model Chain (Fixes security + lighting + door alerts)
@@ -4448,7 +4455,7 @@ added GARDEN_CONTRACT.md, which had no row in this table at all.)*
 | `docs/domains/CONTEXT_CONTRACT.md` | Context — night mode; CTX01/02/03 all resolved 2026-04-30 | ✅ Authoritative (deep-drift swept 2026-08-21) |
 | `docs/domains/INFRA_CONTRACT.md` | Infra — core/backup/office/weather/integrations/HACS | ✅ Authoritative (deep-drift swept 2026-08-21) |
 | `docs/domains/GARDEN_CONTRACT.md` | Garden — pond pump alert pipeline | ✅ Authoritative (deep-drift swept 2026-08-21; was missing from this table entirely) |
-| `docs/domains/VACUUM_CONTRACT.md` | Vacuum — Ecovacs Deebot alerts, water/detergent estimator | ✅ Created 2026-08-31 (also missing until user asked directly whether it existed) |
+| `docs/domains/SMART_CLEANING_CONTRACT.md` | Smart cleaning — currently just the Ecovacs Deebot (alerts, water/detergent estimator); named generically so a future 2nd device has a home | ✅ Created 2026-08-31 (also missing until user asked directly whether it existed), renamed from VACUUM_CONTRACT.md same day |
 
 > **The `*_CONTRACT.md` files are authoritative.** They were produced by reading actual config files.
 > The older `*_CONTEXT.md` files are quick-reference summaries — use contracts for real work.
