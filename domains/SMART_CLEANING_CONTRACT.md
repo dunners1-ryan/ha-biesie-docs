@@ -59,9 +59,9 @@ a sensor exists just because an estimate sensor reads a number.
 
 ## Section 2: File Inventory
 
-| File | Lines (2026-08-31) | Purpose |
+| File | Lines (2026-08-31, re-verified via `wc -l` same day after V4/V10/V11 additions) | Purpose |
 |---|---|---|
-| `packages/integrations/vacuum.yaml` | ~720 | Mat-removal reminder, fault-alert pipeline, water/dirty-water/detergent consumption estimator |
+| `packages/integrations/vacuum.yaml` | 892 | Mat-removal reminder, fault-alert pipeline (now also covers low consumable lifespan, V11), water/dirty-water/detergent consumption estimator, daily job-outcome summary (V4) |
 
 No separate `packages/vacuum/` directory exists — kept in `integrations/`
 alongside `sonoff.yaml` since it's one file covering one integration/device,
@@ -97,7 +97,8 @@ UI directly). **Whenever the app schedule changes, these two helpers and the
 updating by hand** — nothing here does it automatically, and nothing here
 detects the drift.
 
-### 3b. Fault-Alert Pipeline (added 2026-08-31)
+### 3b. Fault-Alert Pipeline (added 2026-08-31; extended same day to also
+cover consumable lifespan, V11 — this is one pipeline, not two)
 
 Copied verbatim from `alerts_batteries.yaml`'s canonical shape — see that
 file's own header comment for why the parallel-automation delivery path
@@ -105,22 +106,28 @@ exists instead of relying on the native `alert:` entity's `notifiers:`.
 
 ```
 sensor.deebot_t80s_biesie_error  (not in [0, unknown, unavailable])
+  OR min(main_brush, side_brush, filter lifespan %) < input_number.
+     vacuum_lifespan_warning_threshold  (V11, 15% default)
   AND input_boolean.deebot_alert_notify = on
         ↓ (delay_on 20s — sensor bounces through unknown/unavailable/0 on
            every integration reload, confirmed live 2026-08-30)
 binary_sensor.deebot_alert_active
         ↓
 sensor.deebot_alert_context
-  (critical when vacuum.deebot_t80s_biesie == 'error' i.e. genuinely
-   halted/stuck; warning when a code is present but it's still operating)
+  (critical only when vacuum.deebot_t80s_biesie == 'error' i.e. genuinely
+   halted/stuck; warning for a present-but-not-halting fault code OR a
+   low-lifespan consumable — a worn brush never escalates to critical)
         ↓
 automation.route_deebot_alert  (real delivery)
   trigger: binary_sensor.deebot_alert_active → on, for 20s / 30min / 1h
   gated: input_boolean.deebot_alert_snoozed == off
         ↓
 script.notify_system_event (severity from context sensor)
-  title: "🤖 Vacuum Error"
-  message: "<live description> (code <live code>) — <vacuum state>"
+  title: "🤖 Vacuum Alert"
+  message: built from sensor.deebot_alert_context's `devices` attribute
+           (joined `value` lines) — NOT a hardcoded error-only template,
+           since a trigger can now be a fault code, a lifespan warning, or
+           in principle both at once
   actions: [Cancel Alert]  |  telegram: /cancel_deebot_alert
         ↓
 sensor.alert_device_entities  (aggregator — alerts_summary.yaml, picked up
@@ -140,14 +147,16 @@ input_boolean.deebot_alert_snoozed = on  (mutes route_deebot_alert's
 automation.deebot_alert_snooze_reset  → input_boolean.deebot_alert_snoozed = off
 ```
 
-**Message content is always the live description text from the Ecovacs
-cloud**, not a hardcoded per-code table — deliberate, since the two real
-codes seen so far (103 = wheel jam, confirmed; 323 ×3 = unconfirmed, not in
-any public `deebot_client` error table checked, plausibly a newer
+**Fault message content is always the live description text from the
+Ecovacs cloud**, not a hardcoded per-code table — deliberate, since the two
+real codes seen so far (103 = wheel jam, confirmed; 323 ×3 = unconfirmed,
+not in any public `deebot_client` error table checked, plausibly a newer
 water/station code given proximity to the 301-319 water-tank range and the
 same-day water tank issues) already showed the value of not guessing at
 code meanings. Whatever fires next, the real description comes through
-automatically.
+automatically. **Lifespan message content** is generated, not read from the
+device — `"<Part> — <pct>% remaining, replace soon"` for whichever of the
+three consumables is under threshold.
 
 ### Aggregator Name Resolution
 
@@ -207,6 +216,43 @@ repo already applies to `geyser_last_heat_up_minutes`-style trend capture.
 The detergent math is the one exception — it's exact from day one because
 it's derived from a stated ratio, not measured/estimated.
 
+### 3d. Job-Outcome Daily Summary (V4, added 2026-08-31)
+
+**Deliberately not built around `event.deebot_t80s_biesie_last_job`** —
+checked 3 days of real history first (dozens of completed jobs since
+2026-08-29) and it has never fired once, same class of gap as the
+`getMapSet` bug. **Deliberately not a per-segment notification either** —
+Auto Clean runs many short cleaning→docked room segments per session (15+
+seen live in one morning), so a push per segment would be pure spam.
+
+```
+00:01 daily
+        ↓
+automation.vacuum_daily_snapshot_reset
+        ↓
+input_number.vacuum_total_cleans_at_midnight = sensor.deebot_t80s_biesie_total_cleans
+input_number.vacuum_total_area_at_midnight = sensor.deebot_t80s_biesie_total_area_cleaned
+input_number.vacuum_total_duration_at_midnight = sensor.deebot_t80s_biesie_total_cleaning_duration
+input_boolean.vacuum_job_summary_sent_today = off
+
+vacuum.deebot_t80s_biesie → docked, for 10 min
+  AND vacuum_job_summary_sent_today == off
+  AND (total_cleans − total_cleans_at_midnight) > 0   (something ran today)
+        ↓
+automation.vacuum_session_complete_summary
+        ↓
+script.notify_system_event (information)
+  "Cleaned X m² in Y min across Z jobs today."
+        ↓
+input_boolean.vacuum_job_summary_sent_today = on
+```
+
+"Stuck" is intentionally NOT duplicated here — already covered by 3b's
+fault alert on `vacuum.state == 'error'`. The 2026-08-31 midnight snapshot
+was seeded manually via `automation.trigger` immediately after building
+this (that day's real 00:01 had already passed), so the first real summary
+wasn't inflated by lifetime totals.
+
 ---
 
 ## Section 4: Entity Registry
@@ -242,6 +288,7 @@ no camera entity of any kind.
 |---|---|---|---|
 | `input_boolean.deebot_alert_notify` | input_boolean | `true` | Suppress gate — OFF silences all fault alerts without restart |
 | `input_boolean.deebot_alert_snoozed` | input_boolean | `false` | Per-cycle Cancel Alert mute, same BUG-A13/BUG-A19 pattern as garden/battery domains |
+| `input_number.vacuum_lifespan_warning_threshold` | input_number | `15` % | V11 — folded into this same pipeline, not a separate one |
 
 ### Helpers — Water/Detergent Tracking
 
@@ -264,12 +311,21 @@ no camera entity of any kind.
 | `input_button.vacuum_log_dirty_water_empty` | input_button | — | Manual log trigger |
 | `input_button.vacuum_log_detergent_new_bottle` | input_button | — | Manual log trigger (also fired programmatically by the "Detergent Bought" notification action) |
 
+### Helpers — Job-Outcome Summary (V4)
+
+| Entity | Type | Default | Purpose |
+|---|---|---|---|
+| `input_boolean.vacuum_job_summary_sent_today` | input_boolean | `false` | One-shot gate, reset daily at 00:01 |
+| `input_number.vacuum_total_cleans_at_midnight` | input_number | `0` | Midnight snapshot of `sensor.deebot_t80s_biesie_total_cleans` |
+| `input_number.vacuum_total_area_at_midnight` | input_number | `0` m² | Midnight snapshot of `sensor.deebot_t80s_biesie_total_area_cleaned` |
+| `input_number.vacuum_total_duration_at_midnight` | input_number | `0` h | Midnight snapshot of `sensor.deebot_t80s_biesie_total_cleaning_duration` |
+
 ### Template Sensors
 
 | Entity | States/Range | Purpose |
 |---|---|---|
-| `binary_sensor.deebot_alert_active` | on/off | Master fault trigger, delay_on 20s |
-| `sensor.deebot_alert_context` | `critical`/`warning`/`normal` | Aggregator feed; `devices` attribute carries live code+description |
+| `binary_sensor.deebot_alert_active` | on/off | Master fault/lifespan trigger, delay_on 20s |
+| `sensor.deebot_alert_context` | `critical`/`warning`/`normal` | Aggregator feed; `devices` attribute carries live fault code+description and/or low-lifespan lines (V11) |
 | `sensor.vacuum_water_refill_estimate` | days (≥0) | `area_mopped_since_refill`, `avg_area_per_refill`, `last_refill` attributes |
 | `sensor.vacuum_dirty_water_estimate` | days (≥0) | `area_mopped_since_empty`, `avg_area_per_empty`, `last_empty` attributes |
 | `sensor.vacuum_detergent_level` | 0-100% | `refills_remaining`, `estimated_purchase_by`, `bottle_started` attributes |
@@ -294,6 +350,8 @@ no camera entity of any kind.
 | `vacuum_log_detergent_new_bottle` | Vacuum – Log New Detergent Bottle | `input_button.vacuum_log_detergent_new_bottle` pressed | Reset counter to 0, snapshot time |
 | `vacuum_detergent_low_alert` | Vacuum – Detergent Low Alert | `sensor.vacuum_detergent_level` below 15%, one-shot | `script.notify_system_event` w/ Detergent Bought action |
 | `vacuum_detergent_bought_from_notification` | Vacuum Detergent Alert: Bought From Notification | Mobile action `DETERGENT_BOUGHT` or Telegram `/detergent_bought` | Presses `vacuum_log_detergent_new_bottle` (reuses logic) |
+| `vacuum_daily_snapshot_reset` | Vacuum – Daily Snapshot Reset | Time, `00:01:00` daily | Snapshots lifetime totals, resets `vacuum_job_summary_sent_today` |
+| `vacuum_session_complete_summary` | Vacuum – Session Complete Summary | `vacuum.deebot_t80s_biesie` → docked, for 10 min | `script.notify_system_event` (information) — today's area/duration/job-count delta |
 
 ---
 
@@ -310,6 +368,8 @@ no camera entity of any kind.
 | Cancel Alert | `deebot_alert_snoozed` + 2 automations | ✅ |
 | Water/detergent estimator | 3 log buttons + EMA + deterministic detergent math | ✅ confirmed live, real values observed (344 m² since last refill as of 2026-08-31 — genuinely overdue, correctly shown red on dashboard) |
 | Detergent low + Bought action | `vacuum_detergent_low_alert` + `vacuum_detergent_bought_from_notification` | ✅ |
+| Lifespan warning (V11) | Folded into `deebot_alert_active`/`_context` above | ✅ confirmed live, reads `normal` with real current lifespans (92-97%) — not exercised against an actual low reading yet |
+| Daily job summary (V4) | `vacuum_daily_snapshot_reset` + `vacuum_session_complete_summary` | ✅ confirmed live, midnight snapshot seeded manually for the first day (see 3d) — not yet exercised through a real full day+summary cycle end to end |
 | Dashboard | Operations → Vacuum view + Home summary card | ✅ — see Section 6 for the layout lesson |
 
 **PASS, with one known gap**: `alert.deebot_alert` needs a restart to

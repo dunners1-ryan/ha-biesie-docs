@@ -5,6 +5,45 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-08-31 (late) — /update-docs sweep on the vacuum work (this session's
+      own commits, 33812e15 through f8cb4da9) — found and fixed real secondary
+      drift in SMART_CLEANING_CONTRACT.md, not just a clean pass.** Per-commit
+      docs were kept current throughout the session (PROJECT_STATE.md Group V,
+      the contract itself), but the checklist's step 3a sweep caught what
+      per-commit updates missed: (1) File Inventory said `~720` lines, real
+      file was `892` (`wc -l`) — V4/V10/V11 work added ~170 lines after that
+      estimate was written and nothing re-checked it. (2) Section 3 (Pipeline
+      Architecture) had no 3d for V4 at all, and 3b's diagram/message
+      description still described the pre-V11 fault-only shape (hardcoded
+      error-description message) even though the actual YAML had already
+      moved to a generic `devices`-attribute-built message covering both
+      fault codes and lifespan warnings. (3) Section 4 (Entity Registry) and
+      Section 5 (Pipeline Audit) were missing every V4 helper/automation and
+      the V11 threshold helper — Future Scope (Section 8) had already been
+      updated to say V4/V11 were Done, but the detailed registry tables
+      hadn't caught up, exactly the "one line fixed, five references left
+      stale" pattern this command exists to catch. All fixed — see the
+      contract's own 3b/3d, Section 4, Section 5. **Alert_Test_Plan.md**: no
+      TEST section exists for the new vacuum alert pipeline (same gap class
+      as Garden, which also never got one) — added a flag note in the same
+      style as the existing Device Battery Fleet / BUG-S77 warnings, not a
+      full new TEST section (that's a bigger write-up, correctly out of scope
+      for a doc-drift sweep). **SYSTEM_CONTRACT.md**: checked, no update
+      owed — that doc's Section 3 only covers domains that publish a
+      cross-domain interface another domain consumes, and vacuum doesn't
+      (its aggregator pickup is via the generic alerts_summary.yaml naming
+      convention, already documented as a pattern, not a per-domain entry).
+      Vacuum also has no `docs/Context/*.md` quick-ref, consistent with
+      Garden also not having one — not a gap. Grepped `deebot|vacuum` across
+      every other domain contract + SYSTEM_CONTRACT.md + Context/ — one hit
+      (SECURITY_CONTRACT.md's BUG-S77 citing the vacuum Cancel Alert pattern
+      as a design precedent) and it's accurate, no fix needed. Other commits
+      seen in `git log` from the same day (BUG-A22, BUG-S77, and a separate
+      vacuum power-draw investigation in `private_docs/
+      POWER_SYSTEM_PERFORMANCE_LOG.md`) were made by other session(s), not
+      this one — their own commit messages show docs were already handled
+      by whoever made them; not re-verified here, out of scope for this pass.
+
 - [x] **2026-08-31 — Alerts BUG-A22: 9-10 Zigbee door/gate battery sensors falsely
       STALE together for 50+ hours, root-caused live, per-device stale override
       shipped.** User asked "what are these stale alerts?" from an Alerts dashboard

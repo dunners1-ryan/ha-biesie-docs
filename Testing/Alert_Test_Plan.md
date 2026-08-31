@@ -63,6 +63,25 @@
 > Alert (phone action + Telegram button) silences further pushes until staff leave or the
 > gate's quiet 10min, (4) `security_visitor_alerts_suppressed` ON blocks the push entirely
 > without affecting arrival/departure/intruder.
+>
+> **⚠️ 2026-08-31: new Vacuum alert pipeline (`packages/integrations/vacuum.yaml`) has no
+> section in this plan at all** — same gap class as Garden (never had one either) and
+> Device Battery Fleet above, not a regression of an existing tested pipeline. Built
+> 2026-08-31: `binary_sensor.deebot_alert_active` (fault code OR low consumable lifespan,
+> folded into one pipeline rather than two — see SMART_CLEANING_CONTRACT.md Section 3b) →
+> `sensor.deebot_alert_context` → `automation.route_deebot_alert` (script.
+> notify_system_event, Cancel Alert action) → `alert.deebot_alert` (not yet live, needs an
+> HA restart — real delivery doesn't depend on it). Exercised once for real, not through
+> this plan: error code 103 (wheel jam) fired live 2026-08-31 and a notification went out
+> — confirmed by the user seeing it on the dashboard, not by a deliberate test run. Never
+> exercised: the Cancel Alert button (mobile action + Telegram), the snooze/reset cycle, or
+> the low-lifespan branch (all 3 consumables currently 92-97%, nothing to trigger it with).
+> Needs a new TEST section (roster: `binary_sensor.deebot_alert_active`,
+> `sensor.deebot_alert_context`, `alert.deebot_alert`, `input_boolean.deebot_alert_
+> snoozed`, `input_boolean.deebot_alert_notify`) before this pipeline is covered by this
+> plan — could reasonably fold into the eventual Device Battery Fleet section's write-up
+> pass rather than a fully separate effort, since both are "new domain, no section yet"
+> gaps discovered the same week.
 
 ---
 
