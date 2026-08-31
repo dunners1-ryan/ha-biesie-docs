@@ -3927,6 +3927,20 @@ script.water_demand_set_winter_profile
         flagged and accepted: bedrooms/bathrooms clean daily now, not every
         2nd day. Re-open this item if the trial gets walked back to the
         per-room split.
+        **UPDATE 2026-08-31:** the "still open/optional" power-draw question above
+        got its first real number, DB-derived (see `POWER_SYSTEM_PERFORMANCE_LOG.md`'s
+        2026-08-31 entry): the dock's brush-drying+charging cycle (user-confirmed
+        2-3hr per dock) shows a sustained ~400-600W `house_load_power` uplift for
+        at least the first ~70min of a cycle, isolated on an evening with no
+        cooking/airfryer running — full-cycle figure still unconfirmed, a later
+        evening's automation (geyser) confounded the rest of that read. **User
+        decision: buy a dedicated smart power plug to monitor the dock directly**
+        (real per-device wattage instead of inferring from whole-house load deltas)
+        — **hardware not yet purchased**, no plug bought/installed yet. Once it
+        exists: add it to this package following the airfryer's pattern
+        (`sensor.philips_airfryer_plug_power` in `office`/relevant package — check
+        naming convention there) and only then decide `group.flexible_power_loads`
+        inclusion with real data instead of the DB-inferred estimate above.
 
 [x] V7. Done 2026-08-30 — pushed live via the Lovelace WebSocket API
         (`lovelace/config` + `lovelace/config/save`, Supervisor-token auth,
