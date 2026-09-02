@@ -5,6 +5,36 @@
 
 ## ⚠️ OPEN TODO
 
+- [ ] **2026-09-02 (later) — Water Cooler: Jun 2025 gap closed (now genuinely
+      zero gaps, Dec 2024 → Aug 2026, 21 records, R15,589.78 lifetime).
+      Fixed the charts (user reported "Monthly Cost broken" — was) and
+      reworked the Trends section per user request.** Root cause of the
+      broken charts: `markdown` cards run content through DOMPurify, which
+      strips raw `<svg>` — confirmed via `/api/template` that the Jinja
+      itself was always rendering correct SVG, the display layer was eating
+      it. Fixed by switching both chart cards to `custom:html-template-card`
+      (raw `innerHTML`, no sanitization) — the exact same card already used
+      live elsewhere in this dashboard (the load-shedding schedule
+      visualization), not a new unknown. **Then**: added `input_select.
+      watercooler_chart_range` (3 Months/6 Months/1 Year/Lifetime, default
+      3 Months) — both chart templates slice `monthly_breakdown` by it,
+      confirmed via `/api/template` before restarting. Wrapped the selector
+      + both charts + the old detail table in a `custom:expander-card`
+      (collapsed by default) so the Trends section takes zero space until
+      tapped. **Cost Tracking** converted from a 7-row `entities` list to a
+      2×2 `grid` of `custom:mushroom-template-card` tiles — note this used
+      the actual "Home dashboard style" precedent (mushroom-template-card +
+      card_mod, confirmed by reading the vacuum view's Today/Lifetime
+      tiles), not the literal "markdown" the user asked for, since that
+      literal reading would have contradicted the cited "same as home
+      dashboard" — flagged to the user rather than silently substituted.
+      Rate Constants (input_numbers, still editable) deliberately left as
+      an `entities` card, not touched — only Cost Tracking was named.
+      One restart, verified clean after (dashboard structure, `sensor.
+      watercooler_invoice_history` = 21, `input_select.watercooler_chart_
+      range` live, no errors). Still not visually confirmed in a browser
+      this session.
+
 - [x] **2026-09-02 (later) — Alerts: new mute covering BOTH the laundry door
       AND the laundry security gate, `input_boolean.laundry_door_alert_notify`
       (alerts_doors.yaml), same pattern as `input_boolean.camera_alert_notify`
