@@ -442,7 +442,7 @@ No security-domain helpers were found to be UI-created. All are YAML-defined in
 | `input_boolean.unknown_entry_event` | boolean | — | Unknown entry flag |
 | `input_boolean.security_event_active` | boolean | — | Active event flag (write-back from automations) |
 | `input_boolean.security_alert_active` | boolean | — | Alert active flag (consumed by alerts domain) |
-| `input_boolean.security_visitor_alerts_suppressed` | boolean | — | **Added 2026-08-31 (BUG-S77).** Manual dashboard mute, `visitor` router branch only — arrival/departure/intruder/perimeter_threat unaffected. |
+| `input_boolean.security_visitor_alerts_suppressed` | boolean | — | **Added 2026-08-31 (BUG-S77), dashboard entry added 2026-09-02** (BUG-S77 shipped the helper but never wired it into any dashboard — found missing when user asked where it was). Manual dashboard mute, `visitor` router branch only — arrival/departure/intruder/perimeter_threat unaffected. Lives in the Operations → Security dashboard's "Camera System Control" entities card. |
 | `input_boolean.visitor_alert_snoozed` | boolean | — | **Added 2026-08-31 (BUG-S77).** Per-cycle mute set by the "Cancel Alert" action button on a Visitor-at-gate push/Telegram message; auto-clears via `security_visitor_alert_snooze_reset` (10min gate-quiet OR `staff_on_site` off). Not meant to be toggled by hand. |
 | `counter.security_grounds_low_confidence_count` | counter | — | **Added 2026-07-17 (IMPROVEMENT-S67).** Consecutive `grounds_low_confidence` firings; reset by `security_reset_grounds_low_confidence_counter` after 15min grounds-quiet. Drives the daytime warning→information downgrade. |
 | `input_number.perimeter_open_escalation_minutes` | number | 1–60 | Escalation timeout |

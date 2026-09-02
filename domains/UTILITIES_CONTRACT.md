@@ -212,6 +212,18 @@ history log (Section 4/5).
 - **2026-08-31** — Domain created from scratch. Full stock/order/delivery/
   cost-tracking build, Operations dashboard view + Home summary card, this
   contract. See `docs/PROJECT_STATE.md` for the session narrative.
+- **2026-09-02 (later)** — Jun 2025 logged, closing the last gap (21
+  records, zero gaps Dec 2024 → Aug 2026). Chart cards were actually broken
+  (`markdown`'s DOMPurify strips `<svg>`) — fixed by switching to
+  `custom:html-template-card` (raw innerHTML, no sanitization; already used
+  live elsewhere in this dashboard). Trends section reworked: `input_select.
+  watercooler_chart_range` (3/6/12 months/Lifetime, default 3 Months) now
+  slices both charts; selector + charts + detail table live inside a
+  collapsed-by-default `custom:expander-card`. Cost Tracking converted to a
+  2×2 `custom:mushroom-template-card` grid (the real "Home dashboard style"
+  precedent, confirmed against the vacuum view — not literal markdown).
+  Rate Constants (still-editable input_numbers) deliberately left as an
+  `entities` card.
 - **2026-09-02** — Invoice history backfilled to 20 real months (Dec 2024 →
   Aug 2026, only Jun 2025 still missing), via `/log-water-invoice`. Schema
   gained `other_total` per record — a 4th cost bucket for one-off charges
