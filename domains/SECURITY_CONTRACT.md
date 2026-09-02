@@ -2476,6 +2476,17 @@ parsed clean (`yaml.safe_load`, all 3 files). Not yet exercised against a live g
 (no gardener visit since the fix shipped) — functional confirmation is open, see
 `docs/Testing/Alert_Test_Plan.md` flag below.
 
+**Follow-up 2026-09-02 — dashboard gap found and fixed:** item 2's own write-up above calls
+`security_visitor_alerts_suppressed` a "scoped dashboard toggle," but it was never actually
+added to any dashboard — checked every saved dashboard JSON
+(`dashboard_operations`/`_system`/`_overview`/`_testing`, `operations_debug`) and it was
+absent from all of them, found only because the user asked where it was. Added to the
+Operations → Security dashboard's "Camera System Control" entities card. `visitor_alert_
+snoozed` (item 3) has the same gap — its own helper comment even claims "dashboard entry
+exists for visibility," which was never true — left unfixed this session since it's an
+auto-managed per-cycle mute, not meant to be hand-toggled, and the user only asked about
+the persistent override.
+
 ---
 
 ### S18 — Notification severity/sound classification overhaul (2026-07-06)
