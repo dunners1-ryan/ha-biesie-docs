@@ -61,7 +61,7 @@ a sensor exists just because an estimate sensor reads a number.
 
 | File | Lines (2026-08-31, re-verified via `wc -l` same day after V4/V10/V11 additions) | Purpose |
 |---|---|---|
-| `packages/integrations/vacuum.yaml` | 892 | Mat-removal reminder, fault-alert pipeline (now also covers low consumable lifespan, V11), water/dirty-water/detergent consumption estimator, daily job-outcome summary (V4) |
+| `packages/integrations/vacuum.yaml` | 1028 (re-verified 2026-09-02) | Mat-removal reminder, fault-alert pipeline (now also covers low consumable lifespan, V11), water/dirty-water/detergent consumption estimator, daily job-outcome summary (V4), manual machine clean tracker (3e) |
 
 No separate `packages/vacuum/` directory exists — kept in `integrations/`
 alongside `sonoff.yaml` since it's one file covering one integration/device,

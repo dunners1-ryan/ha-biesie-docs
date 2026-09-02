@@ -5,6 +5,36 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-02 — Vacuum: new manual machine-clean tracker (Group V,
+      added to Section 3e of SMART_CLEANING_CONTRACT.md) — user asked for
+      "same as water refill" for taking the roller out and clearing
+      stuck hair/debris.** Same manual-log-plus-EMA pattern as the water/
+      dirty-water trackers (3c): `input_button.vacuum_log_manual_clean`,
+      `input_datetime.vacuum_last_manual_clean_time`, `input_number.
+      vacuum_area_at_last_manual_clean`, EMA pair `vacuum_avg_area_per_
+      manual_clean` / `vacuum_avg_days_per_manual_clean` (seeded 300 m² /
+      7.0 d — pure guesses, genuinely zero prior data unlike water/dirty-
+      water which had one real day to seed from), guarded by
+      `input_boolean.vacuum_manual_clean_logged_once` so the first press
+      doesn't compute a bogus interval. **Explicitly distinct from the V11
+      lifespan sensors** — lifespan tracks wear toward replacement, this
+      tracks periodic decluttering of a roller that isn't worn out, just
+      tangled; don't conflate the two or reuse the reset-lifespan buttons.
+      New `sensor.vacuum_manual_clean_estimate` (days until next needed).
+      Config valid, all helpers/template/automation reloaded live and
+      confirmed. **User said "can start with logged today"** — pressed
+      `input_button.vacuum_log_manual_clean` via the API immediately after
+      building it (2026-09-02 ~17:18 SAST) so today is the real, exact
+      first baseline rather than the placeholder midnight default. Added a
+      3rd row (colour-threshold markdown card, same red/orange/green
+      pattern as V13, plus a log button) to the existing Water & Detergent
+      card group on the Operations → Vacuum dashboard — fetched the live
+      config fresh before editing, did not touch any other card. Docs:
+      SMART_CLEANING_CONTRACT.md Section 3e (new) + Section 4 entity tables
+      (3 new rows: Helpers, Template Sensors, Automations) + Section 5
+      Pipeline Audit + File Inventory line count re-verified (1028, was
+      892 as of the 08-31 sweep — grew ~136 lines this session).
+
 - [ ] **2026-08-31 (evening) — New domain: Water Cooler tracker, first
       subsystem of a new `utilities/` package (user's steer: a home for
       recurring consumable-delivery utilities, distinct from `packages/
