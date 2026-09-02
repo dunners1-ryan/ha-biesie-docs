@@ -7,6 +7,25 @@
 #
 # Scope: All 16 packages/alerts/*.yaml files
 #        Plus cross-domain aggregation in alerts_summary.yaml
+# Last updated: 2026-09-02 — New per-door mute: `input_boolean.laundry_door_alert_notify`
+# (alerts_doors.yaml), same pattern as `input_boolean.camera_alert_notify` (manual
+# dashboard toggle gating an alert without touching the domain-wide
+# `door_alerts_notify` boolean), but same-day only — a new time-triggered automation,
+# `laundry_door_alert_midnight_reset`, forces it back on at 00:00:00 (same safety
+# rationale as `dogs_inside_midnight_clear` in security_automations.yaml, so a
+# forgotten mute can't silently leave the laundry door/gate unmonitored indefinitely).
+# Covers BOTH `binary_sensor.laundry_door_sensor` AND `binary_sensor.
+# laundry_security_gate_sensor` under the one boolean (user correction — originally
+# built laundry-door-only) — both split out of the shared Tier 2 severity loop and
+# the `devices` attribute loop into their own gated block, mirroring the 2026-08-23
+# garage-door split-out. Kitchen door and garage security gate are unaffected.
+# Deliberately does NOT touch `automation.house_secured_check` (the bedtime/
+# everyone-left physical-security sweep) — that's a different kind of check (is the
+# door physically open right now) from the nuisance-alert pipeline this mutes, and
+# conflating the two would create a real safety gap. Added to the Operations →
+# Security dashboard's existing "Door Control" entities card, right below
+# `door_alerts_notify` (`.storage/lovelace.dashboard_operations`, full restart
+# applied — `.storage/lovelace` changes aren't reload-safe).
 # Last updated: 2026-08-31 (later) — BUG-A23: "Ryan Macbook Pro" STALE alert traced to a
 # dead duplicate `mobile_app` device registration, not the live Mac — an orphaned
 # 2025-01-10 registration never reconnected after the 2026-08-24 HA restart, while the
@@ -153,7 +172,7 @@ fully correct. All domains route through the central notification script.
 |---|---|---|---|
 | `alerts_helper.yaml` | 154 | ✅ Active | `active_alert_entities` sensor |
 | `alerts_summary.yaml` | 772 | ✅ Active | `alert_device_entities`, `global_alert_context`, all count sensors |
-| `alerts_doors.yaml` | 1282 | ✅ Active | Door/gate tiered severity, `alert.door_alert`, `automation.house_secured_check` (2026-08-23) |
+| `alerts_doors.yaml` | 1408 | ✅ Active | Door/gate tiered severity, `alert.door_alert`, `automation.house_secured_check` (2026-08-23), laundry door+gate mute `input_boolean.laundry_door_alert_notify` (2026-09-02) |
 | `alerts_network.yaml` | 1365 | ✅ Active | WAN/LAN/device down, degraded, restart |
 | `alerts_power.yaml` | 496 | ✅ Active | Grid offline, battery low, excess load, prepaid drift |
 | `alerts_temperature.yaml` | 1523 | ✅ Active | WAN/LAN/device/storage temps |
@@ -330,6 +349,7 @@ say so. Only this one table cell had never been updated.)*
 | New sensors onboarded (2026-08-23) | `binary_sensor.kitchen_door_sensor`, `laundry_door_sensor`, `laundry_security_gate_sensor`, `garage_security_gate_sensor` → Tier 2 (entry); `reading_room_door_sensor` → Tier 3 (house control) | ✅ wired into `group:` block AND the real severity engine (trigger list, rank computation, duration, devices attribute) — inherit existing night/nobody-home escalation + Cancel Alert automatically |
 | Garage door split-out (2026-08-23) | `binary_sensor.garage_door_sensor` moved out of the shared Tier 2 loop into its own condition block — away/nobody-home unchanged, but the home-branch now requires `binary_sensor.security_lighting_required` (dusk/dark, NOT the generic night flag) AND `binary_sensor.all_family_home` both on, instead of just `night` | ✅ per user request — garage sits open most of the day regardless of who's home, old logic was too noisy |
 | House Secured Check (2026-08-23) | `automation.house_secured_check` — sweeps all 11 doors/gates (every tier, incl. garage), fires at bedtime (`input_datetime.house_secured_check_time`, default 21:30) and on everyone-leaving (`anyone_connected_home` on→off), suppressed by `low_trust_present` (covers maid/gardener) | ✅ new, silent when all-clear, warning at bedtime / critical on everyone-left |
+| Laundry door + gate mute (2026-09-02) | `binary_sensor.laundry_door_sensor` AND `binary_sensor.laundry_security_gate_sensor` split out of the shared Tier 2 loop into one gated block (same thresholds), both gated together on `input_boolean.laundry_door_alert_notify` — same pattern as `camera_alert_notify`, but auto-reset to `on` at 00:00:00 by `automation.laundry_door_alert_midnight_reset` so a mute can't outlive the day it was set. Excluded from `sensor.door_alert_context`'s severity rank and `devices` attribute while muted; still counted in the `duration` attribute (same as garage door — descriptive only, not an alert). Does NOT gate `house_secured_check` — that bedtime/everyone-left sweep still reports a genuinely open laundry door/gate regardless of this mute. Toggle added to the Operations → Security dashboard's "Door Control" card. | ✅ new, per user request |
 
 **PASS.** BUG-A06 fixed 2026-04-16. `sensor.doors_open_alert_severity` deleted.
 `sensor.door_alert_context` is now the unified single source with tiered logic across

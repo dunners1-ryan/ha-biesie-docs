@@ -212,3 +212,19 @@ history log (Section 4/5).
 - **2026-08-31** — Domain created from scratch. Full stock/order/delivery/
   cost-tracking build, Operations dashboard view + Home summary card, this
   contract. See `docs/PROJECT_STATE.md` for the session narrative.
+- **2026-09-02** — Invoice history backfilled to 20 real months (Dec 2024 →
+  Aug 2026, only Jun 2025 still missing), via `/log-water-invoice`. Schema
+  gained `other_total` per record — a 4th cost bucket for one-off charges
+  that aren't water/deposit/rental (so far: Aug 2025's R460 dispenser
+  maintenance-cleaning invoice, JZI0015164), rather than force it into an
+  existing bucket. `total = water_total + deposit_total + rental_total +
+  other_total`. Two inline-SVG trend charts (Jinja-templated `markdown`
+  cards, live off `sensor.watercooler_invoice_history`'s `monthly_
+  breakdown`) added to the dashboard's Trends section, ahead of the
+  original "TBD at implementation time" note in the build plan —
+  `custom:plotly-graph` (the card already used successfully elsewhere in
+  this dashboard, e.g. `prepaid-control`) only binds to entity/statistics
+  history, not arbitrary attribute arrays, so it couldn't plot this file-
+  backed data; confirmed by reading the installed bundle and the working
+  `prepaid-control` config, not assumed. Not yet visually confirmed in a
+  browser this session.

@@ -5,6 +5,78 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-02 (later) — Alerts: new mute covering BOTH the laundry door
+      AND the laundry security gate, `input_boolean.laundry_door_alert_notify`
+      (alerts_doors.yaml), same pattern as `input_boolean.camera_alert_notify`
+      — user asked for "similar to inside camera for security" but
+      auto-resetting the next day; corrected mid-session to fold the gate
+      into the same boolean rather than laundry door alone.** Split both
+      `binary_sensor.laundry_door_sensor` and `binary_sensor.
+      laundry_security_gate_sensor` out of the shared Tier 2 severity loop
+      (and the `devices` attribute loop) into their own gated block, same
+      thresholds/logic, mirroring the 2026-08-23 garage-door split-out —
+      kitchen door and garage security gate are unaffected. New automation
+      `laundry_door_alert_midnight_reset` (same pattern as
+      `dogs_inside_midnight_clear` in security_automations.yaml) forces the
+      boolean back to `on` at 00:00:00 so a forgotten mute can't silently
+      leave either unmonitored past the day it was set. Left unmuted
+      (deliberately) from `automation.house_secured_check` — that
+      bedtime/everyone-left physical-security sweep is a different kind of
+      check than the nuisance-alert pipeline this mutes, and muting it there
+      too would create a real safety gap. Added to the Operations → Security
+      dashboard's existing "Door Control" entities card, right below
+      `door_alerts_notify` (`.storage/lovelace.dashboard_operations`, direct
+      JSON edit — no card of that name existed for per-door mutes yet, this
+      is the first one added there). `ha core check` valid throughout;
+      `input_boolean`/`template`/`automation` reloaded live via the Supervisor
+      API for the YAML logic change (no `alert:` entities touched); the
+      dashboard edit got a **full core restart** per CODING_STANDARDS
+      (`.storage/lovelace` isn't reload-safe) — confirmed live after restart
+      by re-reading the saved dashboard JSON. Verified live: toggled the
+      boolean off, confirmed `sensor.door_alert_context` recomputes with the
+      laundry door excluded from `devices` (no errors), then restored it to
+      `on`. Docs: ALERTS_CONTRACT.md changelog + Doors Domain table row + File
+      Inventory line count (1282 → 1408).
+
+- [ ] **2026-09-02 — Water Cooler: full invoice history backfilled (20 real
+      months, Dec 2024 → Aug 2026) + two SVG trend charts added to the
+      dashboard.** User progressively sent every Aquazania invoice/statement
+      they had via `/log-water-invoice` across several messages this
+      session; `watercooler_invoice_history.json` now holds 20 records,
+      lifetime total R14,861.83, 2026-YTD R6,246.03 (`sensor.watercooler_
+      year_actual_cost`) — every record's `water+deposit+rental(+other)`
+      cross-checked by hand against each statement's own "Total to settle"
+      and matched exactly except where a credit carried over between months
+      (expected, documented in the file's own `_comment`). **Schema gained a
+      4th bucket, `other_total`** (0 everywhere except Aug 2025's R460
+      "Maintenance Cleaning of Cooler" invoice — a real 4th document type
+      that doesn't fit water/deposit/rental, added rather than mis-bucketed
+      or silently dropped). One duplicate correctly caught and skipped (Apr
+      2025 was re-sent). Remaining real gap: **Jun 2025 only** — everything
+      else from Dec 2024 onward is now populated.
+
+      **Dashboard**: added two `markdown` cards ("Monthly Cost", "Monthly
+      Bottles") to the watercooler-control view's Trends section, each a
+      hand-built inline-SVG bar chart driven live by Jinja reading `sensor.
+      watercooler_invoice_history`'s `monthly_breakdown` attribute — chosen
+      over `custom:plotly-graph` after checking the installed bundle
+      (`www/community/lovelace-plotly-graph-card`, confirmed via the actual
+      working `prepaid-control` config) only binds to entity/statistics
+      history, not arbitrary attribute arrays, so it couldn't plot
+      file-backed data. The original "Monthly Trend" markdown table was kept
+      as a numeric fallback directly below the charts, not replaced — **not
+      yet visually confirmed in a browser** (no screenshot access this
+      session); if the SVG doesn't render, the table still shows every real
+      number and is the thing to check first.
+
+      Two live restarts this session (JSON/YAML-only edits earlier didn't
+      need one; both dashboard edits did, per CODING_STANDARDS). One mid-
+      session collision, not a bug: a concurrent session's own dashboard
+      save briefly clobbered the just-added `watercooler-control` view
+      (stale read-modify-write on the same `.storage` file) — re-applied
+      cleanly, confirmed by content hash comparison against pre-edit
+      backups, not a rollback of either session's real work.
+
 - [x] **2026-09-02 (later same day) — Vacuum dashboard: 6 metric cards
       (Clean Water, Dirty Water, Detergent, Manual Clean, Today, Lifetime)
       converted from plain markdown to `custom:mushroom-template-card`
@@ -4139,6 +4211,8 @@ sensor.vacuum_detergent_level
 input_button.vacuum_log_water_refill
 input_button.vacuum_log_dirty_water_empty
 input_button.vacuum_log_detergent_new_bottle
+input_button.vacuum_log_manual_clean                ← added 2026-09-02, manual roller/debris clean tracker (Section 3e)
+sensor.vacuum_manual_clean_estimate
 # Full entity registry + pipeline: docs/domains/SMART_CLEANING_CONTRACT.md
 ```
 
