@@ -82,6 +82,21 @@
 > plan — could reasonably fold into the eventual Device Battery Fleet section's write-up
 > pass rather than a fully separate effort, since both are "new domain, no section yet"
 > gaps discovered the same week.
+>
+> **⚠️ 2026-09-02: TEST 2 (Door/Gate Alerts) doesn't cover the new laundry door+gate mute**
+> — `input_boolean.laundry_door_alert_notify` (`alerts_doors.yaml`) mutes BOTH
+> `binary_sensor.laundry_door_sensor` and `binary_sensor.laundry_security_gate_sensor`
+> together (split out of the shared Tier 2 severity/`devices`-attribute loop into their
+> own gated block, same pattern as the 2026-08-23 garage-door split-out) and auto-resets
+> to `on` at 00:00:00 via `automation.laundry_door_alert_midnight_reset` — never exercised
+> against a real open event, only toggled with the doors already closed (no-op check).
+> Also added to the Operations → Security "Door Control" dashboard card, unverified in a
+> browser. When TEST 2 is run, add checks for: (1) laundry door/gate open + mute OFF →
+> `sensor.door_alert_context` and its `devices` attribute exclude both, same as any other
+> closed door; (2) laundry door/gate open + mute ON → normal severity/notification
+> behaviour, unaffected; (3) kitchen door / garage security gate remain unaffected by the
+> mute either way (still in the shared Tier 2 loop); (4) mute left OFF overnight → back to
+> `on` by the next day without manual intervention.
 
 ---
 

@@ -5,6 +5,68 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-02 (evening) — Tooling: `gitupdate.sh` + `/update-docs` skill
+      changed to default to session-scoped commits, not `git add .`.** User
+      caught a real problem live: an `/update-docs` pass ran `gitupdate.sh`
+      with just a message (no file args), which — because `gitupdate.sh` has
+      always done a blanket `git add .` — staged and committed an unrelated,
+      unfinished concurrent-session change (`packages/alerts/alerts_doors.
+      yaml`, 134 lines, + `packages/utilities/watercooler_invoice_history.
+      json`) under a commit message describing neither. User: "update script
+      to default to existing session files only unless user requested for
+      broader" — then clarified they meant the `/update-docs` **skill**
+      (`.claude/commands/update-docs.md`), not just the shell script, so
+      both got fixed together. **`gitupdate.sh`**: now accepts optional file
+      arguments after the message — `./gitupdate.sh "msg" file1 file2 ...`
+      stages only those (`git add -- "$@"`); no-args falls back to the
+      original `git add .` unchanged, so the daily 05:00 backup automation
+      (`packages/backup/github.yaml`, which calls it with only `{{ reason
+      }}`) is completely unaffected — still a full snapshot, as intended.
+      **`.claude/commands/update-docs.md`**: Step 6 now defaults to building
+      the file list from the session's own edit history and passing it
+      explicitly; broad `git add .` only on explicit user request. Step 7
+      checklist and "What NOT to do" updated to match.
+      **`docs/SESSION_CHECKLIST.md`** (the authoritative source this skill
+      is derived from) had the exact same now-stale guidance — caught via
+      this session's own `/update-docs` step 3a sweep (`grep -rln
+      "gitupdate\.sh"` across docs/, checked each hit for staleness) rather
+      than missed the way the audit's own real examples describe — fixed to
+      match. **Proven with a real test, not synthetic**: ran
+      `./gitupdate.sh "TEST..." docs/PROJECT_STATE.md` — it picked up 30
+      real lines another session had added (a Water Cooler entry) while
+      leaving `alerts_doors.yaml`, both watercooler files, `ALERTS_CONTRACT.
+      md`, `UTILITIES_CONTRACT.md`, and two brand-new untracked files
+      (`gas_core.yaml`, `gas_helpers.yaml`) from other sessions completely
+      untouched — confirmed via `git status` immediately after.
+
+- [x] **2026-09-02 (later still) — Security: found and fixed a real dashboard
+      gap — `input_boolean.security_visitor_alerts_suppressed` (BUG-S77,
+      2026-08-31) was built as a manual dashboard mute but never actually
+      added to any dashboard.** User asked where the "visitor override
+      boolean" was on the security dashboard and said it belonged on the
+      Camera System Control side. Checked every dashboard's saved JSON
+      (`dashboard_operations`, `_system`, `_overview`, `_testing`,
+      `operations_debug`) for `security_visitor_alerts_suppressed` and
+      `visitor_alert_snoozed` — both came back **absent from all of them**,
+      confirming this wasn't a placement question but a genuine miss from
+      the original BUG-S77 session (its own helper comment even says
+      "dashboard entry exists for visibility" for `visitor_alert_snoozed`,
+      which was never true). Added `security_visitor_alerts_suppressed` to
+      the Operations → Security dashboard's existing "Camera System Control"
+      entities card (`.storage/lovelace.dashboard_operations`, direct JSON
+      edit, backed up first). Did NOT add `visitor_alert_snoozed` — user only
+      asked about the override boolean (a persistent manual mute); that one
+      is the auto-managed per-cycle "Cancel Alert" snooze, explicitly "not
+      meant to be toggled by hand" — flagging its absence rather than adding
+      it unasked. Full core restart required (`.storage/lovelace` isn't
+      reload-safe) — same restart also picked up the earlier laundry-door
+      dashboard addition from this session, which had been sitting in
+      `.storage` since before this restart. `ha core check` valid; confirmed
+      live post-restart both by API state read
+      (`input_boolean.security_visitor_alerts_suppressed` = `off`, present)
+      and by re-reading the saved dashboard JSON. Docs: SECURITY_CONTRACT.md
+      entity table row updated to note the dashboard-gap fix.
+
 - [ ] **2026-09-02 (later) — Water Cooler: Jun 2025 gap closed (now genuinely
       zero gaps, Dec 2024 → Aug 2026, 21 records, R15,589.78 lifetime).
       Fixed the charts (user reported "Monthly Cost broken" — was) and
@@ -3514,6 +3576,8 @@ input_boolean.inside_cameras_armed              ← auto-managed by arming autom
 input_boolean.inside_cameras_schedule_override  ← dashboard override, force-arms cam14/cam15
 binary_sensor.security_gate_loitering           ← added 2026-07-02 (S17), delay_on 7s on ipcam01 regionentrance
 input_boolean.security_visitor_alerts_suppressed ← added 2026-08-31 (BUG-S77), scoped mute for the visitor router branch only
+                                                  ← dashboard entry added 2026-09-02 (was built but never wired into any
+                                                    dashboard — Operations → Security → "Camera System Control" card)
 ```
 
 ### Presence Persons
@@ -3571,6 +3635,21 @@ sensor.door_alert_context                       # SINGLE SOURCE — replaces doo
 # condition block — home-branch now gated on binary_sensor.security_lighting_required
 # AND binary_sensor.all_family_home instead of the generic night flag. See
 # ALERTS_CONTRACT.md Doors Domain section.
+```
+
+### Laundry Door + Gate Alert Mute (added 2026-09-02)
+```
+input_boolean.laundry_door_alert_notify         # alerts_doors.yaml — covers BOTH
+                                                 # binary_sensor.laundry_door_sensor AND
+                                                 # binary_sensor.laundry_security_gate_sensor
+                                                 # (one boolean, both entities split out of the
+                                                 # shared Tier 2 loop into their own gated block)
+automation.laundry_door_alert_midnight_reset    # forces the boolean back to `on` at 00:00:00 —
+                                                 # same pattern as dogs_inside_midnight_clear
+                                                 # (security_automations.yaml)
+# Dashboard: Operations → Security → "Door Control" entities card.
+# Deliberately does NOT gate automation.house_secured_check (different kind of check —
+# physical-security sweep, not the nuisance-alert pipeline).
 ```
 
 ### Gate Alert Camera + Cancel (BUG-A13 — added 2026-07-17)

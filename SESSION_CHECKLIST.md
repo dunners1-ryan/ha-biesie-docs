@@ -44,7 +44,15 @@
 
 ### `/config/` (private — habiesie config)
 
-- [ ] `./gitupdate.sh "<message including sprint/session ID>"`
+- [ ] `./gitupdate.sh "<message including sprint/session ID>" <file1> <file2> ...`
+      — pass the specific files this session touched; `gitupdate.sh` stages
+      only those (`git add -- <files>`). No-args (`./gitupdate.sh "<message>"`
+      alone) falls back to `git add .` — reserve that for when the user
+      explicitly wants a broad/full commit, or leave it to the daily 05:00
+      backup automation's own call, which uses that pattern intentionally.
+      Added 2026-09-02 after a no-args call swept an unrelated, unfinished
+      concurrent-session change (`alerts_doors.yaml` + a watercooler file)
+      into a commit that described neither.
 - [ ] Message references the change scope (e.g. `security S3: ...`)
 
 ### `ha-biesie-docs/` (public — contracts and PROJECT_STATE)
