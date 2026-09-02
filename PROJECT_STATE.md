@@ -5,6 +5,69 @@
 
 ## ⚠️ OPEN TODO
 
+- [ ] **2026-09-02 (later still) — New domain: Gas Bottles tracker, second
+      subsystem in `packages/utilities/` alongside Water Cooler, exactly as
+      that domain's contract header anticipated.** 2× 9kg LPG cylinders
+      (Owned/refillable, Swap/exchange) feeding the gas stove (year-round,
+      main use) and a movable winter-only heater — manual single-hose
+      connection per appliance (no auto-changeover regulator), confirmed
+      live 2026-09-02: Swap bottle on stove, Owned bottle on heater
+      (near-empty from recent use). Departs from Water Cooler's model in one
+      key way: consumption tracked **per appliance** (stove/heater), not per
+      bottle-pool, since each has a very different burn rate and either
+      bottle identity can be assigned to either appliance
+      (`input_select.gas_stove_bottle_identity`/`gas_heater_bottle_
+      identity`). New files: `gas_helpers.yaml`, `gas_core.yaml`,
+      `gas_automations.yaml`, `gas_gauge_history.json`. Full lifecycle:
+      optional Place Order → Log Refill/Exchange Done (`input_boolean.
+      gas_do_refill`/`gas_do_swap`, either or both in one transaction, cost
+      fields, both entry points feed the same completion automation) →
+      `sensor.gas_transaction_log` (self-referencing trigger-based template
+      sensor, event-triggered off a custom `gas_transaction_logged` event
+      rather than the button's own state change to avoid racing that same
+      automation's reset of its own toggle helpers — see UTILITIES_CONTRACT.
+      md Section 8e) → monthly/annual actual cost sensors. Alert pipeline is
+      an exact structural copy of Water Cooler's (`route_gas_alert` /
+      cancel-from-notification / snooze-reset / `alert.gas_alert`). New
+      Operations dashboard view (`gas-control`) mirrors `watercooler-
+      control`'s section layout (Stock & Usage / Order / Log Done / Cost
+      tiles + range-filterable inline-SVG trend charts + full-detail
+      expander / Settings), plus a Home-dashboard summary tile next to Water
+      Cooler's. New skill `.claude/commands/log-gas-reading.md` (mirrors
+      `/log-water-invoice`) logs photographed stove-gauge readings to
+      `gas_gauge_history.json` on a reminder cycle — deliberately NOT fed
+      into the burn-rate EMAs, trend/calibration reference only.
+      **Two real config-shape bugs caught live while building this** (not
+      hypothetical — HA rejected/silently-broke the config until fixed): a
+      trigger-based template sensor must be its own list item under
+      `template:`, not nested inside a plain `sensor:` list nor a second
+      top-level `template:` key in the same file (duplicate-key warning,
+      one block silently dropped); and Jinja dict `.update()` is blocked by
+      HA's template sandbox (`SecurityError`) — the dashboard's monthly
+      aggregation charts use the same `dict(list_of_tuples)` fold
+      `sensor.device_battery_history_log` already established, not a
+      mutated dict. `ha core check` clean; live states spot-checked via the
+      Supervisor API (`sensor.gas_stove_days_remaining` = 56.2d,
+      `sensor.gas_heater_days_remaining` = 7.2d — genuinely low, not a
+      fresh-seed artifact, since the heater bottle really is near-empty).
+      **Deliberately deviated from an early plan step**: did NOT press
+      `input_button.gas_confirm_completed` to "seed a baseline" the way the
+      vacuum's manual-clean tracker did — unlike that case, nothing was
+      actually refilled/exchanged today, so pressing it would have falsely
+      marked both bottles freshly serviced and corrupted the estimate the
+      backdated seed connect-times already got right.
+      **⚠️ NOT YET RESTARTED** — `alert.gas_alert` and the two `.storage/
+      lovelace` dashboard edits (Operations view + Home summary tile) both
+      require a full HA restart to activate; real notification delivery
+      does not depend on it (`route_gas_alert` doesn't need the `alert:`
+      entity). **Gauge photo still unreceived** — two upload attempts
+      failed client-side (not a code issue); `/log-gas-reading`'s reading-
+      format section is explicitly flagged open pending the first
+      successful photo, and a credit-card-statement backfill of real
+      historical costs is similarly still pending. Docs: UTILITIES_CONTRACT.
+      md Section 8 added (full design writeup), this entry, Locked Entity
+      Names below.
+
 - [x] **2026-09-02 (later still) — Smart Cleaning: closed Group V's V1 doc gap
       — vacuum's "31-entity inventory" was never actually written anywhere,
       just pointed at circularly between two files.** User picked this as
@@ -4351,6 +4414,28 @@ input_button.vacuum_log_detergent_new_bottle
 input_button.vacuum_log_manual_clean                ← added 2026-09-02, manual roller/debris clean tracker (Section 3e)
 sensor.vacuum_manual_clean_estimate
 # Full entity registry + pipeline: docs/domains/SMART_CLEANING_CONTRACT.md
+```
+
+### Gas Bottles Entities (added 2026-09-02)
+```
+input_select.gas_stove_bottle_identity              ← Owned/Swap/None, which bottle feeds the stove — NOT a stock count
+input_select.gas_heater_bottle_identity              ← same, heater — "None" most of the year, not an error state
+input_select.gas_owned_bottle_status                 ← per-CYLINDER status, independent of which appliance it's on
+input_select.gas_swap_bottle_status                  ← don't confuse with the two *_bottle_identity selects above
+sensor.gas_stove_days_remaining                      ← main dashboard figure most of the year (stove = main use)
+sensor.gas_heater_days_remaining                     ← only meaningful once gas_heater_bottle_identity ≠ "None"
+input_number.gas_avg_days_per_bottle_stove           ← seed 75d, flagged guess — separate EMA from heater's
+input_number.gas_avg_days_per_bottle_heater          ← seed 21d, flagged guess — NOT the same clock as stove's
+input_boolean.gas_do_refill / gas_do_swap            ← TRANSIENT — read once by gas_confirm_completed then reset
+                                                        off after logging; do not treat as persistent state
+input_button.gas_confirm_completed                    ← the real completion event, works with or without an order
+sensor.gas_transaction_log                            ← event-triggered (gas_transaction_logged), NOT triggered off
+                                                        input_button.gas_confirm_completed's own state change — see
+                                                        UTILITIES_CONTRACT.md Section 8e for why (race avoidance)
+sensor.gas_gauge_history                              ← Claude-maintained via /log-gas-reading, trend-only, does
+                                                        NOT feed the avg-days EMAs above
+alert.gas_alert                                       ← needs 1 HA restart to activate, not yet done as of 2026-09-02
+# Full design + pipeline: docs/domains/UTILITIES_CONTRACT.md Section 8
 ```
 
 ---
