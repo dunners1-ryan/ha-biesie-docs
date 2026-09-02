@@ -362,12 +362,19 @@ calibration reference only, shown on the dashboard, same "informational
 only, not counted" precedent as Water Cooler's dispenser reservoir. The
 EMAs only update from real refill/exchange completions (8d/8e).
 
-**⚠️ Open as of 2026-09-02**: no photo of the actual gauge has successfully
-been read in a session yet (upload attempts failed client-side, not a code
-issue). The exact reading format (kg scale, %, or colour-zone) is therefore
-unconfirmed — `/log-gas-reading`'s own file flags this and must be updated
-with the real format the first time a photo is successfully parsed, rather
-than guessing now.
+**Reading format confirmed 2026-09-02** from a real photo (three prior upload
+attempts had failed client-side before this one came through): the gauge is
+a small mechanical "Gas Safety Gauge" tell-tale, **not** a numeric kg/%
+dial — a needle points into one of three colour zones (green **Gas** =
+plenty, amber **Low Gas**, red = near-empty). It also has a white **"Push To
+Reset"** button, pressed by hand after connecting a fresh/full bottle — a
+physical action HA cannot detect or trigger. First real reading logged the
+same day: `Gas (green zone, near top edge)` on the Swap bottle (then on the
+stove), needle position noted as approximate given photo blur.
+`automation.gas_confirm_completed` (8d) now reminds the user to press the
+reset button in its own completion notification whenever the just-completed
+refill/exchange is for whichever bottle is currently on the stove — the only
+appliance this gauge is fitted to.
 
 ### 8g. Alert Pipeline
 
@@ -490,3 +497,16 @@ supplier has not been tried.
   assumption (that those two visits were heater-driven rather than just
   higher stove use) — left as a suggestion for the user to confirm, not a
   silent recalibration.
+
+- **2026-09-02 (final)** — First real gauge photo received (three prior
+  attempts had failed client-side). Confirmed the reading format (Section
+  8f) and logged the first real entry via `/log-gas-reading`:
+  `sensor.gas_gauge_history` now shows `record_count: 1`,
+  `Gas (green zone, near top edge)` on the Swap bottle. Small automation
+  addition as a direct result: `gas_confirm_completed`'s completion
+  notification now reminds the user to press the gauge's physical "Push To
+  Reset" button whenever the just-completed service is for whichever
+  bottle is currently on the stove — a real physical step this system
+  can't detect or perform, only remind about. `/log-gas-reading` and this
+  section both updated to describe the confirmed 3-zone format instead of
+  the earlier kg/%/colour-zone open question.
