@@ -5,6 +5,44 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-02 (water session, after Gas Bottles work) — Investigated a
+      reported "watering full M/W/F/S, smaller afternoon, half other days"
+      pattern; predictive fill was a red herring, found and fixed a real
+      false-positive risk instead.** User asked whether `input_boolean.
+      water_predictive_fill_enabled` (Branch 4.7) needed tuning. Checked
+      live entities + recorder DB directly (Supervisor API + sqlite3 against
+      `home-assistant_v2.db`), not just docs. Findings: (1) Branch 4.7 never
+      fired in the prior 10 days — it gates on `sensor.energy_orchestrator_
+      state == 'conserve'`, which was never true in that window (only
+      `normal`/`surplus` + a few instant restart-glitch `critical` blips);
+      correctly idle given healthy solar/SOC, not broken. (2) The demand-day
+      → depth-target system (`sensor.water_effective_fill_target` reading
+      `sensor.water_target_depth_tomorrow`) is intentional day-ahead
+      pre-positioning, working as designed — explains why Friday's fill
+      looks biggest (pre-filling for Saturday's Pool/1.6m day). (3) Initial
+      hypothesis that `binary_sensor.water_refill_allowed` was flapping
+      21-56×/day and causing `water_borehole_mid_run_shutdown` to fragment
+      each day's fill into multiple sessions was **wrong** — that count was
+      raw `state='off'` rows including duplicate re-published states, not
+      real transitions. Deduplicated: the gate is stable all day; only real
+      daytime blip in 10 days was a 3-minute dip on Aug 31. The multiple
+      daily pump sessions are legitimate target-reached → consumption-
+      drained → refill-again behavior. Self-corrected this to the user
+      before implementing anything, rather than proceeding on the wrong
+      diagnosis. **Fix applied anyway** (cheap insurance, not a fix for the
+      reported pattern): debounced the `permission_revoked` trigger in
+      `water_borehole_mid_run_shutdown` (`water_tank_refill_control.yaml`)
+      with `for: "00:01:00"`, mirroring the existing Issue 9 max-depth-stop
+      debounce — protects against the rare sub-minute Tuya/recorder blip
+      class without weakening real revocations (SOC drop, grid loss,
+      orchestrator critical all stay off well past a minute). `ha core
+      check` clean (verified via Supervisor API `config/core/check_config`).
+      No code bug found in predictive-fill or demand-target logic — both
+      confirmed working as designed, nothing else changed. Docs:
+      WATER_CONTRACT.md mid-run-shutdown description + new Session Log
+      entry (see that file, directly above its "Last updated: 2026-08-21"
+      footer).
+
 - [x] **2026-09-02 (absolute last) — Gas Bottles: recalibrated burn-rate +
       price estimates from real purchase data, fixed a real dashboard
       chart-rendering bug.** User: "use value from purchases as base" —
