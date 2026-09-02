@@ -510,3 +510,41 @@ supplier has not been tried.
   can't detect or perform, only remind about. `/log-gas-reading` and this
   section both updated to describe the confirmed 3-zone format instead of
   the earlier kg/%/colour-zone open question.
+
+- **2026-09-02 (very last)** — Burn-rate estimates and price references
+  recalibrated from real purchase data, per explicit user instruction ("use
+  value from purchases as base") — see Section 8c/8h and the updated
+  `gas_helpers.yaml` comments for the exact gap/average math:
+  `gas_avg_days_per_bottle_stove` 75d → **136.67d** (avg of the 3 non-winter
+  purchase gaps), `gas_avg_days_per_bottle_heater` 21d → **16d** (avg of the
+  2 winter BigF gaps), `gas_owned_refill_price_reference` R330 →
+  **R304.83**, `gas_swap_exchange_price_reference` R309 → **R338.90** (both
+  real transaction averages, not recollection guesses anymore). Set live via
+  the input_number API AND the YAML `initial:` values, so a future full
+  re-create matches too — same "keep the source-of-truth accurate"
+  convention this repo already follows elsewhere.
+  **Dashboard chart rework** — user reported the two Trends charts
+  (`Monthly Cost`, `Monthly Refills/Exchanges`) were "squashed," unreadable
+  x-axis labels, no y-axis, no values on the bars. Root cause: `preserveAspectRatio="none"`
+  independently stretched a viewBox sized for only 2-4 real months of data
+  across a much wider dashboard card, distorting bar proportions and
+  crushing the rotated month-label text (works fine on Water Cooler's chart
+  purely because it already has ~20 real months, never actually tested
+  small-N here). Fixed by (1) switching to `preserveAspectRatio="xMinYMid
+  meet"` so aspect ratio is preserved rather than stretched, (2) a minimum
+  4-slot width floor so a chart with only 2-3 real months doesn't render a
+  tiny viewBox that then gets warped, (3) added y-axis 0/mid/max tick
+  labels + gridline, (4) added a value label directly above/on every bar
+  (cost in R, count for refills/exchanges) so figures are readable without
+  hovering — the existing `<title>` hover tooltips are kept as a bonus
+  exact-value readout, not a replacement for visible labels. Also added:
+  `multiline_secondary: true` on the 4 cost-tile `mushroom-template-card`s
+  (their secondary text was single-line-truncating), and a home-dashboard-
+  style section heading ("Cost & Usage Trends", `heading_style: subtitle`)
+  above the Trends grid — that section had no heading at all before,
+  matching Water Cooler's own section 2 (also headingless, not something
+  copied wrong, just never added on either dashboard). Confirmed via
+  `check_config` + a full restart + live API spot-checks (transaction log
+  and cost sensors survived the restart correctly via RestoreEntity, no new
+  errors in the log beyond the pre-existing unrelated `alert_device_
+  entities`/`problem_alert_devices` "duration" attribute bug).

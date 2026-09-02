@@ -5,6 +5,29 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-02 (absolute last) — Gas Bottles: recalibrated burn-rate +
+      price estimates from real purchase data, fixed a real dashboard
+      chart-rendering bug.** User: "use value from purchases as base" —
+      `gas_avg_days_per_bottle_stove` 75d→136.67d, `_heater` 21d→16d,
+      `gas_owned_refill_price_reference` R330→R304.83, `gas_swap_exchange_
+      price_reference` R309→R338.90, all computed from the real 6-
+      transaction backfill (gap-averages for burn-rate, cost-averages for
+      price refs — full math in UTILITIES_CONTRACT.md Section 8's Session
+      Log). Set both live (API) and in `gas_helpers.yaml`'s `initial:`
+      values. Separately, user reported the Trends section's two charts
+      were "squashed," unreadable x-axis, no y-axis, no bar values — real
+      bug: `preserveAspectRatio="none"` was stretching a viewBox sized for
+      2-4 real months across a much wider card, only not visible on Water
+      Cooler's own equivalent chart because that one already has ~20 real
+      months. Fixed: `xMinYMid meet` aspect handling + a 4-slot minimum
+      width floor, added y-axis 0/mid/max labels, added a value label on
+      every bar (kept `<title>` hover as a bonus, not a replacement). Also
+      added `multiline_secondary: true` to the 4 cost-tile mushroom cards
+      and a Home-dashboard-style section heading ("Cost & Usage Trends")
+      that section never had. Full restart done, confirmed live — no new
+      errors beyond the pre-existing unrelated `alert_device_entities`
+      "duration" attribute bug.
+
 - [x] **2026-09-02 (later still) — New domain: Gas Bottles tracker, second
       subsystem in `packages/utilities/` alongside Water Cooler, exactly as
       that domain's contract header anticipated.** 2× 9kg LPG cylinders
