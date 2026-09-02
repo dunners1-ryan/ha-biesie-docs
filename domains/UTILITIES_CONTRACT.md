@@ -186,6 +186,32 @@ and `can_acknowledge` UI — **not** the real delivery path (that's
 Requires a full HA restart to activate (`alert:` entities cannot be
 reloaded).
 
+**Required attribute shape (2026-09-02 fix, real bug not a doc gap):**
+`sensor.watercooler_alert_context` originally shipped without a `duration`
+attribute — ALERTS_CONTRACT.md Section 3's canonical pipeline already
+specified `sensor.*_alert_context (state + {domain, devices, duration}
+attrs)` as required, and the aggregator (`alerts_summary.yaml`) reads
+`c.attributes.duration` unconditionally for every non-normal context sensor
+with a `devices` list — this just wasn't followed here. Threw a repeating
+`UndefinedError` in the live log the moment stock actually went into
+`warning` (not caught earlier since the sensor stayed `normal` until then).
+Fixed with the same calc `deebot_alert_context` uses — minutes since
+`binary_sensor.watercooler_low_stock` last turned on, 0 while inactive.
+**The Gas Bottles subsystem (Section 8) independently made the identical
+miss on `gas_alert_context` the same day** — this is a real, repeatable
+build-time gotcha for any future `_alert_context` sensor in this package,
+not a one-off.
+
+**Known gap, not fixed (shared file, needs asking first):** neither
+`alert.watercooler_alert` nor `alert.gas_alert` are in `alerts_summary.
+yaml`'s explicit `entity_id:` aggregator trigger list (see ALERTS_CONTRACT.md
+Section 3 "Aggregator Trigger List") — both rely solely on that automation's
+1-minute `time_pattern` poll fallback to be picked up, not an instant
+state-triggered update like every other domain's alert. Low severity (worst
+case ~60s display lag), but worth fixing in `alerts_summary.yaml` in a
+session that also touches Gas, since it's the same missing-entry pattern for
+both new domains.
+
 ---
 
 ## Section 7: Cost Model — VAT and rate constants
@@ -571,3 +597,14 @@ supplier has not been tried.
   entirely rather than left empty. Confirmed live post-restart (both tiles
   correctly showed blue/pulsing immediately after the recalibration above,
   `check_config` clean, no new errors).
+- **2026-09-02 (water, final round)** — Fixed the `duration`-attribute bug
+  and rebuilt both Trends charts against the (by then already fixed)
+  `gas-control` charts as a working reference — see Section 6 for the
+  `duration` fix detail and `docs/PROJECT_STATE.md`'s same-dated entry for
+  the full chart-rebuild narrative. Net dashboard result: native `heading`
+  card restored (was invisible — `markdown`+`card_mod` isn't a real section
+  header inside a `sections`-layout view), per-bar value labels always
+  shown (was capped to n≤8), y-axis rounded to clean numbers, non-rotated
+  legible month labels, no more width/height distortion. `input_select.
+  watercooler_chart_range` confirmed already working live in the browser
+  mid-session (found set to "1 Year"). Two restarts, both verified clean.

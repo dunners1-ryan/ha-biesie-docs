@@ -5,6 +5,43 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-02 (water, final round) — Fixed a real recurring log error
+      (`sensor.watercooler_alert_context` missing the `duration` attribute
+      ALERTS_CONTRACT.md Section 3's own canonical pipeline already required
+      — `{domain, devices, duration}` — not a doc gap, a build miss; the Gas
+      Bottles session independently made the identical miss on
+      `gas_alert_context` the same day, confirmed via the aggregator's own
+      "no duration attr" error in the live log). Added the same `duration:`
+      calc `deebot_alert_context` uses (minutes since `binary_sensor.
+      watercooler_low_stock` last turned on); reloaded, confirmed the error
+      stopped recurring. **Open gap, not fixed here** (shared file, not
+      touched without asking): neither `alert.watercooler_alert` nor `alert.
+      gas_alert` are in `alerts_summary.yaml`'s explicit aggregator trigger
+      list — both only get picked up by its 1-minute poll fallback, not
+      instantly on state change, unlike every other domain's alert.
+      **Chart rebuild** (user: "still squashed, no y-axis, no bar values,
+      heading gone — look at gas dashboard"): compared directly against
+      `gas-control`'s already-working `Monthly Cost`/`Monthly Refills`
+      cards and adopted that exact pattern — native `{"type": "heading"}`
+      card (not `markdown`+`card_mod`, which doesn't act as a real section
+      header inside a `sections`-layout view, the actual bug behind "heading
+      gone"), value labels always shown per bar (was capped to n≤8, dropped
+      the cap), y-axis rounded to clean numbers (R1000/R0, not raw
+      R990.15-ish), non-rotated horizontal month labels, slot-floor width
+      math so a 3-bar view isn't taller than it is wide (the real cause of
+      "squashed" — `preserveAspectRatio="none"` from an earlier fix was
+      independently scaling width/height and visibly distorting the rotated
+      labels; removed). Own bug caught mid-build: first patch script's
+      `break` exited before ever reaching the chart cards later in the same
+      list, so a content update silently didn't apply — caught by re-
+      checking via `/api/template` before restarting, not assumed. Verified
+      both final templates render correctly via `/api/template` before each
+      restart. `input_select.watercooler_chart_range` (3/6/12 months/
+      Lifetime) confirmed already working live in the browser mid-session
+      (found set to "1 Year" — the user had already used it). Two restarts
+      this round, both verified clean after (dashboard structure, `sensor.
+      watercooler_invoice_history` = 21 records, no errors).
+
 - [x] **2026-09-02 (water session, after Gas Bottles work) — Investigated a
       reported "watering full M/W/F/S, smaller afternoon, half other days"
       pattern; predictive fill was a red herring, found and fixed a real
@@ -231,7 +268,7 @@
       and by re-reading the saved dashboard JSON. Docs: SECURITY_CONTRACT.md
       entity table row updated to note the dashboard-gap fix.
 
-- [ ] **2026-09-02 (later) — Water Cooler: Jun 2025 gap closed (now genuinely
+- [x] **2026-09-02 (later) — Water Cooler: Jun 2025 gap closed (now genuinely
       zero gaps, Dec 2024 → Aug 2026, 21 records, R15,589.78 lifetime).
       Fixed the charts (user reported "Monthly Cost broken" — was) and
       reworked the Trends section per user request.** Root cause of the
@@ -294,7 +331,7 @@
       `on`. Docs: ALERTS_CONTRACT.md changelog + Doors Domain table row + File
       Inventory line count (1282 → 1408).
 
-- [ ] **2026-09-02 — Water Cooler: full invoice history backfilled (20 real
+- [x] **2026-09-02 — Water Cooler: full invoice history backfilled (20 real
       months, Dec 2024 → Aug 2026) + two SVG trend charts added to the
       dashboard.** User progressively sent every Aquazania invoice/statement
       they had via `/log-water-invoice` across several messages this
@@ -3601,6 +3638,13 @@ packages/
   load_shedding/  # 2 files  — load_shedding_templates.yaml (migrated from power/ 2026-04-21)
                  #             load_shedding_automations.yaml (3 warning automations migrated 2026-04-29)
   admin/          # 1 file   — tablets.yaml (screen brightness management for dashboard tablets — added 2026-05-27)
+  utilities/      # 8 files  — Water Cooler (4 files, added 2026-08-31) + Gas Bottles
+                 #             (4 files, added 2026-09-02) — recurring consumable-delivery
+                 #             subsystems, see UTILITIES_CONTRACT.md. Row added 2026-09-02
+                 #             (missing since this package's creation — this whole table is
+                 #             dated 2026-04-16 and is broadly stale beyond just this row,
+                 #             e.g. `integrations/` below also predates vacuum.yaml; not
+                 #             fixed comprehensively here, out of scope for a targeted sweep)
 ```
 
 **Important:** Several `*_CONTEXT.md` documents list incorrect filenames. The `*_CONTRACT.md`
@@ -5274,6 +5318,7 @@ added GARDEN_CONTRACT.md, which had no row in this table at all.)*
 | `docs/domains/INFRA_CONTRACT.md` | Infra — core/backup/office/weather/integrations/HACS | ✅ Authoritative (deep-drift swept 2026-08-21) |
 | `docs/domains/GARDEN_CONTRACT.md` | Garden — pond pump alert pipeline | ✅ Authoritative (deep-drift swept 2026-08-21; was missing from this table entirely) |
 | `docs/domains/SMART_CLEANING_CONTRACT.md` | Smart cleaning — currently just the Ecovacs Deebot (alerts, water/detergent estimator); named generically so a future 2nd device has a home | ✅ Created 2026-08-31 (also missing until user asked directly whether it existed), renamed from VACUUM_CONTRACT.md same day |
+| `docs/domains/UTILITIES_CONTRACT.md` | Utilities — recurring consumable-delivery subsystems: Water Cooler (Section 2-7) + Gas Bottles (Section 8) | ✅ Authoritative (found missing from this table entirely during a 2026-09-02 `/update-docs` sweep — existed since 2026-08-31 with zero row here, same "missing entirely" pattern as GARDEN_CONTRACT.md and SMART_CLEANING_CONTRACT.md above; caught by step 3a, not by a user asking this time) |
 
 > **The `*_CONTRACT.md` files are authoritative.** They were produced by reading actual config files.
 > The older `*_CONTEXT.md` files are quick-reference summaries — use contracts for real work.
