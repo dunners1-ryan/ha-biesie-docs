@@ -671,7 +671,7 @@ turns out to be a practical problem.
 **Files:** `water_tank_refill_control.yaml`, `water_safety.yaml`
 
 **Fix 1 — `water_borehole_mid_run_shutdown` automation (policy stops):**
-- Triggers: `binary_sensor.water_refill_allowed → off` (catches grid offline, SOC drop, last-sun-slot, load control) AND `binary_sensor.water_solar_window_active → off` (end of solar day)
+- Triggers: `binary_sensor.water_refill_allowed → off` (catches grid offline, SOC drop, last-sun-slot, load control) — **debounced `for: "00:01:00"` since 2026-09-02** (same pattern as Issue 9's max-depth stop; recorder-confirmed the gate occasionally blips off for a few seconds on Tuya/recorder restart glitches, not real revocations — a real revocation stays off well past a minute) — AND `binary_sensor.water_solar_window_active → off` (end of solar day, not debounced — this is a scheduled input_datetime cutoff, not a chattering sensor).
 - Stops pump immediately in both cases. Exempt: `water_state = safety` (emergency bypass).
 - Does NOT set `water_refill_aborted_due_to_safety` — these are policy stops, not hardware faults.
 - Notifies via `script.notify_water_event` with reason (permission_revoked or solar_window_closed).
@@ -1179,6 +1179,18 @@ For improved reliability, consider adding a `for: "00:00:30"` delay to the no-ri
 | No-rise protection replaces dry-run protection | Deliberate trade-off; dry-run binary_sensor commented out intentionally |
 | Manual scripts do NOT check `water_refill_allowed` | Manual operator actions override the permission gate by design |
 | ~~Emergency Telegram calls are direct (bypassing central script)~~ **SUPERSEDED 2026-08-21** | Row removed — `script.notify_water_event` gained its own unconditional Telegram mirror after this exception was written, making the direct bypass a duplicate-message bug (WATER_CONTRACT Issue 10, fixed) rather than a needed guarantee. Direct calls removed from `water_tank_refill_control.yaml`'s CRITICAL branches. |
+
+---
+
+### Investigated 2026-09-02: "watering full M/W/F/S, smaller afternoon, half other days" — not a schedule, and not predictive fill
+
+User reported a perceived weekly watering rhythm and asked whether predictive fill needed tuning. Checked live entities + recorder DB directly rather than relying on docs:
+
+- **Predictive fill (Branch 4.7) was a red herring.** `water_predictive_fill_enabled=on`, threshold correctly live at 75% (the 2026-07-17 recalibration caveat — "live value still 50%" — no longer applies, it's live now). But Branch 4.7 also gates on `sensor.energy_orchestrator_state == 'conserve'`, and over the prior 10 days the orchestrator was **never once** in `conserve` (only `normal`/`surplus`, plus a few instant restart-glitch `critical` blips). Branch 4.7 hasn't fired at all — correctly idle given healthy solar/SOC, not broken.
+- **The demand-day → depth-target system is the real driver, and it's working as designed.** `sensor.water_effective_fill_target` reads `sensor.water_target_depth_tomorrow` (line 443 of `water_templates.yaml`), i.e. the tank fills toward **tomorrow's** demand target, not today's — intentional look-ahead pre-positioning, confirmed against the original E5 design note. This makes Friday's fill look "biggest" (it's pre-filling for Saturday's Pool/1.6m day), which can read as a M/W/F/S pattern depending on how the demand selectors land that week.
+- **Multiple pump on/off cycles per day are NOT `water_borehole_mid_run_shutdown` chatter.** Initial hypothesis (built from a raw `COUNT(state='off')` per day — 21–56/day) was wrong: those rows are mostly duplicate re-published states (attribute-only updates), not real transitions. Deduplicating to actual state changes, `binary_sensor.water_refill_allowed` is stable all day; the only transitions are the evening dusk-cutoff/22:00 resume and a handful of few-second Tuya/recorder blips (mostly after solar hours). Real daytime blip count in 10 days: **one** (Aug 31, 12:00–12:03). The 2-4 separate pump sessions/day seen in the recorder are almost certainly the pump legitimately reaching `water_effective_fill_target`, stopping, then house consumption draining the tank back below target later the same day, and Branch 4 restarting it — correct behavior, not a bug.
+- **Fix applied anyway:** debounced the `permission_revoked` trigger in `water_borehole_mid_run_shutdown` with `for: "00:01:00"` (mirrors Issue 9's max-depth debounce) as cheap insurance against that one blip class. Confirmed low-risk — it's a `condition:` re-check at trigger time elsewhere (Branch 4, block automation), not a subscribed watcher, so nothing else depends on instant reaction to this sensor.
+- **No code bug found or fixed in the demand-target/predictive-fill logic itself** — both are working as designed. Nothing else changed.
 
 ---
 

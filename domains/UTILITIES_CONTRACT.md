@@ -548,3 +548,26 @@ supplier has not been tried.
   and cost sensors survived the restart correctly via RestoreEntity, no new
   errors in the log beyond the pre-existing unrelated `alert_device_
   entities`/`problem_alert_devices` "duration" attribute bug).
+
+- **2026-09-02 (truly final)** — Moved `gas_avg_days_per_bottle_stove`/
+  `_heater` out of the Settings section's plain entities list into Stock &
+  Usage (Section 1), as a 2-tile `mushroom-template-card` row right after
+  the Appliances card — matches Water Cooler's own precedent (`avg_days_per_
+  bottle` shown directly in its "Bottles" card, not tucked in Settings) that
+  this dashboard hadn't actually followed; user's "where are the stove/
+  heater avg days/bottle" flagged the miss. Each tile is card-modded
+  (rounded corners matching the Cost tiles) and pulses (reusing the same
+  keyframe-pulse convention as the vacuum's "cleaning" card) when either:
+  the live value has drifted **>30% from its own `initial` attribute**
+  (input_number entities expose this natively — no separate baseline helper
+  needed, "outside" the recalibrated-from-real-data value) — icon turns
+  orange; or the value **changed within the last 5 minutes** ("updating") —
+  icon turns blue. **Known limitation, not fixed**: `card_mod` templates
+  re-evaluate on entity state changes, not on a wall-clock timer, so the
+  "updated within 5 minutes" pulse can visually linger past 5 minutes until
+  *something* else on the dashboard triggers a re-render — acceptable given
+  how often other entities update on this view, but not exact. The now-
+  empty "Burn-Rate Estimates" entities card was removed from Settings
+  entirely rather than left empty. Confirmed live post-restart (both tiles
+  correctly showed blue/pulsing immediately after the recalibration above,
+  `check_config` clean, no new errors).
