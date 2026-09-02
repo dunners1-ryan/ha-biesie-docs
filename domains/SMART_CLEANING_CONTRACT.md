@@ -299,14 +299,54 @@ interval — expect this one to stabilize faster than 3c's estimates did.
 
 ### Source Integration Entities (device `deebot_t80s_biesie`, 31 total)
 
-Not re-listed individually here — see `packages/integrations/vacuum.yaml`'s
-header comment or query `.storage/core.entity_registry` filtered on
-`platform: ecovacs`. Grouped by domain: 1 `vacuum`, 10 `sensor`, 1
-`binary_sensor`, 1 `event`, 1 `image`, 3 `select`, 2 `number`, 4 `button`,
-5 `switch`. Three of the four `button.*_reset_*_lifespan` entities were
-`disabled_by: integration` by default — all three enabled 2026-08-30 (see
-PROJECT_STATE.md Group V7 for the fix and the `config/entity_registry/update`
-+ `reload_delay` mechanics).
+Pulled live from `.storage/core.entity_registry` (`platform: ecovacs`)
+2026-09-02 — closes V1's outstanding doc gap. **Corrects the domain
+breakdown this section previously stated** (1 vacuum / 10 sensor / 1
+binary_sensor / 1 event / 1 image / 3 select / 2 number / 4 button /
+5 switch = 28, three short of the real 31 — the original count missed
+`area_cleaned`, `total_area_cleaned`, and `total_cleaning_duration`).
+Real breakdown: 1 `vacuum`, **13** `sensor`, 1 `binary_sensor`, 1 `event`,
+1 `image`, 3 `select`, 2 `number`, 4 `button`, 5 `switch`.
+
+| Entity | Domain | Notes |
+|---|---|---|
+| `vacuum.deebot_t80s_biesie` | vacuum | Main control entity |
+| `sensor.deebot_t80s_biesie_battery` | sensor | |
+| `sensor.deebot_t80s_biesie_error` | sensor | Fault code source — V3 pipeline |
+| `sensor.deebot_t80s_biesie_area_cleaned` | sensor | Last job |
+| `sensor.deebot_t80s_biesie_total_area_cleaned` | sensor | Lifetime — feeds V4/V12 estimators |
+| `sensor.deebot_t80s_biesie_cleaning_duration` | sensor | Last job |
+| `sensor.deebot_t80s_biesie_total_cleaning_duration` | sensor | Lifetime — feeds V4 daily summary |
+| `sensor.deebot_t80s_biesie_total_cleans` | sensor | Lifetime — feeds V4 daily summary |
+| `sensor.deebot_t80s_biesie_main_brush_lifespan` | sensor | % — feeds V11 |
+| `sensor.deebot_t80s_biesie_side_brush_lifespan` | sensor | % — feeds V11 |
+| `sensor.deebot_t80s_biesie_filter_lifespan` | sensor | % — feeds V11 |
+| `sensor.deebot_t80s_biesie_wi_fi_rssi` | sensor | `disabled_by: integration` |
+| `sensor.deebot_t80s_biesie_wi_fi_ssid` | sensor | `disabled_by: integration` |
+| `sensor.deebot_t80s_biesie_ip_address` | sensor | `disabled_by: integration` |
+| `binary_sensor.deebot_t80s_biesie_mop_attached` | binary_sensor | |
+| `event.deebot_t80s_biesie_last_job` | event | Never fires in practice — see Section 3d, don't rely on it |
+| `image.deebot_t80s_biesie_map` | image | Was broken 2026-08-29/30 (upstream), self-resolved 2026-08-31 |
+| `select.deebot_t80s_biesie_active_map` | select | |
+| `select.deebot_t80s_biesie_work_mode` | select | |
+| `select.deebot_t80s_biesie_water_flow_level` | select | |
+| `number.deebot_t80s_biesie_volume` | number | |
+| `number.deebot_t80s_biesie_clean_count` | number | |
+| `button.deebot_t80s_biesie_relocate` | button | |
+| `button.deebot_t80s_biesie_reset_main_brush_lifespan` | button | Was `disabled_by: integration`, enabled 2026-08-30 (V7) |
+| `button.deebot_t80s_biesie_reset_side_brush_lifespan` | button | Was `disabled_by: integration`, enabled 2026-08-30 (V7) |
+| `button.deebot_t80s_biesie_reset_filter_lifespan` | button | Was `disabled_by: integration`, enabled 2026-08-30 (V7) |
+| `switch.deebot_t80s_biesie_advanced_mode` | switch | **Still** `disabled_by: integration` — not enabled, unlike the 3 reset buttons above |
+| `switch.deebot_t80s_biesie_continuous_cleaning` | switch | |
+| `switch.deebot_t80s_biesie_carpet_auto_boost_suction` | switch | |
+| `switch.deebot_t80s_biesie_clean_preference` | switch | |
+| `switch.deebot_t80s_biesie_true_detect` | switch | |
+
+4 entities are `disabled_by: integration` (never in the state machine) as
+of this check: the 3 Wi-Fi/IP diagnostics (expected — low-value, not used
+by any automation here) and `switch.deebot_t80s_biesie_advanced_mode`
+(not flagged before — nothing in this repo currently needs it, but it's
+genuinely off, not a config gap).
 
 **Known integration gaps** (not fixable from this repo, see
 INFRA_CONTRACT.md-style Known Integration Issues table in PROJECT_STATE.md):

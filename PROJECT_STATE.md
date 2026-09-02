@@ -5,6 +5,34 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-02 (later still) — Smart Cleaning: closed Group V's V1 doc gap
+      — vacuum's "31-entity inventory" was never actually written anywhere,
+      just pointed at circularly between two files.** User picked this as
+      the priority ("v1 for vacuum, others still open"). `vacuum.yaml`'s
+      header said "see PROJECT_STATE.md Known Integration Issues" (that
+      section never had the list, only the map-bug row); SMART_CLEANING_
+      CONTRACT.md Section 4 said "see vacuum.yaml's header comment" (never
+      had it either) — neither side actually satisfied the other. Pulled
+      the real registry live from `.storage/core.entity_registry`
+      (`platform: ecovacs`, 31 entities confirmed) and wrote the full table
+      into SMART_CLEANING_CONTRACT.md Section 4; both files' pointers
+      corrected to point there instead of at each other. **Also caught a
+      real inaccuracy while verifying against live data**: the contract's
+      stated domain breakdown said 10 `sensor` entities; the true count is
+      13 (missing `area_cleaned`, `total_area_cleaned`, `total_cleaning_
+      duration`) — corrected. Also newly noted: `switch.deebot_t80s_biesie_
+      advanced_mode` is `disabled_by: integration` (not previously flagged;
+      nothing here currently needs it, just documented as genuinely off).
+      Checked CLAUDE.md's package table row and this file's Document Index
+      row for SMART_CLEANING_CONTRACT.md — both already correct from V14,
+      no change needed. Other Group V items (V5 night-run risk, V10 room
+      segments, V15 smart plug) deliberately left open per user instruction
+      — not touched this pass. Not yet committed — user separately has a
+      Gas Bottles subsystem in progress in another session, so held off
+      running `gitupdate.sh` broadly to avoid touching those untracked
+      files; only this session's doc/YAML changes are ready to commit
+      scoped, whenever that's wanted.
+
 - [x] **2026-09-02 (evening) — Tooling: `gitupdate.sh` + `/update-docs` skill
       changed to default to session-scoped commits, not `git add .`.** User
       caught a real problem live: an `/update-docs` pass ran `gitupdate.sh`
@@ -4371,17 +4399,30 @@ sensor.vacuum_manual_clean_estimate
 
 ### Group V — Ecovacs Deebot T80S Omni Integration Buildout (opened 2026-08-29 — scenario/schedule planned 2026-08-30, no HA-side code yet)
 ```
-[~] V1. packages/integrations/vacuum.yaml created 2026-08-30 — PARTIAL. Contains
-        the mat-removal reminder only (see new V9 below): input_datetime.
-        vacuum_reminder_time_workday/_weekend, input_boolean.
-        vacuum_mat_reminder_enabled, automation.vacuum_mat_removal_reminder_
-        workday/_weekend (note: entity_id derives from `alias`, not `id` — both
-        confirmed live via Supervisor API, `ha core check` valid, input_datetime/
-        input_boolean/automation all reloaded live). Still NOT done: documenting
-        the full 31-entity inventory in this file, and the CLAUDE.md package
-        table + this file's Document Index row. V3/V4 (alert/notification
-        wiring) still genuinely unbuilt — don't infer them from this file's
-        existence.
+[x] V1. packages/integrations/vacuum.yaml created 2026-08-30 with the mat-removal
+        reminder (see V9 below): input_datetime.vacuum_reminder_time_workday/
+        _weekend, input_boolean.vacuum_mat_reminder_enabled, automation.
+        vacuum_mat_removal_reminder_workday/_weekend (note: entity_id derives
+        from `alias`, not `id` — confirmed live via Supervisor API, `ha core
+        check` valid, all reloaded live). V3/V4 (alert/notification wiring),
+        listed here as still unbuilt at the time, were both completed
+        2026-08-31 — see below, not stale.
+        **Doc gap closed 2026-09-02:** the "full 31-entity inventory" was
+        never actually written anywhere — `vacuum.yaml`'s header pointed to
+        PROJECT_STATE.md's Known Integration Issues (which never had the
+        list, only the map-bug row) and SMART_CLEANING_CONTRACT.md Section 4
+        pointed back to `vacuum.yaml` (which never had it either) — a
+        circular pointer neither side actually satisfied. Fixed by pulling
+        the real registry live from `.storage/core.entity_registry`
+        (`platform: ecovacs`) and writing the full 31-row table into
+        SMART_CLEANING_CONTRACT.md Section 4, both cross-pointers corrected
+        to point there. **Also caught a real inaccuracy while there**: the
+        domain breakdown the contract had stated (10 sensor) was wrong —
+        actually 13 sensor (missing `area_cleaned`, `total_area_cleaned`,
+        `total_cleaning_duration` from the count), corrected in place.
+        CLAUDE.md's package table row and this file's Document Index row
+        for SMART_CLEANING_CONTRACT.md were both already correct (added by
+        V14) — nothing to change there.
 
 [x] V2. Mapping finished 2026-08-30. Stable room layout confirmed:
         Bedroom Main, Bedroom Luke, Bedroom Tayla, Bathroom Main, Bathroom kids,
