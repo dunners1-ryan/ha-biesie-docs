@@ -127,7 +127,7 @@ System capex only (not personal budget/cash-flow — that stays in
 | Date | Item | Total | Trade-in/offset | Net |
 |---|---|---|---|---|
 | 2026-06-17 | Battery swap: 2× Freedom Won → 3× Greenrich AF1600 (48.2kWh). Included maintenance, panel-string fix, string reorg | R114,872 | R56,000 (sale of old batteries) | **R58,872** |
-| Scheduled tentatively 2026-09-01 (was 2026-08-31, before that 2026-08-28, slipped twice — see below) | 12× 620W Canadian Solar bifacial panels + inverter swap (2×5.5kW SunSynk → 12kW Deye) via Vantage quote, not yet executed | ~R64,284 (R54,684 quote + R9,600 panels) | R10,000 net inverter trade-in already reflected in quote total | ~R64,284 |
+| On hold — tentatively 2026-09-04 (was 09-01, before that 08-31, before that 08-28, three slips — see below) | 12× 620W Canadian Solar bifacial panels + inverter swap (2×5.5kW SunSynk → 12kW Deye) via Vantage quote, not yet executed | ~R64,284 (R54,684 quote + R9,600 panels) | R10,000 net inverter trade-in already reflected in quote total | ~R64,284 |
 
 **2026-08-29 (user-reported):** install date slipped from 2026-08-28 to **2026-08-31
 (Monday)** — DB-consistent: solar production through 2026-08-28 still tracks the existing
@@ -138,6 +138,13 @@ System capex only (not personal budget/cash-flow — that stays in
 **2026-09-01 (Tuesday)**, "maybe" — this time with a stated reason (still waiting on the
 panels). DB-consistent as before: solar production through 08-31 still tracks the existing
 9.89kWp array (see `POWER_SYSTEM_PERFORMANCE_LOG.md`'s 2026-08-31 entry). Two slips deep now
+without the Vantage deposit-payment status being reconfirmed.
+
+**2026-09-02 (user-reported):** now **on hold** — a genuine panel delivery problem, not
+another unexplained date push. User is evaluating alternative panel suppliers; tentatively
+re-targeting **2026-09-04 (Friday)**, treated as a placeholder pending that decision, not a
+firm date. DB-consistent: solar production through 09-02 still tracks the existing 9.89kWp
+array (see `POWER_SYSTEM_PERFORMANCE_LOG.md`'s 2026-09-02 entry). Three slips deep now
 without the Vantage deposit-payment status being reconfirmed.
 
 Full ROI/payback analysis for both line items: `private_docs/POWER_SYSTEM_AUDIT_2026.md`

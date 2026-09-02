@@ -253,6 +253,46 @@ was seeded manually via `automation.trigger` immediately after building
 this (that day's real 00:01 had already passed), so the first real summary
 wasn't inflated by lifetime totals.
 
+### 3e. Manual Machine Clean Tracker (added 2026-09-02)
+
+Same pattern as 3c (water/dirty-water) — no sensor exists for "roller has
+hair/debris wrapped around it", so this is manual-log-driven too. **Not the
+same thing as the V11 lifespan sensors** (main_brush/side_brush/filter
+lifespan %, which track wear toward eventual part replacement) — this
+tracks periodic decluttering of a brush/roller that isn't worn out, just
+tangled. Don't reuse the reset-lifespan buttons for this or vice versa.
+
+```
+User physically removes the roller/brush and clears hair/debris
+        ↓ (presses dashboard button)
+input_button.vacuum_log_manual_clean
+        ↓
+automation.vacuum_log_manual_clean
+  - snapshots sensor.deebot_t80s_biesie_total_area_cleaned into
+    input_number.vacuum_area_at_last_manual_clean
+  - snapshots now() into input_datetime.vacuum_last_manual_clean_time
+  - EMA-updates input_number.vacuum_avg_area_per_manual_clean /
+    vacuum_avg_days_per_manual_clean (same 0.6/0.4 weight as 3c),
+    guarded by input_boolean.vacuum_manual_clean_logged_once so the first
+    press doesn't compute a bogus interval against the placeholder initial
+    datetime
+        ↓
+sensor.vacuum_manual_clean_estimate
+  (days until next needed = avg_days_per_manual_clean − days_since_last,
+   floored at 0)
+```
+
+**Seed values are a pure guess, more so than 3c's water/detergent seeds**
+— unlike water/dirty-water, which had one real day of usage data to seed
+from, this tracker started with genuinely zero prior data:
+`vacuum_avg_area_per_manual_clean` = 300 m² and `vacuum_avg_days_per_manual_
+clean` = 7.0 days are round placeholder guesses, not derived from anything.
+First real log was 2026-09-02 (the user's stated baseline — "can start with
+logged today"), pressed via `input_button.press` over the API immediately
+after building this so the baseline snapshot is exact rather than
+approximate. Only needs one more press to replace the seed with a real
+interval — expect this one to stabilize faster than 3c's estimates did.
+
 ---
 
 ## Section 4: Entity Registry
@@ -311,6 +351,17 @@ no camera entity of any kind.
 | `input_button.vacuum_log_dirty_water_empty` | input_button | — | Manual log trigger |
 | `input_button.vacuum_log_detergent_new_bottle` | input_button | — | Manual log trigger (also fired programmatically by the "Detergent Bought" notification action) |
 
+### Helpers — Manual Machine Clean Tracking (added 2026-09-02)
+
+| Entity | Type | Default | Purpose |
+|---|---|---|---|
+| `input_datetime.vacuum_last_manual_clean_time` | input_datetime | `2026-09-02 00:00:00`, live value overwritten same day by the real first log | Snapshot at last log press |
+| `input_boolean.vacuum_manual_clean_logged_once` | input_boolean | `false` | First-press EMA guard, same pattern as 3c's water/dirty-water guards |
+| `input_number.vacuum_area_at_last_manual_clean` | input_number | `0` m² | Snapshot of `sensor.deebot_t80s_biesie_total_area_cleaned` at last log |
+| `input_number.vacuum_avg_area_per_manual_clean` | input_number | `300` m² (pure guess — zero prior data, unlike 3c's seeds) | EMA, refines per press |
+| `input_number.vacuum_avg_days_per_manual_clean` | input_number | `7.0` d (pure guess) | EMA, refines per press |
+| `input_button.vacuum_log_manual_clean` | input_button | — | Manual log trigger |
+
 ### Helpers — Job-Outcome Summary (V4)
 
 | Entity | Type | Default | Purpose |
@@ -329,6 +380,7 @@ no camera entity of any kind.
 | `sensor.vacuum_water_refill_estimate` | days (≥0) | `area_mopped_since_refill`, `avg_area_per_refill`, `last_refill` attributes |
 | `sensor.vacuum_dirty_water_estimate` | days (≥0) | `area_mopped_since_empty`, `avg_area_per_empty`, `last_empty` attributes |
 | `sensor.vacuum_detergent_level` | 0-100% | `refills_remaining`, `estimated_purchase_by`, `bottle_started` attributes |
+| `sensor.vacuum_manual_clean_estimate` | days (≥0) | `area_cleaned_since_manual_clean`, `avg_area_per_manual_clean`, `last_manual_clean` attributes |
 
 ### Alert Entities
 
@@ -347,6 +399,7 @@ no camera entity of any kind.
 | `deebot_alert_snooze_reset` | Deebot Alert: Snooze Reset | `binary_sensor.deebot_alert_active` → off | Clears `deebot_alert_snoozed` |
 | `vacuum_log_water_refill` | Vacuum – Log Water Refill | `input_button.vacuum_log_water_refill` pressed | Snapshot + EMA update + detergent counter +1 |
 | `vacuum_log_dirty_water_empty` | Vacuum – Log Dirty Water Empty | `input_button.vacuum_log_dirty_water_empty` pressed | Snapshot + EMA update |
+| `vacuum_log_manual_clean` | Vacuum – Log Manual Clean | `input_button.vacuum_log_manual_clean` pressed | Snapshot + EMA update (added 2026-09-02) |
 | `vacuum_log_detergent_new_bottle` | Vacuum – Log New Detergent Bottle | `input_button.vacuum_log_detergent_new_bottle` pressed | Reset counter to 0, snapshot time |
 | `vacuum_detergent_low_alert` | Vacuum – Detergent Low Alert | `sensor.vacuum_detergent_level` below 15%, one-shot | `script.notify_system_event` w/ Detergent Bought action |
 | `vacuum_detergent_bought_from_notification` | Vacuum Detergent Alert: Bought From Notification | Mobile action `DETERGENT_BOUGHT` or Telegram `/detergent_bought` | Presses `vacuum_log_detergent_new_bottle` (reuses logic) |
@@ -367,6 +420,7 @@ no camera entity of any kind.
 | In aggregator | Naming-convention pickup, `alerts_summary.yaml` | ✅ no changes needed to the aggregator itself |
 | Cancel Alert | `deebot_alert_snoozed` + 2 automations | ✅ |
 | Water/detergent estimator | 3 log buttons + EMA + deterministic detergent math | ✅ confirmed live, real values observed (344 m² since last refill as of 2026-08-31 — genuinely overdue, correctly shown red on dashboard) |
+| Manual clean tracker (3e) | `vacuum_log_manual_clean` + EMA | ✅ confirmed live 2026-09-02, first real baseline logged via `input_button.press` — seed values (300 m² / 7.0 d) are a pure guess, no prior data existed at all |
 | Detergent low + Bought action | `vacuum_detergent_low_alert` + `vacuum_detergent_bought_from_notification` | ✅ |
 | Lifespan warning (V11) | Folded into `deebot_alert_active`/`_context` above | ✅ confirmed live, reads `normal` with real current lifespans (92-97%) — not exercised against an actual low reading yet |
 | Daily job summary (V4) | `vacuum_daily_snapshot_reset` + `vacuum_session_complete_summary` | ✅ confirmed live, midnight snapshot seeded manually for the first day (see 3d) — not yet exercised through a real full day+summary cycle end to end |

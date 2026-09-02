@@ -4260,6 +4260,13 @@ input_button.vacuum_log_detergent_new_bottle
         (`sensor.philips_airfryer_plug_power` in `office`/relevant package — check
         naming convention there) and only then decide `group.flexible_power_loads`
         inclusion with real data instead of the DB-inferred estimate above.
+        **UPDATE 2026-09-02:** natural A/B found — a mop-free (vacuum-only) day gave
+        a clean charge-only dock window (72min, airfryer+geyser both confirmed idle
+        via their own sensors) with **no clear sustained load uplift** over the
+        household's ordinary idle range, unlike 08-31's drying-cycle window. Points
+        at the drying/heater element as the dominant draw, not charging itself — see
+        `POWER_SYSTEM_PERFORMANCE_LOG.md`'s 2026-09-02 entry. Still DB-inference, not
+        a substitute for the smart plug (still not purchased).
 
 [x] V7. Done 2026-08-30 — pushed live via the Lovelace WebSocket API
         (`lovelace/config` + `lovelace/config/save`, Supervisor-token auth,
