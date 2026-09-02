@@ -5,7 +5,7 @@
 
 ## ⚠️ OPEN TODO
 
-- [ ] **2026-09-02 (later still) — New domain: Gas Bottles tracker, second
+- [x] **2026-09-02 (later still) — New domain: Gas Bottles tracker, second
       subsystem in `packages/utilities/` alongside Water Cooler, exactly as
       that domain's contract header anticipated.** 2× 9kg LPG cylinders
       (Owned/refillable, Swap/exchange) feeding the gas stove (year-round,
@@ -56,17 +56,29 @@
       actually refilled/exchanged today, so pressing it would have falsely
       marked both bottles freshly serviced and corrupted the estimate the
       backdated seed connect-times already got right.
-      **⚠️ NOT YET RESTARTED** — `alert.gas_alert` and the two `.storage/
-      lovelace` dashboard edits (Operations view + Home summary tile) both
-      require a full HA restart to activate; real notification delivery
-      does not depend on it (`route_gas_alert` doesn't need the `alert:`
-      entity). **Gauge photo still unreceived** — two upload attempts
-      failed client-side (not a code issue); `/log-gas-reading`'s reading-
-      format section is explicitly flagged open pending the first
-      successful photo, and a credit-card-statement backfill of real
-      historical costs is similarly still pending. Docs: UTILITIES_CONTRACT.
-      md Section 8 added (full design writeup), this entry, Locked Entity
-      Names below.
+      **Restarted successfully** — `alert.gas_alert` confirmed live (state
+      `idle`) post-restart via Supervisor API; `.storage/lovelace` dashboard
+      edits active. **Real spend history backfilled same session**: a
+      Discovery credit card statement screenshot came through (after the
+      gauge photo itself still didn't), 6 real transactions May 2025 → Jul
+      2026 fired into `sensor.gas_transaction_log` via its
+      `gas_transaction_logged` event (dated historically, not `now()`) —
+      R2,057 real 2026 spend now showing instead of R0. Categorization
+      inferred from supplier name (Gas Affair = combo refill+exchange,
+      BigF = exchange-only) and flagged to the user as not certain — see
+      UTILITIES_CONTRACT.md Section 8h's Session Log entry for the full
+      reasoning. **Real bug caught by the backfill**: `sensor.gas_
+      transaction_log`'s own transaction-count `state` read the pre-update
+      `this` snapshot instead of independently recomputing, lagging the
+      true count by one — exact pitfall `sensor.device_battery_fleet`
+      already documents avoiding in this same repo, missed here anyway;
+      fixed, cost sensors were never affected (verified R2,057 by hand
+      against the 4 real 2026 rows). **Gauge photo itself still
+      unreceived** — three upload attempts now, all failed client-side (not
+      a code issue) — `/log-gas-reading`'s reading-format section stays
+      flagged open pending the first successful one. Docs: UTILITIES_
+      CONTRACT.md Section 8 added + this backfill's own Session Log entry,
+      this entry, Locked Entity Names below.
 
 - [x] **2026-09-02 (later still) — Smart Cleaning: closed Group V's V1 doc gap
       — vacuum's "31-entity inventory" was never actually written anywhere,

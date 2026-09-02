@@ -449,3 +449,44 @@ supplier has not been tried.
   Gauge photo still unreceived (client-side upload failures, not a code
   issue) — `/log-gas-reading`'s reading-format section is explicitly flagged
   open pending the first successful photo.
+
+- **2026-09-02 (even later)** — Real spend history backfilled into
+  `sensor.gas_transaction_log`: 6 transactions, May 2025 → Jul 2026, R2,955
+  lifetime / R2,057 in 2026 (confirmed against the sum by hand), read off a
+  Discovery credit card statement screenshot. Backfilled by firing the
+  `gas_transaction_logged` event directly (the sensor has no file to hand-
+  edit, unlike the gauge history — see 8e) with the historical date in each
+  payload rather than `now()`. **Categorization is inferred, not certain,
+  flagged to the user**: every "The Gas Affair" charge (R594-639) treated as
+  a combo visit (refill + exchange together, cost split 50/50 since the
+  statement shows one total per visit, not a line-item split) — matches the
+  user's own stated pattern of servicing both cylinders together. Every
+  "Yoco *BigF Gas Randburg" charge (R390 × 2) treated as exchange-only, not
+  refill — inferred from BigF being described as the pricier, presumably
+  faster walk-in option, not confirmed against an actual receipt line item.
+  `stove_bottle`/`heater_bottle` on these backfilled rows are `"Unknown"` —
+  correct, since which bottle was on which appliance on a given historical
+  date isn't recoverable from a payment statement.
+  **Real bug caught and fixed by this backfill**: `sensor.gas_transaction_
+  log`'s own `state` (transaction count) read `this.attributes.get('log')`
+  — the PRE-update snapshot — so it lagged the true count by one event on
+  every single trigger (state showed 5 after all 6 records were already
+  correctly in the `log` attribute). Exact same pitfall `sensor.device_
+  battery_fleet`'s own header comment already warns about in this repo
+  (alerts_device_batteries.yaml) — missed here despite that precedent
+  existing, caught only because a real multi-event backfill happened to
+  expose the off-by-one immediately, a single manual button press wouldn't
+  have made it obvious. Fixed: `state` now independently rebuilds the same
+  existing+new_row list the `log` attribute does, rather than trusting
+  `this`. `sensor.gas_year_actual_cost` (R2,057) verified correct against
+  the 4 real 2026 rows by hand — the cost figures were never affected by
+  the count bug, only the transaction-count display was.
+  **Real usage signal, not yet acted on**: the two BigF gaps (15 Jun → 02
+  Jul, 17 days; 02 Jul → 17 Jul, 15 days) fall inside what's presumably the
+  2026 winter window and land right at the bottom of the user's own "2-4
+  weeks with heater" estimate — a reasonable case for tightening `input_
+  number.gas_avg_days_per_bottle_heater` from its 21d seed down toward
+  ~16d, but NOT done automatically here since it depends on an unconfirmed
+  assumption (that those two visits were heater-driven rather than just
+  higher stove use) — left as a suggestion for the user to confirm, not a
+  silent recalibration.
