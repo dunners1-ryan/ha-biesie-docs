@@ -5,6 +5,29 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-02 (gas, /update-docs sweep) — Fixed `sensor.gas_alert_
+      context`'s own identical miss on the `duration` attribute** (see the
+      entry directly below — the two Gas Bottles sessions today independently
+      made the exact same mistake Water Cooler's session made, same day,
+      same repo). Found via this session's own `/update-docs` step 3a sweep
+      reading the concurrent Water Cooler session's diff, which had already
+      flagged it: "The Gas Bottles subsystem (Section 8) independently made
+      the identical miss ... same day." **This is the real cause of the
+      `alert_device_entities`/`problem_alert_devices` "duration" attribute
+      error this session's OWN earlier entries (two of them, both above)
+      wrongly called "pre-existing, unrelated"** — corrected in place rather
+      than silently rewritten, see UTILITIES_CONTRACT.md's Session Log for
+      the full fix + the two correction notes. Confirmed the errors actually
+      stopped in the live log at the exact moment the fix + reload landed.
+      Also fixed two genuine, unrelated-to-gas doc gaps found during the
+      same sweep: `UTILITIES_CONTRACT.md` had **zero row** in this file's
+      Document Index table despite existing since 2026-08-31 (same "missing
+      entirely" pattern GARDEN_CONTRACT.md and SMART_CLEANING_CONTRACT.md
+      each had before being caught); and `CLAUDE.md`'s `utilities/` package
+      table row still said "(4 files)" and described Gas Bottles as a
+      hypothetical future addition rather than the shipped subsystem it now
+      is — both fixed.
+
 - [x] **2026-09-02 (water, final round) — Fixed a real recurring log error
       (`sensor.watercooler_alert_context` missing the `duration` attribute
       ALERTS_CONTRACT.md Section 3's own canonical pipeline already required
@@ -99,9 +122,11 @@
       every bar (kept `<title>` hover as a bonus, not a replacement). Also
       added `multiline_secondary: true` to the 4 cost-tile mushroom cards
       and a Home-dashboard-style section heading ("Cost & Usage Trends")
-      that section never had. Full restart done, confirmed live — no new
-      errors beyond the pre-existing unrelated `alert_device_entities`
-      "duration" attribute bug.
+      that section never had. Full restart done, confirmed live.
+      **Correction, found during the same day's `/update-docs` sweep: the
+      "pre-existing unrelated `alert_device_entities` duration bug" called
+      out here was wrong** — see the dedicated entry below, it was actually
+      `sensor.gas_alert_context` missing a required attribute.
 
 - [x] **2026-09-02 (later still) — New domain: Gas Bottles tracker, second
       subsystem in `packages/utilities/` alongside Water Cooler, exactly as

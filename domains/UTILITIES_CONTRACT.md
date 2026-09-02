@@ -571,9 +571,15 @@ supplier has not been tried.
   matching Water Cooler's own section 2 (also headingless, not something
   copied wrong, just never added on either dashboard). Confirmed via
   `check_config` + a full restart + live API spot-checks (transaction log
-  and cost sensors survived the restart correctly via RestoreEntity, no new
-  errors in the log beyond the pre-existing unrelated `alert_device_
-  entities`/`problem_alert_devices` "duration" attribute bug).
+  and cost sensors survived the restart correctly via RestoreEntity).
+  **Correction (see the very next entry below): the `alert_device_entities`/
+  `problem_alert_devices` "duration" attribute error seen in the log at this
+  point was called "pre-existing, unrelated" here — that was wrong.** It was
+  `sensor.gas_alert_context` itself missing a required attribute, introduced
+  by this domain's own build. Left standing in this entry rather than
+  edited after the fact, so the record shows the actual investigation
+  order — the correction is the next entry, not a silent rewrite of this
+  one.
 
 - **2026-09-02 (truly final)** — Moved `gas_avg_days_per_bottle_stove`/
   `_heater` out of the Settings section's plain entities list into Stock &
@@ -608,3 +614,28 @@ supplier has not been tried.
   legible month labels, no more width/height distortion. `input_select.
   watercooler_chart_range` confirmed already working live in the browser
   mid-session (found set to "1 Year"). Two restarts, both verified clean.
+
+- **2026-09-02 (gas, duration-attribute fix)** — Fixed `sensor.gas_alert_
+  context`, which independently made the exact same miss as `watercooler_
+  alert_context` the same day (see the entry above/Section 6): shipped
+  without the `duration` attribute ALERTS_CONTRACT.md Section 3's canonical
+  `sensor.*_alert_context (state + {domain, devices, duration} attrs)` shape
+  requires, and `sensor.alert_device_entities`/`sensor.problem_alert_
+  devices` (`alerts_summary.yaml`) read `.duration` unconditionally for
+  every non-normal context sensor with a `devices` list. This is the SAME
+  `UndefinedError: 'ReadOnlyDict object' has no attribute 'duration'` this
+  contract's own session log **incorrectly called "pre-existing, unrelated"
+  across two separate entries earlier today** (see the corrections appended
+  to those entries above) — actually caused directly by this domain's own
+  build, confirmed by the errors stopping in the live log the moment the
+  fix + reload landed (last occurrence 22:51:20, none since). Fixed with
+  the same calc `sensor.deebot_alert_context` (vacuum.yaml) uses: minutes
+  since `binary_sensor.gas_low` last turned on, 0 while inactive. Also
+  surfaced a real, current alert while testing this — the heater bottle is
+  now genuinely at 2.0 days remaining (critical), correctly flowing through
+  to `sensor.alert_device_entities` with the new `duration` attribute
+  present. **Still open, not fixed (matches the note already in the entry
+  above)**: neither `alert.watercooler_alert` nor `alert.gas_alert` are in
+  `alerts_summary.yaml`'s explicit aggregator trigger list — both rely on
+  the 1-minute poll fallback, not an instant update. Low severity, left for
+  a session that touches `alerts_summary.yaml` directly.
