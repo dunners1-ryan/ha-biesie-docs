@@ -5,6 +5,34 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-02 (later same day) — Vacuum dashboard: 6 metric cards
+      (Clean Water, Dirty Water, Detergent, Manual Clean, Today, Lifetime)
+      converted from plain markdown to `custom:mushroom-template-card`
+      with `card_mod` styling** — user: "where are the nice markdown card
+      card mods... similar to what have on home dashboard" + flagged
+      Today/Lifetime as wasting space, suggested mushroom-template-card.
+      Matched the exact pattern already used on the Home dashboard's room-
+      power tiles (rgba background wash via card_mod, conditional on the
+      same severity threshold already driving icon_color) and the vacuum
+      view's own main status tile (pulse keyframe while in a state that
+      needs attention — reused here for "Overdue"/critical instead of
+      "cleaning"). Water/Dirty Water/Manual Clean: red/orange/green on the
+      days-remaining estimate, pulses when Overdue. Detergent: same 3-tier
+      color on %, pulses under 15%. **Today**: new well/bad coloring not
+      present before — red (+pulse) if `binary_sensor.deebot_alert_active`
+      is currently on, green if area was cleaned today with no alert, grey
+      if nothing's run yet today. **Lifetime**: deliberately left neutral
+      (blue-grey, no thresholds) — a lifetime total isn't "good or bad",
+      just informational, unlike the other five. Replaced 2 horizontal-
+      stacks-of-markdown with 2-column `type: grid` layouts (Today+Lifetime
+      side by side; the 4 consumable tiles 2×2) — meaningfully more compact
+      than the stacked full-width markdown blocks it replaced. All 4
+      templates test-rendered via `/api/template` against live data before
+      pushing (water correctly showed red/Overdue — genuinely true, matches
+      the real un-logged state). Verified live via a fresh `lovelace/config`
+      fetch after saving. Docs-only note here — no YAML/entity changes,
+      pure Lovelace edit, so no SMART_CLEANING_CONTRACT.md change needed.
+
 - [x] **2026-09-02 — Vacuum: new manual machine-clean tracker (Group V,
       added to Section 3e of SMART_CLEANING_CONTRACT.md) — user asked for
       "same as water refill" for taking the roller out and clearing
