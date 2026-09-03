@@ -5,6 +5,66 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-03 (evening) — Debug dashboard energy cards: fixed cumulative-
+      looking Monthly Production / Energy Use Over Time / Appliance Energy by
+      Day, an orphaned-entity Grid Import bug, and a zoom-button snap-back +
+      y-axis over-scale bug on 4 `custom:plotly-graph` cards. Dashboard-only
+      session — no package YAML changed; all edits in `.storage/lovelace.
+      operations_debug` (gitignored, so not git-committed itself, only
+      documented here).** User: "seems top [Monthly Production] one is
+      adding delta per month for cumulative and bottom one looks more
+      right?" then flagged the same pattern on Energy Use Over Time and
+      Appliance Energy by Day, then asked for 60d/90d/14d range buttons,
+      then reported the buttons reverting and a mis-scaled y-axis.
+      **Root cause 1 — `statistic:"sum"` misuse:** the broken cards pointed
+      `statistic:"sum"` at sensors that reset (`_today` daily counters, or
+      lifetime `total_increasing` appliance integrals) with `period:"month"`/
+      `"day"` — this card's `"sum"` statistic returns the raw cumulative
+      long-term-statistics column, not a period delta, so values only ever
+      grew. Fixed: repointed at sensors that themselves reset on the target
+      cadence (`solar_production_monthly`/`house_load_energy_monthly`/etc.
+      utility meters for month; the 8 appliance plugs' UI-created `_energy_
+      day` siblings, found in `core.entity_registry`, for day) with
+      `statistic:"state"` instead — deleted the broken duplicate "Monthly
+      Production" card outright rather than patch it, since a correct
+      sibling card already existed right next to it.
+      **Root cause 2 — orphaned entity:** the "Energy Balance" card's Grid
+      Import series read `sensor.inverter_today_energy_import`, which
+      POWER_CONTRACT Issue 7 documents as deleted 2026-08-21 (dead code, its
+      "zero consumers" repo grep was scoped to `packages/` and missed this
+      dashboard card, since `.storage/lovelace*` is gitignored). Repointed
+      to `sensor.grid_energy_import_today`. POWER_CONTRACT.md updated: Issue
+      7 addendum, its two other stale same-fact references (Known
+      Aggregation Workaround section + Entity Reference table) corrected,
+      new dashboard "Gotchas" subsection added.
+      **Root cause 3 — zoom buttons reverting + y-axis stuck too high:**
+      root-caused by reading the vendored card's own minified source
+      (`www/community/lovelace-plotly-graph-card`), not guesswork — its
+      layout-merge function applies `config.layout` twice, last, so any
+      static `layout.xaxis.range` in card config permanently overrides
+      live pan/zoom on every render (`uirevision` doesn't help — it only
+      guards against an *omitted* value, not one deliberately re-supplied
+      every time). Fixed by removing `xaxis.range` from all 3 affected
+      cards' `layout` entirely; trade-off is the default view width is
+      now whatever `hours_to_show` is (90d) rather than a fixed 7d — no
+      config-level way found yet to get both. y-axis-stuck-too-high on the
+      same cards was `defaults.yaxes.fixedrange:true` locking the axis to
+      the *full* fetched dataset's max at first render instead of the
+      visible window; fixed with an explicit `layout.yaxis.fixedrange:
+      false` override.
+      **Also added:** 60d/90d buttons to Energy Flow Daily + Daily Totals;
+      14d to Energy Use Over Time + Appliance Energy by Day (was 90d/30d/7d
+      only on both); bumped `hours_to_show` on Energy Use Over Time from
+      31d to 2160 (90d) so its pre-existing 90d button actually has data.
+      **Verification:** each round applied via direct `.storage` JSON edit
+      (validated + backed up locally before/after every change) then `ha
+      core restart` (plain restart, not stop→edit→start — worked fine,
+      confirmed via `ha core logs` showing no lovelace/plotly errors and
+      re-reading the file post-restart to confirm edits survived, each
+      round). Final round's fix (zoom persistence + y-axis + 14d buttons)
+      was pending the user's live click-through confirmation as of this
+      entry — visual/interactive behavior wasn't independently re-verified
+      beyond source-code analysis and absence-of-error-in-logs.
 - [x] **2026-09-03 (later) — Vacuum: dashboard multiline fix + disk-backed
       restart-survival for the tracker averages. Real pyscript dead end hit
       and documented; landed on `shell_command` + script instead, proven
@@ -5485,6 +5545,7 @@ added GARDEN_CONTRACT.md, which had no row in this table at all.)*
 - Editing `automations.yaml` — always use package files
 - Building UI before backend is stable
 - Missing `continue_on_error: true` on the **calling** `script.notify_*_event` action — a Telegram `ConnectTimeout` is an "Unexpected error" that propagates past `continue_on_error` inside the script and kills the caller. Always add `continue_on_error: true` to the calling action, not just inside the script.
+- `custom:plotly-graph` cards: `statistic:"sum"` is the raw cumulative long-term-statistics column, NOT a period delta — never point it at a resetting sensor expecting a per-period total, use `statistic:"state"` on a sensor that itself resets on the target cadence instead. Also never put a static `layout.xaxis.range` in card config if buttons/pan/zoom need to persist — the card merges `config.layout` in twice, last, so it permanently overrides live interaction every render (`uirevision` does not help here). See POWER_CONTRACT.md's "`custom:plotly-graph` Card Gotchas" subsection (Section 16) for the full writeup — cost several restart cycles to root-cause, 2026-09-03.
 
 ---
 

@@ -258,9 +258,16 @@ Inverter 2 = SLAVE
 | `sensor.inverter_dc_temperature` | max(inv1, inv2) | power_state.yaml |
 | `sensor.inverter_grid_frequency` | (inv1_freq + inv2_freq) / 2 | power_state.yaml |
 
-### Known Aggregation Workaround
+### Known Aggregation Workaround — ✅ REMOVED 2026-08-21 (doc-drift correction 2026-09-03)
 
-`sensor.inverter_today_energy_import` uses `inverter_1_today_energy_import * 2` when inverter_2 reads zero. This is a Solarman integration quirk where Slave doesn't reliably report grid import. Acknowledged workaround; pending direct grid meter integration to replace.
+`sensor.inverter_today_energy_import` used to compute `inverter_1_today_energy_import * 2`
+when inverter_2 read zero (Solarman Slave quirk where it doesn't reliably report grid
+import). **This was deleted as dead code 2026-08-21 — see Issue 7 below.** This section
+still described it as a live, current workaround for two weeks after removal; corrected
+during the 2026-09-03 dashboard-bug session that found the one real consumer Issue 7's
+"zero consumers" repo grep had missed (a `.storage/lovelace.*` dashboard card, outside
+`packages/`). The real authoritative daily grid-import figure is
+`sensor.grid_energy_import_today` (UI-defined `utility_meter` helper).
 
 ### PV String Layout
 
@@ -535,7 +542,9 @@ sensor.inverter_today_battery_charge      kWh  battery charged today
 sensor.inverter_today_battery_discharge   kWh  battery discharged today
 sensor.grid_energy_import_today           kWh  grid imported today
 sensor.inverter_today_energy_export       kWh  exported today
-sensor.inverter_today_energy_import       kWh  grid import today (inv1 * 2 WORKAROUND)
+sensor.inverter_today_energy_import       ❌ REMOVED 2026-08-21 (Issue 7) — orphaned registry
+                                           stub only, no backing config. Use
+                                           sensor.grid_energy_import_today instead.
 ```
 
 ### Lifetime Energy Totals (power_core.yaml)
@@ -1980,6 +1989,8 @@ Issues ordered by risk/impact. **P1 = breaks functionality. P2 = incorrect data.
 **Root cause:** Slave inverter (inv2) doesn't reliably report grid import. Workaround multiplied inv1's value by 2 — wrong if inv2 was genuinely reporting zero, ≈2× overcounting if inv2 came back online.
 **Resolution:** Not fixed with detection logic as originally proposed — instead confirmed and removed as dead code. Grepped the whole repo: zero consumers anywhere. This contract's own "Status" note claimed `energy_core.yaml → solar_used_by_house_today` still used it; re-verified live and that sensor actually reads `sensor.inverter_today_production` / `sensor.inverter_today_energy_export` / `sensor.solar_to_battery_energy_today` — never referenced `inverter_today_energy_import` at all. The block was deleted outright. The real authoritative daily grid-import figure is `sensor.grid_energy_import_today` — a **UI-defined `utility_meter` helper** (Settings → Helpers, not YAML) wrapping an `integration` sensor off inverter 1's grid power — already the sole source used by `energy_core.yaml`, `energy_state.yaml`, and `power_automations.yaml`.
 
+**Addendum 2026-09-03:** the "zero consumers anywhere" grep was scoped to `packages/` (git-tracked) and missed one — the "Energy Balance" `custom:plotly-graph` card in the Debug dashboard (`.storage/lovelace.operations_debug`, gitignored, invisible to a repo grep) was still pointed at `sensor.inverter_today_energy_import`. Since the entity's backing YAML was gone but its `core.entity_registry` stub wasn't (HA doesn't auto-purge orphaned registry entries), the card silently rendered "Grid Import (undefinedkWh)" for two weeks — found and repointed to `sensor.grid_energy_import_today` during a dashboard-bug session (see PROJECT_STATE.md 2026-09-03 entry). Lesson for future "confirmed zero consumers" claims on any entity: also grep `.storage/lovelace*` dashboard files, not just `packages/`.
+
 ---
 
 ### Issue 8 — ✅ CONFIRMED 2026-08-21: `group.house_security_power_sensors` has a real member (not empty)
@@ -3236,6 +3247,50 @@ All power dashboards are in HA storage mode (`lovelace: mode: storage`). Files l
 
 All power-related views use `custom:navbar-card` (footer position) with routes: Home → /dashboard-overview, Operations → /dashboard-operations, Debug → /operations-debug, System → /dashboard-system, Alerts → /dashboard-system/alerts.
 
+### `custom:plotly-graph` Card Gotchas (found 2026-09-03, Debug dashboard energy-bug session)
+
+Three real bugs found across the Debug dashboard's (`lovelace.operations_debug`) energy
+cards, all traced to misunderstanding this vendored card's (`www/community/lovelace-plotly-
+graph-card`) own semantics — not HA config bugs. Documented here since none of it is
+obvious from the card's config surface and it cost several restart cycles to root-cause
+each one:
+
+1. **`statistic: "sum"` is NOT a period delta — it's the raw cumulative long-term-
+   statistics `sum` column.** Pointing it at a sensor that resets (daily `_today` counters,
+   or a lifetime `total_increasing` integral sensor) with `period: month`/`period: day`
+   does not give you that period's total — it gives the running cumulative value at that
+   bucket, which only ever grows and looks like it "adds delta per month" (user-reported
+   symptom that started this session). Correct pattern: point at a sensor that itself
+   resets on the cadence you want (a `utility_meter` with matching `cycle`, or a native
+   `_today`/`_day`-suffixed sensor) and use `statistic: "state"` instead — its raw state
+   at any point already **is** that period's total. Every UI-created appliance/pump plug
+   already has both `_energy_day` and `_energy_month` utility_meter siblings in
+   `core.entity_registry` (check there — Rule 4 applies to dashboards too, not just YAML)
+   — don't recreate them, just point the card at the right one.
+2. **A static `layout.xaxis.range` in card config permanently overrides live pan/zoom,
+   every single render — `uirevision` does NOT help.** The card's own layout-merge
+   function does `merge({}, config.layout, {xaxis:{range: visible_range}}, <runtime>,
+   config.layout)` — `config.layout` is merged in **twice, and last**, so any explicit
+   `xaxis.range` you declare always wins over whatever range the user just clicked/panned
+   to, on every refresh tick. Symptom: zoom buttons (60d/90d/etc) work for a moment then
+   snap back. `uirevision` only prevents Plotly from resetting an attribute the app
+   *omits*; it does nothing when the app deliberately re-supplies a value every render,
+   which is what a `$fn`-computed range does (it's re-evaluated fresh each time, not
+   cached). Fix: don't put `xaxis.range` in `layout` at all — the card's own
+   `hours_to_show`-derived `visible_range` already drives the correct default AND tracks
+   later interaction correctly, unopposed. Trade-off: without an explicit range, the
+   initial-load default view is however wide `hours_to_show` is (see next point), not a
+   fixed 7d — no config-level way found yet to get both.
+3. **`hours_to_show` controls both the data-fetch window AND the default view — and if
+   `defaults.yaxes.fixedrange: true` is set, the y-axis autoranges once against the full
+   fetched dataset and then locks.** Widening `hours_to_show` to support a 60d/90d zoom
+   button (needs that much data fetched) also means the y-axis, computed once at initial
+   load against the *entire* fetched range, can lock to a much higher max than whatever's
+   visible in a zoomed-in 7-day default — extra dead headroom that never rescales because
+   `fixedrange` also blocks the auto-refit that would otherwise happen on a relayout.
+   Fix: override `fixedrange: false` on the specific `layout.yaxis` (the `defaults.yaxes`
+   block sets it true broadly) so it re-fits after each zoom instead of freezing.
+
 ### Known P6 Statistics Sensor Issue
 
 Three statistics sensors defined in `power_statistics.yaml` are NOT appearing in the HA entity registry after two restarts:
@@ -3245,6 +3300,14 @@ Three statistics sensors defined in `power_statistics.yaml` are NOT appearing in
 
 The YAML parses correctly. Pre-existing statistics sensors load as 'unavailable'. HA logs show no error. Investigation needed: check if statistics platform rejects standard_deviation characteristic in HA 2026.6, or if source entity incompatibility is the cause. Dashboard cards that reference these sensors will show "unavailable" — acceptable until resolved.
 *Updated by: Deep audit — all 22 power package files read, POWER_DEPENDENCY_ANALYSIS.md incorporated, watchman cross-referenced, legacy automations checked*
+*Last updated: 2026-09-03 — Debug dashboard energy-bug session (dashboard-only, no package
+YAML changed): 3 `custom:plotly-graph` cards fixed (cumulative-not-periodic energy figures
+from `statistic:"sum"` on resetting sensors; Energy Balance card's Grid Import series
+pointed at the orphaned `inverter_today_energy_import` stub — see Issue 7 addendum below
+and its two corrected same-fact references above in Sections 3/6); zoom-button
+snap-back and y-axis over-scale bugs root-caused and fixed on 4 cards; 14d/60d/90d range
+buttons added across 4 cards. New "`custom:plotly-graph` Card Gotchas" subsection added
+above capturing the three underlying card-behavior bugs for future sessions.*
 *Last updated: 2026-08-21 — Issue 7 closed (sensor.inverter_today_energy_import removed as
 confirmed dead code, not fixed with detection logic); Issue 8 confirmed (group has 1 real
 member, not empty); Issue 17 closed (power_helpers.yaml layering violation — group:/template:
