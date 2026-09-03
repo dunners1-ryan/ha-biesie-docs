@@ -5,6 +5,79 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-03 (later) — Vacuum: dashboard multiline fix + disk-backed
+      restart-survival for the tracker averages. Real pyscript dead end hit
+      and documented; landed on `shell_command` + script instead, proven
+      live with a full corrupt→restore round-trip. A SECOND, still-
+      unexplained reset event happened mid-session, independent of the
+      first — ruled out `input_number.reload`, `input_boolean.reload`, AND
+      the new restore automation itself as causes.** User: "make sure the
+      markup cards are multiline as cutting off some details above the
+      buttons; fix the restart survive as well."
+      **Multiline fix**: all 7 `custom:mushroom-template-card` tiles on the
+      Operations → Vacuum view (status tile, Today, Lifetime, Clean Water,
+      Dirty Water, Detergent, Manual Clean) were missing `multiline_
+      secondary: true` — mushroom cards truncate multi-line secondary text
+      to one line with an ellipsis by default. Fixed by walking the live
+      dashboard config and adding it to every tile whose secondary content
+      has a newline or exceeds ~40 chars — all 7 qualified. Verified saved.
+      **Restart-survival — the pyscript route, tried and abandoned (kept
+      as a documented dead end, not silently dropped)**: built `pyscript/
+      vacuum_tracker_persist.py` to persist the 10 fields that matter
+      (6 EMA averages, 3 `_logged_once` guards, the detergent counter) to a
+      JSON file on save + restore on `@time_trigger("startup")`. Hit three
+      real, reproducible pyscript bugs in sequence, each confirmed live via
+      `system_log/list` tracebacks, not guessed: (1) `dict.items()` on a
+      local var got mis-parsed as a state entity lookup
+      (`state.get('data.items')`); (2) a variable whose only assignment is
+      inside a `try:` block isn't visible after it even when the syntax
+      itself is fine; (3) fatal — **`open()` is not a defined builtin in
+      this pyscript sandbox at all** (`NameError: name 'open' is not
+      defined`), confirmed after fixing (1) and (2) got far enough to reach
+      the actual file call. No existing pyscript file in this repo does
+      file I/O — now clear why: it's not possible here. Deleted the file
+      rather than leave a permanently-erroring `@time_trigger("startup")`
+      hook in place.
+      **What actually worked — this repo's own proven pattern**:
+      `packages/integrations/vacuum_tracker_save.sh` (mirrors `gitupdate.
+      sh`'s shell-script style) + `shell_command.vacuum_tracker_save`
+      (Jinja-templated `states(...)` calls as plain positional args — all
+      10 values are space-free tokens, floats or on/off strings, so no
+      quoting risk at all) + a `command_line: sensor:` that reads the
+      written JSON back via `json_attributes` + a `homeassistant: event:
+      start` automation that waits for the sensor to populate then force-
+      applies each value via `input_number.set_value` / `choose:`-gated
+      `input_boolean.turn_on/off`. State file
+      (`packages/integrations/vacuum_tracker_state.json`) deliberately
+      lives inside `packages/integrations/`, not a temp/hidden path — same
+      precedent as `watercooler_invoice_history.json` — so it rides the
+      normal daily `gitupdate.sh` backup and gets real git history.
+      Deliberately does NOT persist the 4 `last_*_time` / 3 `area_at_last_*`
+      snapshot fields — those self-correct on the very next real press
+      regardless of a restart, only the averages take multiple presses to
+      re-converge, not worth the extra complexity.
+      **Proven live, not just deployed**: set `avg_days_per_water_refill`
+      to a distinctive 2.71, saved it via the real `shell_command` service,
+      force-updated the `command_line` sensor and confirmed it read 2.71
+      back, then "corrupted" the live value to 9.99, called `automation.
+      trigger` on the restore automation directly (bypasses the real
+      startup trigger, runs the identical action sequence) — value came
+      back to 2.71, confirmed via a background wait-loop, not assumed.
+      Cleaned up the test value afterward and re-saved the file with the
+      genuine current state.
+      **Found along the way, not fixed — a second mystery reset**: while
+      testing, all three `_logged_once` flags + the detergent counter
+      flipped back to their defaults again, at 2026-09-03T14:52:05 UTC —
+      independent of the original 2026-09-02T20:07:48 incident. Checked
+      `automation.vacuum_tracker_restore_on_startup`'s own `last_triggered`
+      first (`None` — hadn't fired, ruled out immediately) and directly
+      tested `input_boolean.reload` the same way `input_number.reload` was
+      proven safe (set a boolean non-default, reload, value survived) —
+      also ruled out. **Root cause of either reset event is still not
+      identified.** The disk-backed persistence above doesn't depend on
+      knowing why — it just needs the file to be current at save time and
+      read on the next real HA restart, which is now proven to work.
+
 - [x] **2026-09-03 — Vacuum: real incident found + fixed — restart/reload
       wiped the water/dirty-water/manual-clean trackers' learned averages
       back to day-one seeds, discarding real learning. New "pre-emptive log"

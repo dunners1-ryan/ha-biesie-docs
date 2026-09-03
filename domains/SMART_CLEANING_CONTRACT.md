@@ -61,7 +61,9 @@ a sensor exists just because an estimate sensor reads a number.
 
 | File | Lines (2026-08-31, re-verified via `wc -l` same day after V4/V10/V11 additions) | Purpose |
 |---|---|---|
-| `packages/integrations/vacuum.yaml` | 1083 (re-verified 2026-09-03) | Mat-removal reminder, fault-alert pipeline (now also covers low consumable lifespan, V11), water/dirty-water/detergent consumption estimator, daily job-outcome summary (V4), manual machine clean tracker (3e), pre-emptive log toggle (3f) |
+| `packages/integrations/vacuum.yaml` | 1243 (re-verified 2026-09-03) | Mat-removal reminder, fault-alert pipeline (now also covers low consumable lifespan, V11), water/dirty-water/detergent consumption estimator, daily job-outcome summary (V4), manual machine clean tracker (3e), pre-emptive log toggle (3f), disk-backed restart-survival persistence (3g) |
+| `packages/integrations/vacuum_tracker_save.sh` | 42 | Writes the 10 restart-critical tracker fields to disk — called via `shell_command.vacuum_tracker_save` |
+| `packages/integrations/vacuum_tracker_state.json` | — (data, not code) | The persisted snapshot itself — git-tracked, rides the daily backup, no header/comments (pure JSON) |
 
 No separate `packages/vacuum/` directory exists — kept in `integrations/`
 alongside `sonoff.yaml` since it's one file covering one integration/device,
@@ -325,6 +327,63 @@ before shipping: pressing refill then dirty-empty together, seconds apart
 disarm protection for the second. A single timeout-based reset automation
 avoids that race entirely and needs no per-press bookkeeping.
 
+### 3g. Restart-Survival — Disk-Backed Tracker Persistence (added 2026-09-03)
+
+Mitigates Section 7's "something resets the trackers, cause unknown" issue
+— doesn't fix the cause, makes a reset (whenever it happens) non-
+destructive by restoring from disk on the next real HA startup.
+
+**pyscript was tried first and abandoned** — this instance's pyscript
+sandbox has no `open()` builtin at all (confirmed live via a `NameError`
+after also hitting and fixing two other real pyscript scoping quirks
+along the way — see PROJECT_STATE.md 2026-09-03 for the full sequence).
+No file I/O is possible from pyscript here; the dead-end file was deleted
+rather than left erroring on every future startup.
+
+```
+Any of the 4 log automations (water refill / dirty empty / manual clean /
+new detergent bottle) completes its normal work
+        ↓
+action: shell_command.vacuum_tracker_save  (continue_on_error: true)
+        ↓
+/bin/bash vacuum_tracker_save.sh <10 space-free values as positional args>
+        ↓
+packages/integrations/vacuum_tracker_state.json  (git-tracked — rides the
+                                                    normal daily backup)
+
+────────────────────────────────────────────────────────────────
+
+HA startup
+        ↓ (trigger: homeassistant, event: start)
+automation.vacuum_tracker_restore_on_startup
+        ↓ (15s delay, then force-refresh + 3s settle)
+homeassistant.update_entity → sensor.vacuum_tracker_saved_state
+                               (command_line sensor: `cat` the JSON file,
+                                json_attributes exposes each of the 10 fields)
+        ↓ (condition: sensor not unknown/unavailable — guards a first-ever
+           startup with no file yet)
+input_number.set_value × 7  +  choose:-gated input_boolean.turn_on/off × 3
+```
+
+**Only 10 of the tracker's fields are persisted** — the 6 EMA averages,
+the 3 `_logged_once` guards, and the detergent counter. Deliberately
+excludes the 4 `last_*_time` / 3 `area_at_last_*` snapshot fields: those
+self-correct on the very next real log press regardless of what a restart
+does to them, unlike the averages which take several presses to
+re-converge — not worth the extra shell_command complexity to cover them
+too.
+
+**Verified with a real corrupt→restore cycle, not just deployed**: set
+`avg_days_per_water_refill` to a distinctive 2.71, saved it via the real
+`shell_command.vacuum_tracker_save` service, force-refreshed the
+`command_line` sensor and confirmed 2.71 came back in its attributes,
+then set the live value to 9.99 (simulating a reset), called
+`automation.trigger` on the restore automation directly (runs the same
+action sequence as the real `homeassistant: event: start` trigger without
+needing an actual restart) — value returned to 2.71, confirmed via a
+background wait-loop. Test value cleaned up and the file re-saved with
+genuine current state afterward.
+
 ---
 
 ## Section 4: Entity Registry
@@ -484,6 +543,15 @@ no camera entity of any kind.
 | `vacuum_detergent_bought_from_notification` | Vacuum Detergent Alert: Bought From Notification | Mobile action `DETERGENT_BOUGHT` or Telegram `/detergent_bought` | Presses `vacuum_log_detergent_new_bottle` (reuses logic) |
 | `vacuum_daily_snapshot_reset` | Vacuum – Daily Snapshot Reset | Time, `00:01:00` daily | Snapshots lifetime totals, resets `vacuum_job_summary_sent_today` |
 | `vacuum_session_complete_summary` | Vacuum – Session Complete Summary | `vacuum.deebot_t80s_biesie` → docked, for 10 min | `script.notify_system_event` (information) — today's area/duration/job-count delta |
+| `vacuum_pre_emptive_toggle_auto_reset` | Vacuum – Pre-emptive Toggle Auto Reset | `input_boolean.vacuum_log_preemptive` → on, for 5 min | Turns it back off — was missing from this table until this sweep despite being live since 3f shipped |
+| `vacuum_tracker_restore_on_startup` | Vacuum – Tracker Restore on Startup | `homeassistant`, `event: start` | Restores the 10 persisted fields from disk (3g) — 15s + 3s delay for the command_line sensor to settle first |
+
+### Helper — Restart-Survival Persistence (added 2026-09-03)
+
+| Entity | Type | Purpose |
+|---|---|---|
+| `shell_command.vacuum_tracker_save` | shell_command | Templated `states(...)` values as positional args to `vacuum_tracker_save.sh` |
+| `sensor.vacuum_tracker_saved_state` | command_line sensor | `cat`s the saved JSON, exposes each of the 10 fields as an attribute via `json_attributes` |
 
 ---
 
@@ -501,6 +569,7 @@ no camera entity of any kind.
 | Water/detergent estimator | 3 log buttons + EMA + deterministic detergent math | ✅ confirmed live, real values observed (344 m² since last refill as of 2026-08-31 — genuinely overdue, correctly shown red on dashboard) |
 | Manual clean tracker (3e) | `vacuum_log_manual_clean` + EMA | ✅ confirmed live 2026-09-02, first real baseline logged via `input_button.press` — seed values (300 m² / 7.0 d) are a pure guess, no prior data existed at all |
 | Pre-emptive log toggle (3f) | `vacuum_log_preemptive` + `vacuum_pre_emptive_toggle_auto_reset` | ✅ confirmed live 2026-09-03, reload + config-valid. Not yet exercised against a real qualifying event (built the same session as a real pre-emptive top-up, but that event landed safely by a different mechanism — a coincidental guard-flag reset, see Section 7 — before this toggle existed to actually protect it) |
+| Restart-survival persistence (3g) | `shell_command.vacuum_tracker_save` + `sensor.vacuum_tracker_saved_state` + `vacuum_tracker_restore_on_startup` | ✅ proven live with a real save→corrupt→restore cycle via `automation.trigger` (bypasses the actual startup trigger, same action sequence) — not yet exercised against a genuine HA restart specifically, only the simulated equivalent |
 | Detergent low + Bought action | `vacuum_detergent_low_alert` + `vacuum_detergent_bought_from_notification` | ✅ |
 | Lifespan warning (V11) | Folded into `deebot_alert_active`/`_context` above | ✅ confirmed live, reads `normal` with real current lifespans (92-97%) — not exercised against an actual low reading yet |
 | Daily job summary (V4) | `vacuum_daily_snapshot_reset` + `vacuum_session_complete_summary` | ✅ confirmed live, midnight snapshot seeded manually for the first day (see 3d) — not yet exercised through a real full day+summary cycle end to end |
@@ -537,7 +606,7 @@ individual notifications work fine). Schedule a restart to close this.
 | Error code 323's meaning unconfirmed | Low | Open — will resolve itself with more real occurrences now the pipeline captures live descriptions |
 | `deebot_client` map rendering (`getMapSet` "rcp not support") | — | **Closed 2026-08-31** — self-resolved within ~24h, no config change needed. Kept as a PROJECT_STATE.md Known Integration Issues row in case it regresses. |
 | Mat-reminder helpers can silently drift from the app's real schedule | Medium | Open by design — no automatic detection exists. Consider a periodic "does this still look right" nudge if it drifts again. |
-| Restart/reload can wipe the water/dirty-water/manual-clean trackers' learned averages back to seed | Medium | **Found 2026-09-03, not fixed, only documented** — some other session's helper reload/restart around 2026-09-02 20:07:48 UTC reset all three `_logged_once` guard flags (and the averages behind them) to their YAML `initial:` defaults, discarding real learning. Root cause of *why* these particular YAML-defined helpers didn't survive is unresolved. Spot-check `vacuum_avg_days/area_per_water_refill`, `_dirty_empty`, `_manual_clean` after any future restart — see PROJECT_STATE.md 2026-09-03 entry for the full diagnostic trail (via `last_changed` timestamp correlation, including a negative control on a never-written helper). |
+| Something resets the trackers' `_logged_once` flags + averages, cause unknown | Low (was Medium — mitigated 2026-09-03, root cause still open) | **Two separate occurrences now**: 2026-09-02T20:07:48 UTC and 2026-09-03T14:52:05 UTC. Ruled out (tested live, not assumed): `input_number.reload`, `input_boolean.reload`, and — for the second occurrence — `automation.vacuum_tracker_restore_on_startup` itself (`last_triggered` was `None` at the time). True cause still unidentified. **Mitigated, not fixed**: Section 3g's disk-backed persistence means a reset (whatever causes it) no longer discards real learning — the next HA restart restores from `packages/integrations/vacuum_tracker_state.json` regardless of why the live values reset. If it happens a third time, check `automation.reload`/`homeassistant.restart` call timing across ALL sessions, not just this domain's own reloads — both of those were the two remaining untested candidates. |
 
 ---
 
