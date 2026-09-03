@@ -61,7 +61,7 @@ a sensor exists just because an estimate sensor reads a number.
 
 | File | Lines (2026-08-31, re-verified via `wc -l` same day after V4/V10/V11 additions) | Purpose |
 |---|---|---|
-| `packages/integrations/vacuum.yaml` | 1028 (re-verified 2026-09-02) | Mat-removal reminder, fault-alert pipeline (now also covers low consumable lifespan, V11), water/dirty-water/detergent consumption estimator, daily job-outcome summary (V4), manual machine clean tracker (3e) |
+| `packages/integrations/vacuum.yaml` | 1083 (re-verified 2026-09-03) | Mat-removal reminder, fault-alert pipeline (now also covers low consumable lifespan, V11), water/dirty-water/detergent consumption estimator, daily job-outcome summary (V4), manual machine clean tracker (3e), pre-emptive log toggle (3f) |
 
 No separate `packages/vacuum/` directory exists — kept in `integrations/`
 alongside `sonoff.yaml` since it's one file covering one integration/device,
@@ -293,6 +293,38 @@ after building this so the baseline snapshot is exact rather than
 approximate. Only needs one more press to replace the seed with a real
 interval — expect this one to stabilize faster than 3c's estimates did.
 
+### 3f. Pre-emptive Log Toggle (added 2026-09-03)
+
+Built after a real incident (see Section 7 — restart/reload wiped all
+three trackers' learned averages back to seed): `input_boolean.
+vacuum_log_preemptive`, off by default. Flip on before pressing a log
+button for a non-representative early action — the water tank was only
+half full, the dirty tank only half empty, the roller wasn't actually
+overdue — and the snapshot (last-done time + area) still updates normally,
+but the interval/area EMA step is skipped for that press on **all three**
+trackers (water, dirty-water, manual-clean — extended to all three for
+consistency, not just the two the triggering request named).
+
+```
+User flips input_boolean.vacuum_log_preemptive ON
+        ↓
+Presses whichever log button(s) apply (refill / dirty-empty / manual-clean —
+any number, any order, within the window below)
+        ↓
+Each automation's EMA branch additionally requires
+  input_boolean.vacuum_log_preemptive == off
+  → skipped while the toggle is on; snapshot update is unconditional either way
+        ↓ (5 min after the toggle turned on)
+automation.vacuum_pre_emptive_toggle_auto_reset → turns it back off
+```
+
+**Deliberately NOT a per-button auto-consume** — an early design (each
+log automation turning the toggle off itself after using it) was caught
+before shipping: pressing refill then dirty-empty together, seconds apart
+(the actual 2026-09-03 scenario), would let the first automation silently
+disarm protection for the second. A single timeout-based reset automation
+avoids that race entirely and needs no per-press bookkeeping.
+
 ---
 
 ## Section 4: Entity Registry
@@ -402,6 +434,12 @@ no camera entity of any kind.
 | `input_number.vacuum_avg_days_per_manual_clean` | input_number | `7.0` d (pure guess) | EMA, refines per press |
 | `input_button.vacuum_log_manual_clean` | input_button | — | Manual log trigger |
 
+### Helper — Pre-emptive Log Toggle (added 2026-09-03)
+
+| Entity | Type | Default | Purpose |
+|---|---|---|---|
+| `input_boolean.vacuum_log_preemptive` | input_boolean | `false` | Flip on before a non-representative early log press (all 3 EMA trackers); auto-resets 5 min after switching on via `automation.vacuum_pre_emptive_toggle_auto_reset` |
+
 ### Helpers — Job-Outcome Summary (V4)
 
 | Entity | Type | Default | Purpose |
@@ -437,9 +475,10 @@ no camera entity of any kind.
 | `route_deebot_alert` | Deebot: Route Alert | `binary_sensor.deebot_alert_active` → on, for 20s/30min/1h | Real delivery — `script.notify_system_event` w/ Cancel Alert action |
 | `deebot_alert_cancel_from_notification` | Deebot Alert: Cancel From Notification | Mobile action `CANCEL_DEEBOT_ALERT` or Telegram `/cancel_deebot_alert` | Sets `deebot_alert_snoozed` on, confirms |
 | `deebot_alert_snooze_reset` | Deebot Alert: Snooze Reset | `binary_sensor.deebot_alert_active` → off | Clears `deebot_alert_snoozed` |
-| `vacuum_log_water_refill` | Vacuum – Log Water Refill | `input_button.vacuum_log_water_refill` pressed | Snapshot + EMA update + detergent counter +1 |
-| `vacuum_log_dirty_water_empty` | Vacuum – Log Dirty Water Empty | `input_button.vacuum_log_dirty_water_empty` pressed | Snapshot + EMA update |
-| `vacuum_log_manual_clean` | Vacuum – Log Manual Clean | `input_button.vacuum_log_manual_clean` pressed | Snapshot + EMA update (added 2026-09-02) |
+| `vacuum_log_water_refill` | Vacuum – Log Water Refill | `input_button.vacuum_log_water_refill` pressed | Snapshot + EMA update (skipped if `vacuum_log_preemptive` on) + detergent counter +1 (always) |
+| `vacuum_log_dirty_water_empty` | Vacuum – Log Dirty Water Empty | `input_button.vacuum_log_dirty_water_empty` pressed | Snapshot + EMA update (skipped if `vacuum_log_preemptive` on) |
+| `vacuum_log_manual_clean` | Vacuum – Log Manual Clean | `input_button.vacuum_log_manual_clean` pressed | Snapshot + EMA update (skipped if `vacuum_log_preemptive` on) (added 2026-09-02) |
+| `vacuum_pre_emptive_toggle_auto_reset` | Vacuum – Pre-emptive Toggle Auto Reset | `input_boolean.vacuum_log_preemptive` → on, for 5 min | Turns it back off (added 2026-09-03) |
 | `vacuum_log_detergent_new_bottle` | Vacuum – Log New Detergent Bottle | `input_button.vacuum_log_detergent_new_bottle` pressed | Reset counter to 0, snapshot time |
 | `vacuum_detergent_low_alert` | Vacuum – Detergent Low Alert | `sensor.vacuum_detergent_level` below 15%, one-shot | `script.notify_system_event` w/ Detergent Bought action |
 | `vacuum_detergent_bought_from_notification` | Vacuum Detergent Alert: Bought From Notification | Mobile action `DETERGENT_BOUGHT` or Telegram `/detergent_bought` | Presses `vacuum_log_detergent_new_bottle` (reuses logic) |
@@ -461,6 +500,7 @@ no camera entity of any kind.
 | Cancel Alert | `deebot_alert_snoozed` + 2 automations | ✅ |
 | Water/detergent estimator | 3 log buttons + EMA + deterministic detergent math | ✅ confirmed live, real values observed (344 m² since last refill as of 2026-08-31 — genuinely overdue, correctly shown red on dashboard) |
 | Manual clean tracker (3e) | `vacuum_log_manual_clean` + EMA | ✅ confirmed live 2026-09-02, first real baseline logged via `input_button.press` — seed values (300 m² / 7.0 d) are a pure guess, no prior data existed at all |
+| Pre-emptive log toggle (3f) | `vacuum_log_preemptive` + `vacuum_pre_emptive_toggle_auto_reset` | ✅ confirmed live 2026-09-03, reload + config-valid. Not yet exercised against a real qualifying event (built the same session as a real pre-emptive top-up, but that event landed safely by a different mechanism — a coincidental guard-flag reset, see Section 7 — before this toggle existed to actually protect it) |
 | Detergent low + Bought action | `vacuum_detergent_low_alert` + `vacuum_detergent_bought_from_notification` | ✅ |
 | Lifespan warning (V11) | Folded into `deebot_alert_active`/`_context` above | ✅ confirmed live, reads `normal` with real current lifespans (92-97%) — not exercised against an actual low reading yet |
 | Daily job summary (V4) | `vacuum_daily_snapshot_reset` + `vacuum_session_complete_summary` | ✅ confirmed live, midnight snapshot seeded manually for the first day (see 3d) — not yet exercised through a real full day+summary cycle end to end |
@@ -497,6 +537,7 @@ individual notifications work fine). Schedule a restart to close this.
 | Error code 323's meaning unconfirmed | Low | Open — will resolve itself with more real occurrences now the pipeline captures live descriptions |
 | `deebot_client` map rendering (`getMapSet` "rcp not support") | — | **Closed 2026-08-31** — self-resolved within ~24h, no config change needed. Kept as a PROJECT_STATE.md Known Integration Issues row in case it regresses. |
 | Mat-reminder helpers can silently drift from the app's real schedule | Medium | Open by design — no automatic detection exists. Consider a periodic "does this still look right" nudge if it drifts again. |
+| Restart/reload can wipe the water/dirty-water/manual-clean trackers' learned averages back to seed | Medium | **Found 2026-09-03, not fixed, only documented** — some other session's helper reload/restart around 2026-09-02 20:07:48 UTC reset all three `_logged_once` guard flags (and the averages behind them) to their YAML `initial:` defaults, discarding real learning. Root cause of *why* these particular YAML-defined helpers didn't survive is unresolved. Spot-check `vacuum_avg_days/area_per_water_refill`, `_dirty_empty`, `_manual_clean` after any future restart — see PROJECT_STATE.md 2026-09-03 entry for the full diagnostic trail (via `last_changed` timestamp correlation, including a negative control on a never-written helper). |
 
 ---
 

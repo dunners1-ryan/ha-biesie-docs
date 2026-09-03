@@ -5,6 +5,59 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-03 — Vacuum: real incident found + fixed — restart/reload
+      wiped the water/dirty-water/manual-clean trackers' learned averages
+      back to day-one seeds, discarding real learning. New "pre-emptive log"
+      capability built so this class of problem (an early/non-representative
+      top-up skewing the average) can't recur even when the guard flags are
+      healthy.** User: "Just did a pre-emptive refil of water and empty of
+      dirty water - both were about half full - please update records so
+      doesn't mess with timing needed to fill." Investigated before touching
+      anything, since the buttons had already been pressed (13:55:50/:55
+      SAST) by the time the message arrived. **Root cause traced precisely**
+      via entity `last_changed` timestamps (not guessed): `input_boolean.
+      vacuum_water_refill_logged_once` / `_dirty_empty_logged_once` /
+      `_manual_clean_logged_once` all show `last_changed` matching either
+      today's real press or an earlier 2026-09-02T20:07:48 UTC event — and
+      `input_number.vacuum_avg_days_per_water_refill` /
+      `_avg_area_per_water_refill` / `_avg_days_per_dirty_empty` /
+      `_avg_area_per_dirty_empty` / `_avg_area_per_manual_clean` (plus, as a
+      negative control, `vacuum_lifespan_warning_threshold` — a value
+      nothing ever writes to) ALL share that exact same 20:07:48 timestamp.
+      Conclusion: some other session's helper reload/restart around that
+      time reset all three `_logged_once` guards to their YAML `initial:
+      false`, wiping the averages back to their seeds (190/1.0 m²/d water,
+      95/0.5 m²/d dirty, 300 m² manual-clean) — a genuinely learned value
+      (115 m²/refill, verified live earlier this week) is gone. **Net effect
+      on today's specific event: harmless by coincidence, not by design** —
+      because the guards were freshly reset, today's real press was treated
+      as "the very first press ever," which already skips the EMA update
+      by design (no interval to compute against a placeholder timestamp).
+      The snapshot half (last_refill/last_empty = now, area reset to
+      current total) was already correct regardless. **So no data
+      correction was actually needed for today's event** — but the
+      underlying gap (this happens on every future restart, silently) is
+      real and now has an actual fix, not just a lucky non-issue.
+      **Built**: `input_boolean.vacuum_log_preemptive` (off by default) —
+      flip on before a non-representative early top-up/clean, press the
+      relevant log button(s), the snapshot still updates but the EMA step
+      is skipped; auto-resets 5 min after being switched on (a dedicated
+      timeout automation, NOT a per-button auto-consume — deliberately
+      avoided a real race condition caught during design: today's actual
+      event needed BOTH the refill AND dirty-empty buttons pressed under
+      one pre-emptive session, and a per-automation "turn myself off after
+      I fire" approach would let the first automation silently disarm
+      protection for the second). Extended to all three trackers (water,
+      dirty-water, manual-clean) for consistency, not just the two named.
+      Added to the Operations → Vacuum dashboard next to the log buttons.
+      Config valid, all helpers/automations reloaded live and confirmed
+      (`automation.vacuum_pre_emptive_toggle_auto_reset` = on). **Standing
+      gap not fixed, only documented** — WHY the restart/reload didn't
+      preserve these YAML-defined helpers' values (input_number.reload is
+      separately documented elsewhere in this file as preserving current
+      values) is unresolved; recommend spot-checking these six values
+      after any future HA restart rather than assuming they survived.
+
 - [x] **2026-09-02 (gas, /update-docs sweep) — Fixed `sensor.gas_alert_
       context`'s own identical miss on the `duration` attribute** (see the
       entry directly below — the two Gas Bottles sessions today independently
