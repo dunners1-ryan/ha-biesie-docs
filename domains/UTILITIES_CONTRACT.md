@@ -79,6 +79,18 @@ calibrating estimate.
   estimate (0.6 old / 0.4 new, same weighting as the vacuum's water-refill
   estimator), decrements spare stock by 1, increments empties-on-hand by 1,
   resets the elapsed-time clock.
+- **Debounce guard (added 2026-09-04, real incident)**: a press within
+  ~20 minutes of the last logged change is treated as an accidental
+  duplicate — no-op except a logbook entry + notification. A genuine
+  double-press 45 seconds apart once fed the EMA a 45-second "interval
+  since last bottle," dragging `avg_days_per_bottle` from 3.9 to 2.34 in
+  one press (the EMA has no way to distinguish 45 seconds from days on its
+  own) and double-decremented stock for one physical bottle swap. See
+  `docs/PROJECT_STATE.md`'s 2026-09-04 entry for the full incident and fix
+  — `avg_days_per_bottle` was reset to **4.11** (148 bottles delivered /
+  608 days, from the real `watercooler_invoice_history.json` span), not
+  just restored to the old 3.9 seed, since that's a more robust anchor than
+  a value one fat-fingered press can wreck.
 
 ---
 
@@ -110,6 +122,18 @@ Three distinct, deliberately separate steps:
    Aquazania's own deposit-invoice formula (delivered − returned, net
    shortfall only) will likely bill before the real invoice arrives. Closes
    `_order_in_progress` if one was open.
+
+**Recommended workflow when a delivery also involves swapping the mounted
+bottle (2026-09-04, user-confirmed standard sequence): Log Bottle Changed
+FIRST, then Confirm Delivery.** Stock math is commutative either way (both
+steps are plain +/− on independent counters), so this isn't required for
+correctness — but doing it in this order means the new empty from the swap
+already exists before you fill in `_delivery_empties_taken`, so that field
+can accurately include it (hand the driver the true full count, not one
+short). It also keeps the running numbers intuitive at each step instead of
+jumping straight to a large post-delivery stock figure — part of what set
+up the accidental-double-press incident logged in `docs/PROJECT_STATE.md`'s
+2026-09-04 entry (Section 3's debounce-guard note above).
 
 **Invoice logging is a separate, financial-record track — not the same data
 as step 3.** The monthly ritual: paste the Aquazania invoice into a Claude

@@ -5,6 +5,38 @@
 
 ## ⚠️ OPEN TODO
 
+- [ ] **2026-09-04 — Water Cooler: real-money bug — accidental Log Bottle
+      Changed double-press (45s apart) corrupted `avg_days_per_bottle`
+      3.9→2.34 and double-decremented `bottles_in_stock` for one physical
+      bottle swap. Fixed live + added a debounce guard; one loose thread
+      not run down.** Root-caused from the recorder, not guessed: delivery
+      (+8, 1→9) → 1st Log Bottle Changed press (9→8, correct) → user
+      unexpected result, zeroed `empties_on_hand` by hand → 2nd press 45s
+      later (8→7, wrong — same physical bottle counted twice) — its EMA
+      calc used the 45-second gap *as if* a bottle had lasted 45 seconds:
+      `3.9×0.6 + (~0)×0.4 = 2.34`, exact match. Fixed live via `input_
+      number.set_value`: `bottles_in_stock` 7→8 (right count for one real
+      swap after the delivery), `avg_days_per_bottle` 2.34→**4.11**, not
+      just restored to 3.9 — recomputed from real data instead of the
+      fragile EMA (148 bottles delivered / 608 days across the full
+      `watercooler_invoice_history.json` span), a more robust anchor than a
+      value one fat-fingered press can wreck. **Guard added** to
+      `watercooler_log_bottle_changed` (watercooler_automations.yaml): a
+      press within ~20 minutes of the last logged change is now treated as
+      an accidental duplicate — no-op (no stock/average/timestamp change),
+      just a logbook entry + notification saying so. `check_config` clean,
+      automation reloaded live, confirmed `on`. **Not run down**: the FIRST
+      press (of the two) also behaved oddly — `bottle_change_logged_once`
+      reads as continuously `on` since before today in the recorder, so
+      that press should have taken the real-elapsed-time branch (~6.5 real
+      days since the last change) and instead silently skipped the average
+      update entirely, with no corruption either way. Couldn't pin a
+      mechanism down from recorder history alone within reasonable effort;
+      flagged rather than asserted a root cause — worth another look if it
+      recurs. Not yet committed — code-only fix (automation guard) plus
+      this entry, docs/code commit deferred until asked (per standing
+      session norm), unlike the `/update-docs`-driven commits earlier today.
+
 - [x] **2026-09-03 (evening) — Debug dashboard energy cards: fixed cumulative-
       looking Monthly Production / Energy Use Over Time / Appliance Energy by
       Day, an orphaned-entity Grid Import bug, and a zoom-button snap-back +
