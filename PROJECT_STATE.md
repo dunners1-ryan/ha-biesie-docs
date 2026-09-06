@@ -5,6 +5,72 @@
 
 ## ⚠️ OPEN TODO
 
+- [ ] **2026-09-06 — REPO-WIDE AUDIT NEEDED: `initial:`-resets-on-every-
+      restart bug (CODING_STANDARDS.md Rule 5b), only fixed where it's
+      been caught by accident so far (`utilities/` — Water Cooler + Gas
+      Bottles).** Confirmed live, independently, twice the same day: any
+      legacy-YAML `input_number`/`input_boolean`/`input_select`/`input_
+      datetime` with an `initial:` key resets to that value on **every**
+      Core restart, unconditionally — silently destroying any automation-
+      refined state (an EMA, a stock count, a status select) with no error
+      and no `unknown` to notice. Both real incidents went undetected for
+      hours because the reverted value looked plausible. See
+      `docs/domains/UTILITIES_CONTRACT.md` Sections 3 and 8 for both write-
+      ups, and CODING_STANDARDS.md's new Rule 5b for the fix pattern +
+      how to prove a fix actually holds (a real restart, not a config
+      check).
+      **`utilities/` is fixed. Every other package below is unaudited** —
+      32 files repo-wide use `initial:` at all (`grep -rl "initial:"
+      packages/`), most never checked against "does an automation also
+      write to this entity":
+      ```
+      packages/admin/tablets.yaml
+      packages/alerts/alerts_batteries.yaml
+      packages/alerts/alerts_camera_health.yaml
+      packages/alerts/alerts_device_batteries.yaml
+      packages/alerts/alerts_device_power.yaml
+      packages/alerts/alerts_doors.yaml
+      packages/alerts/alerts_garden.yaml
+      packages/alerts/alerts_helper.yaml
+      packages/alerts/alerts_media.yaml
+      packages/alerts/alerts_network.yaml
+      packages/alerts/alerts_power.yaml
+      packages/alerts/alerts_presence.yaml
+      packages/alerts/alerts_security.yaml
+      packages/alerts/alerts_system_health.yaml
+      packages/alerts/alerts_temperature.yaml
+      packages/alerts/alerts_water.yaml
+      packages/backup/github.yaml
+      packages/integrations/vacuum.yaml
+      packages/lighting/lighting_helpers.yaml
+      packages/network/network_helpers.yaml
+      packages/network/network_nas.yaml
+      packages/network/network_ups.yaml
+      packages/notifications/notifications_helpers.yaml
+      packages/power/load_control.yaml
+      packages/power/power_helpers.yaml
+      packages/power/prepaid_helpers.yaml
+      packages/power/solar_helpers.yaml
+      packages/presence/presence_helpers.yaml
+      packages/security/security_helpers.yaml
+      packages/water/water_helpers.yaml
+      packages/weather/weather_helpers.yaml
+      ```
+      **Suggested priority for whoever picks this up**: `power_helpers.yaml`/
+      `prepaid_helpers.yaml`/`solar_helpers.yaml` (highest-stakes — prepaid
+      balance tracking, orchestrator thresholds, EMA-style solar stats are
+      exactly the shape of entity that already bit Water Cooler/Gas) and
+      `presence_helpers.yaml`/`security_helpers.yaml` (trust-model booleans,
+      similarly stateful) first; the `alerts_*.yaml` files mostly hold
+      threshold/notify-toggle settings which Rule 5b says are lower-risk,
+      but weren't checked, only assumed. **Method**: for each file, `grep`
+      its own entities against `entity_id: input_*` inside the matching
+      `*_automations.yaml`'s action blocks (same technique used to build
+      this list — see this session's own commit for the exact approach),
+      remove `initial:` from anything that comes back, then prove each fix
+      with a real restart + a deliberately-different test value, same as
+      both `utilities/` fixes did — not just a `check_config` pass.
+
 - [x] **2026-09-06 — Gas Bottles: added per-appliance "in use" pause/resume
       status + spare-bottle tracking, then found and permanently fixed the
       same `initial:`-reset bug Water Cooler's session diagnosed the same
@@ -4969,7 +5035,7 @@ sensor.vacuum_dust_bag_change_estimate
 # Full entity registry + pipeline: docs/domains/SMART_CLEANING_CONTRACT.md
 ```
 
-### Gas Bottles Entities (added 2026-09-02)
+### Gas Bottles Entities (added 2026-09-02, updated 2026-09-06)
 ```
 input_select.gas_stove_bottle_identity              ← Owned/Swap/None, which bottle feeds the stove — NOT a stock count
 input_select.gas_heater_bottle_identity              ← same, heater — "None" most of the year, not an error state
@@ -4977,8 +5043,22 @@ input_select.gas_owned_bottle_status                 ← per-CYLINDER status, in
 input_select.gas_swap_bottle_status                  ← don't confuse with the two *_bottle_identity selects above
 sensor.gas_stove_days_remaining                      ← main dashboard figure most of the year (stove = main use)
 sensor.gas_heater_days_remaining                     ← only meaningful once gas_heater_bottle_identity ≠ "None"
-input_number.gas_avg_days_per_bottle_stove           ← seed 75d, flagged guess — separate EMA from heater's
-input_number.gas_avg_days_per_bottle_heater          ← seed 21d, flagged guess — NOT the same clock as stove's
+input_number.gas_avg_days_per_bottle_stove           ← RECALIBRATED 2026-09-02 to 136.67d from real purchase gaps
+                                                        (was a 75d guess) — separate EMA from heater's
+input_number.gas_avg_days_per_bottle_heater          ← RECALIBRATED 2026-09-02 to 16d from real purchase gaps
+                                                        (was a 21d guess) — NOT the same clock as stove's
+input_boolean.gas_stove_in_use / gas_heater_in_use   ← added 2026-09-06 — "actually drawing gas right now" per
+                                                        appliance, distinct from *_bottle_identity's "None" (a
+                                                        bottle can stay attached without being drawn from).
+                                                        Toggling off FREEZES that appliance's days-remaining
+                                                        estimate rather than resetting it — see gas_stove_
+                                                        frozen_fraction/_heater_frozen_fraction below
+input_number.gas_stove_frozen_fraction               ← added 2026-09-06 — pause snapshot, written only by
+input_number.gas_heater_frozen_fraction                automation.gas_stove_in_use_changed/_heater_in_use_changed
+sensor.gas_spare_bottle_status                        ← added 2026-09-06 — is there a ready backup bottle if the
+                                                        STOVE's active one ran out? (stove-only check, deliberately
+                                                        not heater) — feeds binary_sensor.gas_low as a 3rd OR
+                                                        condition, warning-only, never escalates to critical
 input_boolean.gas_do_refill / gas_do_swap            ← TRANSIENT — read once by gas_confirm_completed then reset
                                                         off after logging; do not treat as persistent state
 input_button.gas_confirm_completed                    ← the real completion event, works with or without an order
@@ -4987,7 +5067,11 @@ sensor.gas_transaction_log                            ← event-triggered (gas_t
                                                         UTILITIES_CONTRACT.md Section 8e for why (race avoidance)
 sensor.gas_gauge_history                              ← Claude-maintained via /log-gas-reading, trend-only, does
                                                         NOT feed the avg-days EMAs above
-alert.gas_alert                                       ← needs 1 HA restart to activate, not yet done as of 2026-09-02
+alert.gas_alert                                       ← confirmed live 2026-09-02, reconfirmed across multiple
+                                                        restarts since (most recently 2026-09-06)
+# ⚠️ CODING_STANDARDS.md Rule 5b: most of the entities above have NO `initial:`
+# (removed 2026-09-06) — they hold live/automation-written state that must
+# survive a restart. Don't add one back without reading Rule 5b first.
 # Full design + pipeline: docs/domains/UTILITIES_CONTRACT.md Section 8
 ```
 

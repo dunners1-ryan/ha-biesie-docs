@@ -726,9 +726,12 @@ Before saving and applying any change:
 - [ ] New entity IDs checked against `.storage/core.entity_registry` — no UI duplicates
 - [ ] No `{% if %}` / `{% for %}` blocks used to conditionally emit YAML keys — use `choose:` branches instead
 - [ ] `notify.send_message` calls have NO nested `data.data` — Telegram extras (`inline_keyboard`, `disable_notification`) are at top level of `data:`
+- [ ] No `initial:` on a new helper that an automation writes to or that represents live/mutable state (Rule 5b) — settings/thresholds/references are still fine to keep it
 
 ---
 
+*Last updated: 2026-09-06*  
+*Updated by: Added Rule 5b (`initial:` on a legacy-YAML input_* helper resets it on every restart, not just first creation — confirmed live in two independent domain fixes the same day, Water Cooler and Gas Bottles) + matching pre-commit checklist entry.*
 *Last updated: 2026-08-21*  
 *Updated by: Added "Label-Based Dynamic Device Groups" section (label_entities(), one-roster-sensor-as-source-of-truth, markdown-card-per-section rendering, self-referencing trigger template for time-series estimates without a recorder query, and the rejectattr-on-plain-lists pitfall) — new pattern introduced by `alerts_device_batteries.yaml` / the Batteries dashboard view (2026-08-21).*
 *Last updated: 2026-04-29*  

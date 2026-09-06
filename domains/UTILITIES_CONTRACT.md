@@ -377,9 +377,9 @@ nothing is assigned to it.
 
 | File | Purpose |
 |---|---|
-| `packages/utilities/gas_helpers.yaml` | input_select (bottle identity per appliance, bottle status), input_number (burn-rate averages, price references, thresholds, reminder interval), input_datetime (per-appliance connected-since clocks, order/completion timestamps), input_boolean (do-refill/do-swap toggles, order-in-progress, EMA guards, alert notify/snooze), input_button (Place Order, Log Refill/Exchange Done) |
-| `packages/utilities/gas_core.yaml` | `command_line:` sensor reading the gauge-photo history file + all template sensors (per-appliance stock estimate, order status, transaction log, actual cost, alert context) |
-| `packages/utilities/gas_automations.yaml` | Bottle Reassigned (stove/heater) / Place Order / Order Reminder / Log Refill-Exchange Done / Gauge Reading Reminder / alert routing trio / `alert:` block |
+| `packages/utilities/gas_helpers.yaml` | input_select (bottle identity per appliance, bottle status), input_number (burn-rate averages, price references, thresholds, reminder interval, pause-snapshot frozen fractions), input_datetime (per-appliance connected-since clocks, order/completion timestamps), input_boolean (in_use pause status per appliance, do-refill/do-swap toggles, order-in-progress, EMA guards, alert notify/snooze), input_button (Place Order, Log Refill/Exchange Done). **Most entities deliberately carry NO `initial:`** (CODING_STANDARDS.md Rule 5b, added 2026-09-06) — see that file's own header comments per entity |
+| `packages/utilities/gas_core.yaml` | `command_line:` sensor reading the gauge-photo history file + all template sensors (per-appliance stock estimate incl. pause/resume, order status, transaction log, actual cost, spare-bottle status, alert context) |
+| `packages/utilities/gas_automations.yaml` | Bottle Reassigned (stove/heater) / In Use Changed (stove/heater, pause-resume) / Place Order / Order Reminder / Log Refill-Exchange Done / Gauge Reading Reminder / alert routing trio / `alert:` block |
 | `packages/utilities/gas_gauge_history.json` | Claude-maintained photographed-gauge reading trend — see Section 8f |
 
 Dashboard: Operations → **Gas Bottles** (`gas-control`), linked from a
