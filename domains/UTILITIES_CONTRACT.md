@@ -900,3 +900,44 @@ supplier has not been tried.
   restarts correctly (input_select, input_boolean, and the other input_
   number/input_datetime entities all held their live values, including
   ones that happened to differ from their `initial:`).
+
+  **CORRECTION + permanent fix (later the same session)**: the closing line
+  just above ("including ones that happened to differ from their
+  `initial:`") was never actually verified and turned out to be wrong once
+  checked properly — every gas entity examined at that point coincidentally
+  matched its own `initial:`, so nothing had actually tested the claim.
+  The concurrent Water Cooler session's own follow-up correction (entry
+  directly above this one) established the real mechanism precisely while
+  this was being written: it's not an occasional restore-state *gap*, it's
+  HA's documented behavior that **any legacy-YAML `input_number`/`input_
+  datetime`/`input_boolean`/`input_select` with an `initial:` key resets to
+  that value on every restart, unconditionally** — update-triggered or not.
+  Applied the same permanent fix to `gas_helpers.yaml`: removed `initial:`
+  from every entity an automation writes to, or that represents live state
+  the user changes over time — `gas_stove_bottle_identity`/`_heater_bottle_
+  identity`, `gas_owned_bottle_status`/`_swap_bottle_status`, `gas_stove_
+  bottle_connected_time`/`_heater_bottle_connected_time`, `gas_last_gauge_
+  reminder_sent`, `gas_avg_days_per_bottle_stove`/`_heater` (the EMA
+  itself — would have silently undone every future refinement, every
+  restart, exactly like Water Cooler's `avg_days_per_bottle`), `gas_stove_
+  frozen_fraction`/`_heater_frozen_fraction`, `gas_stove_in_use`/`_heater_
+  in_use`, `gas_order_in_progress`, `gas_alert_notify`, `gas_alert_snoozed`.
+  Deliberately **kept** `initial:` on genuine settings/thresholds/rate
+  references (`gas_chart_range`, both reminder times/intervals, warning/
+  critical day thresholds, both price references) and on toggles whose
+  designed idle state already equals their initial (`gas_do_refill`/`_do_
+  swap`, `gas_order_refill_cost`/`_swap_cost`, `gas_stove_logged_once`/
+  `_heater_logged_once` — the last two are meant to go true once and stay
+  true forever, so reverting to their own true `initial` is a no-op) — same
+  categorization principle Water Cooler's fix used.
+  **Proved the fix live with a real restart, not just a config check**: set
+  `gas_avg_days_per_bottle_stove` to a deliberately different test value
+  (140.5, not its real 136.67) and `gas_stove_bottle_connected_time` to a
+  deliberately different test timestamp, restarted Core for real (confirmed
+  via ~100s of 502s, not just a fast no-op response), and both test values
+  came back **exactly as set** — proof the fix holds, not an assumption.
+  Restored both to their real correct values afterward. `check_config`
+  clean throughout; full functional spot-check post-restart confirmed the
+  whole pipeline still correct (`sensor.gas_spare_bottle_status`,
+  `binary_sensor.gas_low`, `sensor.gas_alert_context` all reading as
+  expected, no new log errors beyond pre-existing unrelated ones).

@@ -5,6 +5,50 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-06 — Gas Bottles: added per-appliance "in use" pause/resume
+      status + spare-bottle tracking, then found and permanently fixed the
+      same `initial:`-reset bug Water Cooler's session diagnosed the same
+      day — this entry covers both.** Triggered by a real event: the
+      heater's Owned bottle finished and the heater was turned off for the
+      season. Full design in `UTILITIES_CONTRACT.md` Sections 8c-bis/8c-ter.
+      New entities: `input_boolean.gas_stove_in_use`/`_heater_in_use` (a
+      bottle can stay physically attached without being drawn from —
+      distinct from `*_bottle_identity`'s "None", which means no bottle at
+      all), `input_number.gas_stove_frozen_fraction`/`_heater_frozen_
+      fraction` (pause snapshot), `sensor.gas_spare_bottle_status` (is
+      there a ready backup for the stove if its active bottle ran out?).
+      `gas_owned_bottle_status` set to `Empty — Needs Refill` (real state).
+      Confirmed live: a real pause/resume round-trip held the fraction
+      exactly (0.833 through and after); `binary_sensor.gas_low` correctly
+      went `on`/`warning` (never `critical`) purely from the no-spare
+      condition, heater itself silent throughout since not in use.
+      **Then reproduced, and permanently fixed, the exact bug Water
+      Cooler's session found the same day**: `input_datetime.gas_stove_
+      bottle_connected_time` came back as its YAML `initial:` seed instead
+      of a real value set moments earlier by a live test, on a plain
+      restart I issued myself — confirming the concurrent session's own
+      finding that this is HA's documented behavior for *any* legacy-YAML
+      `input_*` with an `initial:` key, not an occasional gap or an update-
+      specific quirk. Applied the same permanent fix to `gas_helpers.yaml`:
+      removed `initial:` from every entity that's automation-written or
+      represents live user-changed state (bottle identities, bottle
+      statuses, both connected-time clocks, both burn-rate EMAs — this one
+      would have silently undone every future refinement, every restart,
+      same as Water Cooler's `avg_days_per_bottle` — both frozen-fraction
+      snapshots, both in_use toggles, order-in-progress, alert notify/
+      snooze); kept `initial:` on genuine settings (thresholds, price
+      references, reminder times/intervals) and on toggles whose idle state
+      already equals their initial. **Proved it live, not just by
+      inspection**: set two entities to deliberately different test values,
+      forced a real restart (confirmed via ~100s of connection failures,
+      not a fast no-op), and both came back exactly as set — then restored
+      the real values. `check_config` clean; full pipeline spot-checked
+      correct post-restart. `docs/domains/UTILITIES_CONTRACT.md`'s own
+      earlier entry this same session had an unverified closing claim
+      ("survived... including ones that happened to differ from their
+      initial") — corrected in place once actually checked, not left
+      standing.
+
 - [x] **2026-09-06 — Lighting: BUG-L21, boundary street/entrance lights had no
       resilience against a dropped physical switch.** User: "check lights and
       security - why didn't street lights turn tonight?" Root cause:
