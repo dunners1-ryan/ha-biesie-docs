@@ -91,6 +91,42 @@ calibrating estimate.
   608 days, from the real `watercooler_invoice_history.json` span), not
   just restored to the old 3.9 seed, since that's a more robust anchor than
   a value one fat-fingered press can wreck.
+- **Restore-state gap after an HA Core update (added 2026-09-06, real
+  incident, different mechanism from the debounce bug above)**: an HA Core
+  update (2026.8.3 → 2026.9.1) restarted Core at 13:01 SAST on 2026-09-06 —
+  confirmed from the Supervisor's own pre-update "Automatic backup 2026.8.3"
+  at 12:43 SAST plus the currently-installed `update.home_assistant_core_
+  update` version, not guessed. On that restart, two helpers came back
+  holding their **YAML `initial:` seed value** instead of their real prior
+  state: `watercooler_bottles_in_stock` (seed `1`, was really ~8 after
+  Friday's delivery) and `watercooler_last_bottle_change_time` (seed
+  `2026-08-28 21:00:00`, over a week stale), while every other watercooler
+  helper on the same reload restored correctly. Both corrupted entities
+  happen to have a **plausible-looking `initial:`** — a real stock count, a
+  real-shaped datetime — which is exactly why this went unnoticed for ~5
+  hours (`days_stock_remaining` reading 3.9-5d looked like genuinely low
+  stock, not a broken sensor) until the user cross-checked against having
+  done no `Log Bottle Changed` press since Friday. Contrast: `watercooler_
+  last_delivery_time` has no `initial:` in the YAML and survived the same
+  restart with its real 09:31:58 value intact — a helper with no plausible
+  default either restores correctly or shows `unknown`, it can't silently
+  masquerade as a valid-looking wrong number the way these two did. **Fix
+  applied live** via the Core API (`input_datetime.set_datetime`):
+  `watercooler_last_bottle_change_time` corrected to the real
+  `2026-09-04 09:39:57` (matching `input_button.watercooler_log_bottle_
+  changed`'s own surviving press timestamp, which is stored differently and
+  wasn't affected); `watercooler_bottles_in_stock` had already been hand-
+  corrected to `7` by the user before this was root-caused. Downstream
+  sensors self-corrected immediately (`current_bottle_fraction_remaining`
+  0 → 0.369, `days_stock_remaining` 27.3 → 28.7). See `docs/PROJECT_STATE.
+  md`'s 2026-09-06 entry for the full incident. **Not fixed, flagged for a
+  future session**: no general safeguard exists against this class of bug —
+  any input_number/input_datetime in this repo whose `initial:` is a
+  plausible in-range value (most of them) will silently and indistinguishably
+  read as that seed if a restart ever loses its restored state, for any
+  reason, not just this specific update. A startup sanity check (e.g. alert
+  if a business-critical helper's state exactly equals its `initial` AND its
+  `last_changed` is suspiciously recent) is one option, not yet built.
 
 ---
 
@@ -134,6 +170,15 @@ short). It also keeps the running numbers intuitive at each step instead of
 jumping straight to a large post-delivery stock figure — part of what set
 up the accidental-double-press incident logged in `docs/PROJECT_STATE.md`'s
 2026-09-04 entry (Section 3's debounce-guard note above).
+
+**For the record, what actually happened Friday 2026-09-04** (real
+timestamps, read from the entities, not recollection): Confirm Delivery was
+pressed first at 09:31:58 (8 bottles), Log Bottle Changed 8 minutes later
+at 09:39:57 — the reverse of the order recommended just above. Stock math
+being commutative meant this caused no error on its own (correctly landed
+at 9 spare bottles going into the weekend); it's recorded here because that
+9-bottle/Friday-09:39:57 baseline is the exact reference point the
+2026-09-06 restore-state incident (Section 3) was root-caused against.
 
 **Invoice logging is a separate, financial-record track — not the same data
 as step 3.** The monthly ritual: paste the Aquazania invoice into a Claude
@@ -663,3 +708,29 @@ supplier has not been tried.
   `alerts_summary.yaml`'s explicit aggregator trigger list — both rely on
   the 1-minute poll fallback, not an instant update. Low severity, left for
   a session that touches `alerts_summary.yaml` directly.
+
+- **2026-09-06 — Water Cooler: restore-state gap after an HA Core update
+  zeroed out spare stock, distinct from the 2026-09-04 debounce bug.** User
+  report: "dropped from 7 bottles spare to 0 today... have not done a
+  change since Friday." Root-caused from the Supervisor's own records, not
+  guessed: an "Automatic backup 2026.8.3" (Supervisor's pre-update safety
+  backup) at 12:43 SAST, an empty `home-assistant.log.fault` crash-marker
+  file at exactly 13:01:03 SAST, and `update.home_assistant_core_update`
+  now reading `2026.9.1` together pin the cause to Core updating 2026.8.3 →
+  2026.9.1 at 13:01, matching the graph's ~35d → ~5d drop exactly. On that
+  restart, `watercooler_bottles_in_stock` and `watercooler_last_bottle_
+  change_time` came back holding their YAML `initial:` seed instead of
+  their real prior state (see Section 3 for the full mechanism and why it
+  went unnoticed — both seeds look like plausible real values). User had
+  already hand-corrected stock 1 → 7 via the dashboard before this session;
+  `last_bottle_change_time` (still silently stuck at the stale
+  2026-08-28 seed, `current_bottle_fraction_remaining` pinned at 0) was
+  found and corrected live via the Core API to the real 2026-09-04 09:39:57
+  — confirmed by the downstream sensors moving immediately
+  (`days_stock_remaining` 27.3 → 28.7). Section 4 gained a "for the record"
+  note pinning Friday's actual delivery(09:31:58)-then-change(09:39:57)
+  sequence, since that 9-bottle baseline is what this incident was
+  root-caused against. **Not fixed, flagged**: no general safeguard against
+  a helper silently reading as its own plausible `initial:` after any future
+  restart that loses restored state, for any reason — see Section 3's
+  closing note. See `docs/PROJECT_STATE.md`'s 2026-09-06 entry.

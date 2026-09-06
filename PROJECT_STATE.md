@@ -5,6 +5,82 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-06 — Vacuum: new Dust Bag Change tracker (3h), same
+      manual-log-plus-EMA pattern as the Manual Clean tracker (3e) and
+      wired into the existing restart-survival persistence (3g).** User:
+      "New tracker same as water refill... add new button for
+      emptying/changing the dust bag in machine and like others track
+      when was done and how long to next one."
+      Built: `input_datetime.vacuum_last_dust_bag_change_time`,
+      `input_boolean.vacuum_dust_bag_change_logged_once`,
+      `input_number.vacuum_avg_area_per_dust_bag_change` (seed 5000 m²,
+      pure guess), `input_number.vacuum_avg_days_per_dust_bag_change`
+      (seed 30 d, pure guess — rough extrapolation off
+      `avg_area_per_water_refill`'s ~190 m²/day), `input_number.
+      vacuum_area_at_last_dust_bag_change`, `input_button.
+      vacuum_log_dust_bag_change`, `sensor.vacuum_dust_bag_change_estimate`,
+      `automation.vacuum_log_dust_bag_change` — all mirroring 3e exactly.
+      Also wired into `input_boolean.vacuum_log_preemptive` (3f, now
+      covers 4 trackers not 3) and into the restart-survival save/restore
+      pipeline (3g): `vacuum_tracker_save.sh` now takes 13 positional args
+      (was 10), the `shell_command`/`command_line sensor`/restore
+      automation all extended to match.
+      **Dashboard**: added a 5th `custom:mushroom-template-card` tile
+      (Dust Bag) to the Operations → Vacuum grid, matching the other 4
+      tiles' card_mod styling/coloring/multiline_secondary exactly, plus a
+      5th log button (grid widened 4→5 columns). Edited live via the
+      WebSocket `lovelace/config`/`lovelace/config/save` pattern, verified
+      by reading the saved config back.
+      **Verified live, not just deployed**: config validated
+      (`check_config`), all 4 helper domains + template + automation
+      reloaded, new entities confirmed present via REST, today's baseline
+      logged via a real `input_button.press` (first-press branch taken
+      correctly — guard flag flipped on, no bogus EMA computed), and the
+      restart-survival JSON file confirmed to pick up the new
+      `dust_bag_change_logged_once: "on"` within the same automation run.
+      Also caught and fixed an unrelated real doc bug while in this table:
+      a prior sweep had duplicated the `vacuum_pre_emptive_toggle_auto_reset`
+      automation row with an incorrect "was missing" claim — removed, and
+      the fresh dust-bag automation row put in its place.
+
+- [x] **2026-09-06 — Water Cooler: restore-state gap after an HA Core
+      update zeroed spare stock — different mechanism from the 2026-09-04
+      bug below, same subsystem.** User: "dropped from 7 bottles spare to 0
+      today... have not done a change since Friday." Root-caused from the
+      Supervisor's own records, not guessed: an "Automatic backup 2026.8.3"
+      (Supervisor's pre-update safety backup) at 12:43 SAST, a 0-byte
+      `home-assistant.log.fault` crash-marker timestamped exactly 13:01:03
+      SAST, and `update.home_assistant_core_update` now reading `2026.9.1`
+      together pin this to Core updating 2026.8.3 → 2026.9.1 at 13:01 —
+      matches the history graph's ~35d → ~5d vertical drop exactly. On that
+      restart, `input_number.watercooler_bottles_in_stock` and `input_
+      datetime.watercooler_last_bottle_change_time` came back holding their
+      YAML `initial:` seed (`1` and `2026-08-28 21:00:00`) instead of their
+      real prior state, while every other watercooler helper on the same
+      reload restored fine. Both went unnoticed for ~5 hours specifically
+      *because* their seeds are plausible-looking real values, not `unknown`
+      — contrast `watercooler_last_delivery_time` (no `initial:` in the
+      YAML), which survived the same restart correctly. User had already
+      hand-corrected stock 1→7 via the dashboard before this session; found
+      `last_bottle_change_time` still silently stuck at the stale seed
+      (`current_bottle_fraction_remaining` pinned at 0) and corrected it
+      live via the Core API (`input_datetime.set_datetime`) to the real
+      2026-09-04 09:39:57 (matching `input_button.watercooler_log_bottle_
+      changed`'s own surviving press timestamp) — `days_stock_remaining`
+      moved 27.3→28.7 immediately, confirming the fix.
+      `docs/domains/UTILITIES_CONTRACT.md` Section 3/4 and Session Log
+      updated: new incident note, plus a "for the record" pin of Friday's
+      actual delivery(09:31:58)-then-change(09:39:57) sequence (8 bottles),
+      since that 9-bottle baseline is what this incident was root-caused
+      against. **Marked done for the immediate corruption; one thread left
+      open**: no general safeguard exists yet against a business-critical
+      helper silently reading as its own plausible `initial:` after any
+      future restart (update-triggered or not) that loses restored state —
+      a startup sanity check (state == initial AND recently changed →
+      notify) is one option, not yet built. Not yet committed — live-state
+      fix + these doc entries only, code/docs commit deferred until asked,
+      per standing session norm.
+
 - [ ] **2026-09-04 — Water Cooler: real-money bug — accidental Log Bottle
       Changed double-press (45s apart) corrupted `avg_days_per_bottle`
       3.9→2.34 and double-decremented `bottles_in_stock` for one physical
@@ -4773,6 +4849,8 @@ input_button.vacuum_log_dirty_water_empty
 input_button.vacuum_log_detergent_new_bottle
 input_button.vacuum_log_manual_clean                ← added 2026-09-02, manual roller/debris clean tracker (Section 3e)
 sensor.vacuum_manual_clean_estimate
+input_button.vacuum_log_dust_bag_change             ← added 2026-09-06, dust bag change tracker (Section 3h)
+sensor.vacuum_dust_bag_change_estimate
 # Full entity registry + pipeline: docs/domains/SMART_CLEANING_CONTRACT.md
 ```
 
