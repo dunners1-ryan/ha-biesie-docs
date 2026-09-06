@@ -5,6 +5,36 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-06 (later same day) — Water Cooler: CORRECTION + permanent
+      fix on the entry below — two more restarts reproduced the identical
+      reset with no HA update involved, disproving the "tied to the Core
+      update" diagnosis.** User: "back to wrong figures for water cooler
+      again," a few hours after the fix below. Two more restarts hit that
+      evening (~20:46 and ~20:54 SAST, Core version unchanged at 2026.9.1
+      both times) each independently reset the same helpers — proving the
+      real mechanism is HA's own documented behavior: any legacy-YAML
+      `input_number`/`input_datetime`/`input_boolean` with an `initial:` key
+      resets to that value on **every** restart, unconditionally, update or
+      not. Also caught this pass: `watercooler_avg_days_per_bottle` (real
+      **4.11**, silently reset to `3.9` all three times, quietly undoing the
+      2026-09-04 EMA fix) and `watercooler_bottle_change_logged_once` (real
+      `on`, reset to `false`) — same mechanism, missed the first time.
+      **Permanent fix**: `initial:` removed from all four affected helpers
+      in `watercooler_helpers.yaml`; `check_config` clean; verified live
+      across the real 20:54 restart — all four came back holding their
+      correct real values with nothing to fall back to. Rate constants/
+      thresholds/reminder-time settings elsewhere in the same file kept
+      their `initial:` deliberately (static settings, no risk).
+      `docs/domains/UTILITIES_CONTRACT.md` Section 3 and Session Log both
+      got an explicit CORRECTION entry appended (not a silent rewrite) per
+      this repo's own convention. **Separate, unresolved, more urgent**:
+      three Core restarts in under two hours today, with no update involved
+      in the last two, is abnormal on its own — a repeating `hikvision_next`
+      `AttributeError` during entity setup and an empty `home-assistant.log.
+      fault` each time (consistent with a watchdog force-kill, not a clean
+      crash) are candidate leads, not chased down this session — flagged as
+      SECURITY_CONTRACT.md/INFRA_CONTRACT.md territory for a future session.
+
 - [x] **2026-09-06 — Vacuum: new Dust Bag Change tracker (3h), same
       manual-log-plus-EMA pattern as the Manual Clean tracker (3e) and
       wired into the existing restart-survival persistence (3g).** User:

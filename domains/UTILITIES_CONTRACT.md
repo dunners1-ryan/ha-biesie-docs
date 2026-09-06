@@ -127,6 +127,49 @@ calibrating estimate.
   reason, not just this specific update. A startup sanity check (e.g. alert
   if a business-critical helper's state exactly equals its `initial` AND its
   `last_changed` is suspiciously recent) is one option, not yet built.
+- **CORRECTION (2026-09-06, later same day) — the bullet above misdiagnosed
+  the mechanism.** It was NOT a rare "restore-state gap" tied specifically
+  to the Core update, and calling the startup sanity check merely "one
+  option, not yet built" undersold it. Proven wrong by two more restarts
+  the same evening (~20:46 and ~20:54 SAST, ~8 hours after the update, Core
+  version unchanged at 2026.9.1 both times — no update involved) each
+  independently reproducing the identical reset on the identical helpers,
+  **plus** a third helper caught for the first time on this pass:
+  `watercooler_avg_days_per_bottle` (real value **4.11**, silently reset to
+  its `3.9` seed by all three restarts, undoing the 2026-09-04 EMA-recompute
+  fix each time) and `watercooler_bottle_change_logged_once` (real `on`,
+  reset to its `false` seed). **The actual mechanism, confirmed empirically
+  by removing the cause and re-testing across a real restart, not just
+  read from docs**: any HA `input_number`/`input_datetime`/`input_boolean`
+  defined via legacy YAML platform config with an `initial:` key is forced
+  back to that value on **every** restart — clean, crash, or update-
+  triggered, no exceptions — this is standard HA behavior for this
+  platform, not a bug or a rare gap. **Fix**: `initial:` removed entirely
+  from all four affected helpers in `watercooler_helpers.yaml`
+  (`watercooler_bottles_in_stock`, `watercooler_avg_days_per_bottle`,
+  `watercooler_last_bottle_change_time`, `watercooler_bottle_change_
+  logged_once`) — each now relies purely on `core.restore_state`, same as
+  `watercooler_last_delivery_time` (which never had an `initial:` and
+  correctly survived all three restarts). **Verified working, not assumed**:
+  the third restart (20:54 SAST) happened minutes after this YAML edit
+  landed, and all four helpers came back with their correct real values
+  intact — a live before/after test, not just a code read. Rate constants,
+  thresholds, and reminder-time settings elsewhere in this file deliberately
+  kept their `initial:` — those are static settings meant to reset to a
+  known default, not accumulating live state, so the same risk doesn't
+  apply. **Separate, more urgent open concern surfaced by this investigation,
+  not fixed here**: Core restarted three times in under two hours today
+  (13:01, ~20:46, ~20:54 SAST) with no update involved in the last two —
+  genuinely abnormal. The 20:54 restart's own startup log shows a real,
+  repeating `hikvision_next` integration bug (`AttributeError: 'NoneType'
+  object has no attribute 'get'` in `sensor.py`'s `native_value`, hitting
+  multiple `ipcam0*_..._alarm_server_protocol_type` entities) as a candidate
+  contributor, alongside empty `home-assistant.log.fault` crash markers each
+  time (abrupt kill, no traceback captured) suggesting Supervisor's Core
+  watchdog force-killed an unresponsive process rather than a clean
+  Python-level crash. Not root-caused or fixed in this session — flagged for
+  SECURITY_CONTRACT.md/INFRA_CONTRACT.md territory, a different domain than
+  this one.
 
 ---
 
@@ -381,6 +424,67 @@ bottle connected:
   only at the specific "just completed" moment (see 8d) — not a full state
   machine, matching Water Cooler's light-touch-automation-on-top-of-manual-
   buttons philosophy.
+
+### 8c-bis. Pause/Resume ("In Use" status) — added 2026-09-06
+
+`*_bottle_identity`'s `None` option only covers "no bottle physically
+assigned at all." The more common real case, especially for the seasonal
+heater: **a bottle stays attached, you're just not drawing from it right
+now** — turning the heater off for the season doesn't mean the bottle gets
+disconnected. Real trigger: the heater's Owned bottle finished and the
+heater was turned off the same day — modeling that as `identity: None`
+would have been wrong (a bottle IS still there, physically empty/idle).
+
+- **`input_boolean.gas_stove_in_use`** / **`gas_heater_in_use`** — the
+  actual "plugged in and burning gas right now" status per appliance. Stove
+  defaults `true` (main year-round consumer); heater defaults `false`.
+- Turning either **off** freezes that appliance's `sensor.gas_*_fraction_
+  remaining` at whatever it was — computed directly from elapsed time at
+  the moment of toggling (`automation.gas_stove_in_use_changed`/`_heater_
+  in_use_changed`), not read back from the sensor itself, so there's no
+  race against the sensor's own re-evaluation timing. The frozen value is
+  stored in `input_number.gas_stove_frozen_fraction`/`_heater_frozen_
+  fraction`.
+- Turning either **back on** resumes the clock seamlessly: `input_datetime.
+  gas_*_bottle_connected_time` is back-dated to `now() - ((1 - frozen) *
+  avg_days)` so the elapsed-time formula reconstructs exactly the frozen
+  fraction at the moment of resuming, then continues ticking normally —
+  confirmed live with a real pause/resume round-trip (fraction held at
+  0.833 through pause and immediately after resume, no jump).
+- **Does NOT touch the avg-days EMA** — pausing isn't a real bottle-cycle
+  data point, only real refills/exchanges/reassignments feed that average
+  (8d).
+- **Alert pipeline gating**: `binary_sensor.gas_low` and `sensor.gas_alert_
+  context` only ever consider an appliance while it's both assigned a real
+  bottle (`identity != 'None'`) AND marked in_use — a paused appliance's
+  frozen (possibly critically-low) value never triggers a notification.
+  This is deliberate: no urgency to refill a bottle nobody's currently
+  drawing from.
+
+### 8c-ter. Spare Bottle Status — added 2026-09-06
+
+A gap the per-appliance model above didn't cover: each appliance's own
+days-remaining being fine says nothing about whether a **fallback bottle
+exists** if it ran out sooner than expected. Real trigger for building
+this: the heater's Owned bottle (now empty, heater off — see 8c-bis) is
+also the stove's only backup, and that connection wasn't tracked anywhere.
+
+- **`sensor.gas_spare_bottle_status`** — whichever bottle is NOT currently
+  feeding the **stove** (deliberately stove-only, not heater — stove is the
+  main year-round consumer, so "no spare" only matters from its
+  perspective), and that bottle's own status. Reports `n/a`-safe (`ready:
+  true`, no warning) if the stove itself has no bottle assigned.
+  `attributes.ready` is `false` only when a spare genuinely exists but
+  isn't `"Ready (Full)"`.
+- Feeds `binary_sensor.gas_low` (a third OR condition alongside the two
+  days-remaining checks) and `sensor.gas_alert_context`'s `devices` list —
+  but **deliberately never promoted to `critical`** in the state
+  computation, only ever `warning`: no backup is a heads-up, not an
+  emergency, while the active bottle still has its own days remaining.
+  Confirmed live: with Swap on the stove and the now-empty Owned bottle as
+  the spare, this correctly turned `binary_sensor.gas_low` on and
+  `sensor.gas_alert_context` to `warning` even though the stove's own
+  `sensor.gas_stove_days_remaining` was nowhere near its threshold.
 
 ### 8d. Order → Completion Lifecycle
 
@@ -734,3 +838,62 @@ supplier has not been tried.
   a helper silently reading as its own plausible `initial:` after any future
   restart that loses restored state, for any reason — see Section 3's
   closing note. See `docs/PROJECT_STATE.md`'s 2026-09-06 entry.
+
+- **2026-09-06 (later same day) — CORRECTION + permanent fix, two more
+  restarts reproduced it with no update involved.** User: "back to wrong
+  figures for water cooler again" a few hours after the entry above. Two
+  more restarts hit the same evening (~20:46 and ~20:54 SAST, Core version
+  unchanged at 2026.9.1 both times) each independently re-triggered the
+  identical reset — proving the entry above's "tied to the Core update"
+  framing wrong; it's HA's own documented behavior that legacy-YAML
+  `input_number`/`input_datetime`/`input_boolean` with an `initial:` key
+  resets to that value on **every** restart, unconditionally, update or not.
+  Also caught for the first time: `watercooler_avg_days_per_bottle` (real
+  **4.11**, silently reset to its `3.9` seed all three times, quietly
+  undoing the 2026-09-04 EMA fix) and `watercooler_bottle_change_logged_
+  once` (real `on`, reset to `false`) — same mechanism, missed in the first
+  pass. **Permanent fix**: `initial:` removed from all four helpers in
+  `watercooler_helpers.yaml`; `check_config` clean; verified live across
+  the real 20:54 restart — all four came back correctly holding their real
+  values with no `initial:` to fall back to. Rate constants/thresholds/
+  reminder-time settings elsewhere in the same file deliberately kept their
+  `initial:` (static settings, not accumulating state — no risk). Full
+  detail in Section 3's own correction bullet. **Separate, unresolved, more
+  urgent**: three Core restarts in under two hours today with no update
+  involved in the last two is abnormal on its own — a real repeating
+  `hikvision_next` `AttributeError` during entity setup and an empty
+  `home-assistant.log.fault` each time (consistent with a watchdog force-
+  kill, not a clean crash) are candidate leads, not a diagnosis — this is
+  SECURITY_CONTRACT.md/INFRA_CONTRACT.md territory and wasn't chased down
+  in this session.
+
+- **2026-09-06 — Gas Bottles: added the in_use pause/resume mechanism (8c-
+  bis) and spare-bottle tracking (8c-ter)**, both triggered by a real event
+  (heater's Owned bottle finished, heater turned off for the season) —
+  full design/mechanism written up in those two new subsections. New
+  entities: `input_boolean.gas_stove_in_use`/`_heater_in_use`, `input_
+  number.gas_stove_frozen_fraction`/`_heater_frozen_fraction`, `sensor.gas_
+  spare_bottle_status`; new automations `gas_stove_in_use_changed`/`_
+  heater_in_use_changed`. `gas_owned_bottle_status` updated to `Empty —
+  Needs Refill` (real state, both live and in the YAML `initial:`).
+  Confirmed live: pause/resume round-trip held the fraction exactly through
+  a real toggle cycle; `binary_sensor.gas_low` correctly went `on` (warning,
+  not critical) purely from the no-spare condition, with the heater itself
+  correctly silent throughout (not in use).
+  **Also reproduced the restore-state bug from the entry directly above —
+  on a plain `ha core restart` I issued myself, not an HA Core version
+  update.** `input_datetime.gas_stove_bottle_connected_time` (real value
+  `2026-08-15 00:57:56`, set moments earlier by a live pause/resume test)
+  came back as exactly its YAML `initial:`-shaped seed `2026-08-15
+  00:00:00` after the restart — same failure signature (a plausible-looking
+  wrong value, not `unknown`), same root class, but this time with **no
+  HA Core update involved at all**, just a normal restart. This is new
+  information narrowing what "not yet built" safeguard (Section 3's closing
+  note) needs to actually guard against: not just update-triggered
+  restarts, but restarts in general. Left uncorrected in this instance
+  (58-second drift, immaterial against a 136-day average) — noted here
+  rather than silently fixed, since the pattern matters more than this one
+  value. Every other gas helper checked survived both this session's
+  restarts correctly (input_select, input_boolean, and the other input_
+  number/input_datetime entities all held their live values, including
+  ones that happened to differ from their `initial:`).
