@@ -1085,8 +1085,8 @@ Entity `binary_sensor.security_visibility_low` does NOT exist. The correct entit
 **Secondary issue:** `boundary_security_on` automation (lighting_boundary.yaml) has no `continue_on_error` on switch.turn_on calls and mode:single — if Sonoff integration is slow to respond, the action fails silently with no retry and no alert.
 
 **Fix plan:**
-- security_core.yaml: change `security_visibility_low` → `security_weather_low_light`
-- lighting_boundary.yaml: add `continue_on_error: true` to switch.turn_on sequence; add retry automation after 2min + warning notification if lights still off
+- security_core.yaml: change `security_visibility_low` → `security_weather_low_light` — ✅ done (the `continue_on_error: true` half of this was also added at some point before 2026-09-06, confirmed present live)
+- lighting_boundary.yaml: add `continue_on_error: true` to switch.turn_on sequence; add retry automation after 2min + warning notification if lights still off — the `continue_on_error` half shipped earlier, but the retry-automation half sat undelivered for 3.5+ months until **2026-09-06 (LIGHTING_CONTRACT.md BUG-L21)**, built for an unrelated user report ("why didn't the street light turn on") rather than as a resumption of this bug. Not identical to the original plan (15-min interval, not 2-min; a proactive periodic watchdog rather than a one-shot post-failure retry) but closes the same gap — see `boundary_security_watchdog` in `lighting_boundary.yaml`.
 
 ---
 

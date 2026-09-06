@@ -270,6 +270,64 @@ trigger:
 - `pyscript` or `AppDaemon` for complex structured state
 - Proper HA entities (counters, input_numbers, etc.) for numeric state
 
+### Rule 5b — Never put `initial:` on a legacy-YAML helper that holds live/mutable state
+
+Confirmed live, independently, in two domains the same day (2026-09-06 —
+Water Cooler and Gas Bottles, see `docs/domains/UTILITIES_CONTRACT.md`
+Sections 3 and 8c-bis/8c-ter/8's Session Log for both real incidents and
+their fixes): a legacy-YAML `input_number`/`input_boolean`/`input_select`/
+`input_datetime` (defined via `packages/`, not created through the UI) with
+an `initial:` key resets to that exact value on **every HA Core restart**,
+unconditionally — not just first-ever creation, and not just an occasional
+restore-state gap. Proven both times with a real restart (not just a config
+check): set a deliberately different test value, restart, watch it revert.
+
+This silently destroys any automation-refined state — an EMA average, a
+"which physical thing is connected" select, a stock count, a status flag —
+every single restart, with no error and no `unknown` state to notice
+anything is wrong. Both real incidents went undetected for hours precisely
+because the reverted value looked plausible (a real-shaped number/date), not
+obviously broken.
+
+```yaml
+# ❌ WRONG — silently resets to 3.9 on every restart, discarding every real
+# EMA refinement an automation has made since
+input_number:
+  watercooler_avg_days_per_bottle:
+    initial: 3.9
+
+# ✅ CORRECT — no initial: on anything an automation writes to or that
+# represents live state the user changes over time. The entity keeps
+# whatever it currently holds; nothing to silently fall back to.
+input_number:
+  watercooler_avg_days_per_bottle:
+    min: 0.5
+    max: 30
+    step: 0.1
+    unit_of_measurement: "d"
+```
+
+**Test before deciding an entity is safe to keep `initial:` on** — don't
+guess from the name. The rule of thumb that held in both real fixes:
+
+- **Remove `initial:`** from anything an automation calls `set_value`/
+  `turn_on`/`turn_off`/`select_option`/`set_datetime` on, OR anything a
+  human changes via the dashboard to reflect an evolving real-world fact
+  (which physical bottle is connected, current stock, a status select).
+  Losing this on a restart is a silent, hard-to-notice data-corruption bug.
+- **`initial:` is still fine** on genuine settings a human tunes rarely
+  and where reverting to the shipped default is low-stakes — thresholds,
+  rate/price references, reminder times/intervals — and on a toggle whose
+  correct idle value already equals its `initial` (e.g. a per-transaction
+  "include X" toggle that's supposed to sit at `false` between uses
+  anyway, so reverting to `false` on restart isn't actually wrong).
+- When genuinely unsure, prove it live rather than assume: set the entity
+  to a value deliberately different from its would-be `initial:`, force a
+  real restart (`curl -X POST .../core/restart`, then poll until the API
+  responds `200` again — a fast `200` on the first check usually means the
+  restart never actually happened, not that it was quick), and check
+  whether the test value survived.
+
 ### Rule 6 — Never use Jinja2 block tags to conditionally emit YAML keys
 
 HA's YAML parser processes `{% %}` tags **before** evaluating templates. A `{%` that appears at the structural YAML level (i.e. where a key or list item would appear) is seen as an illegal `%` token and causes HA to enter recovery mode.
