@@ -167,9 +167,12 @@ calibrating estimate.
   contributor, alongside empty `home-assistant.log.fault` crash markers each
   time (abrupt kill, no traceback captured) suggesting Supervisor's Core
   watchdog force-killed an unresponsive process rather than a clean
-  Python-level crash. Not root-caused or fixed in this session — flagged for
-  SECURITY_CONTRACT.md/INFRA_CONTRACT.md territory, a different domain than
-  this one.
+  Python-level crash. **Explained by the user, not chased further**: caused
+  by an overload from a query another concurrent session ran — not a
+  Water-Cooler-domain or hikvision_next problem, no fix needed here.
+  **Persistence confirmed**: a 4th restart (~21:05 SAST, same overload
+  cause) hit minutes after the fix above landed — all four helpers came
+  back correct again, two clean restarts in a row now, not one.
 
 ---
 

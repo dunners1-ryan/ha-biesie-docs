@@ -5,6 +5,40 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-06 — Lighting: BUG-L21, boundary street/entrance lights had no
+      resilience against a dropped physical switch.** User: "check lights and
+      security - why didn't street lights turn tonight?" Root cause:
+      `binary_sensor.security_lighting_required` had sat "on" for 24h+
+      (continuous rain kept `security_visibility_poor` on straight through
+      the night), so `boundary_security_on`'s off→on trigger never re-fired
+      today — the lights were *correctly* meant to stay on, but nothing
+      caught `switch.boundary_street_light` flapping on/unavailable ~35x in
+      24h (self-recovered every time, by luck) or `switch.main_entrance_light`
+      genuinely sitting off for ~7h. Not a repeat of BUG-A17 (`garage_door_
+      stale` confirmed healthy) — a separate, not-yet-root-caused Sonoff
+      flakiness source, possibly rain-correlated (outdoor device). **Fixed**:
+      `boundary_security_on` gained two defense-in-depth weather triggers;
+      new `boundary_security_watchdog` automation (15-min interval, verify+
+      retry pattern from BUG-L19) re-asserts any expected boundary light
+      that isn't on, silent unless it actually corrects something. Deployed
+      live (`check_config` clean, `automation.reload`, watchdog confirmed
+      registered and `on`). Full writeup: `docs/domains/LIGHTING_CONTRACT.md`
+      BUG-L21. **Not fixed**: why the Sonoff device drops so often in the
+      first place — flagged for a future session.
+
+- [ ] **2026-09-06 (separate session, same evening) — a 4th sighting of the
+      unexplained Core restart pattern below, ~20:45:43 SAST**, seen while
+      diagnosing the street-light issue two entries down. Initially
+      misattributed in that session to an unscoped `/api/logbook` query it had
+      just run — corrected once this TODO entry surfaced: same signature
+      (Core version unchanged, `hikvision_next` `AttributeError` noise on
+      restart) as the ~20:46/20:54 restarts already logged below, so almost
+      certainly the same ongoing issue, not a new trigger. Adds a data point
+      (4 restarts across one evening now) but doesn't advance the root-cause
+      investigation itself — still owed to a future session per the note
+      below. See `docs/CODING_STANDARDS.md` "Live API / Recorder Query
+      Rules" for the correction write-up.
+
 - [x] **2026-09-06 (later same day) — Water Cooler: CORRECTION + permanent
       fix on the entry below — two more restarts reproduced the identical
       reset with no HA update involved, disproving the "tied to the Core
@@ -27,13 +61,20 @@
       their `initial:` deliberately (static settings, no risk).
       `docs/domains/UTILITIES_CONTRACT.md` Section 3 and Session Log both
       got an explicit CORRECTION entry appended (not a silent rewrite) per
-      this repo's own convention. **Separate, unresolved, more urgent**:
-      three Core restarts in under two hours today, with no update involved
-      in the last two, is abnormal on its own — a repeating `hikvision_next`
-      `AttributeError` during entity setup and an empty `home-assistant.log.
-      fault` each time (consistent with a watchdog force-kill, not a clean
-      crash) are candidate leads, not chased down this session — flagged as
-      SECURITY_CONTRACT.md/INFRA_CONTRACT.md territory for a future session.
+      this repo's own convention. **Restart pattern explained by the user
+      in this session, not chased further**: caused by an overload from a
+      query another concurrent session ran, not a hikvision_next or
+      Water-Cooler-domain problem — the `AttributeError`/watchdog-force-kill
+      leads noted above are left as-is, no fix pursued here. **Note for a
+      future pass, not reconciled here**: the entry above (2026-09-06,
+      separate session) independently investigated this same restart
+      pattern and self-corrected AWAY from "its own `/api/logbook` query
+      overload" toward treating it as the same unexplained issue logged
+      here — which is in tension with what the user told this session
+      directly. Worth reconciling, not done in this pass. **Persistence
+      confirmed**: a 4th restart (~21:05 SAST, same overload cause) hit
+      minutes after the fix landed — all four helpers came back correct
+      again, two clean restarts in a row now, not one.
 
 - [x] **2026-09-06 — Vacuum: new Dust Bag Change tracker (3h), same
       manual-log-plus-EMA pattern as the Manual Clean tracker (3e) and

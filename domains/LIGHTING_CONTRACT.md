@@ -8,7 +8,14 @@
 # This document is the ground-truth record of what the lighting system
 # actually does, its dependencies, known bugs, and design decisions.
 #
-# Last updated: 2026-08-21 (deep drift sweep) — File Inventory (Section 2) line counts
+# Last updated: 2026-09-06 — BUG-L21 (boundary lighting resilience): boundary_security_on
+# gained two defense-in-depth weather triggers; new boundary_security_watchdog automation
+# (15-min self-heal) added to catch a physical switch dropping out during a long
+# security_lighting_required "on" stretch with no automation edge to notice. Section 2's
+# lighting_boundary.yaml line count corrected 230 → 331. Section 4's Boundary Security
+# table updated.
+#
+# Previously — 2026-08-21 (deep drift sweep) — File Inventory (Section 2) line counts
 # were all stale approximations, corrected to live exact values. Section 3's "Known Scene
 # Gap (BUG)" still described BUG-L02 as open and scene_night_away as missing
 # entrance_down_lights; both stale — BUG-L02 is "not a bug" (intentional design) and
@@ -82,7 +89,7 @@ person.*                             ← HA mobile geo — UNRELIABLE for local 
 | `lighting_arrival_night.yaml` | 235 | Night arrival scenarios (3 modes) |
 | `lighting_departure.yaml` | 91 | Departure light cleanup (day + night) |
 | `lighting_bedtime.yaml` | 217 | Kids + full bedtime routines |
-| `lighting_boundary.yaml` | 230 | Boundary/street security lighting + gate-open assist (2026-08-03) |
+| `lighting_boundary.yaml` | 331 | Boundary/street security lighting + gate-open assist (2026-08-03) + watchdog (2026-09-06, BUG-L21) |
 | `lighting_security.yaml` | 145 | Security event lighting engine |
 | `lighting_garage.yaml` | 215 | Garage presence-aware lighting (door-gated since 2026-08-03) |
 | `lighting_office_presence.yaml` | 130 | Office presence-aware lighting |
@@ -212,9 +219,10 @@ when turned on by evening_routine. See BUG-L01 and BUG-L02.
 
 | ID | Trigger | Action |
 |---|---|---|
-| `boundary_security_on` | security_lighting_required ON (10s stable) OR button | boundary_street + main_entrance always; + car_port/front/back/office_entrance if someone home |
+| `boundary_security_on` | security_lighting_required ON (10s stable) OR `security_visibility_poor`/`security_weather_low_light` ON (2026-09-06, BUG-L21, defense-in-depth) OR button | boundary_street + main_entrance always; + car_port/front/back/office_entrance if someone home |
 | `boundary_security_off` | security_lighting_required OFF (5min hysteresis) OR button | All boundary lights off (condition: threat_level=low) |
 | `lighting_gate_open_assist` | `binary_sensor.main_gate_sensor` off→on, **gated on `security_lighting_required` = on** (same window as the two above) | garage_light + front_house_security_light ON for 10 min, then OFF again — **only the ones that were off when the gate opened** (pre-state captured in `variables:`). Added 2026-08-03. **Verify + retry added 2026-08-05 (BUG-L19):** re-checks each switch 3s after the initial `turn_on` and retries once if it didn't confirm `on` — covers a Sonoff device mid-reconnect. |
+| `boundary_security_watchdog` | Every 15 min, gated on `security_lighting_required` = on | Re-asserts any expected boundary light (same set as `boundary_security_on`'s target) that isn't `on` — verify + retry once after 3s, logs/notifies only on an actual correction. Added 2026-09-06 (BUG-L21) — closes the gap where `security_lighting_required` sitting "on" for 24h+ (e.g. rain running into the night) left no edge to catch a dropped Sonoff switch. |
 
 **Gate-open assist (added 2026-08-03) — handoff rules.** The 10-minute auto-off is
 deliberately conservative, because three other automations can legitimately own these two
@@ -699,6 +707,51 @@ a stale base reverts closed fixes silently, and nothing in the YAML itself flags
 
 ---
 
+### BUG-L21 [MEDIUM] — ✅ FIXED 2026-09-06 — Boundary street/entrance lights had no resilience against a dropped physical switch; `security_lighting_required` can legitimately sit "on" for 24h+ with no edge to catch it
+
+**File:** `packages/lighting/lighting_boundary.yaml`
+**Reported by:** user asking why the street light didn't turn on that night.
+
+**Symptom:** `switch.boundary_street_light` flapped `on` ↔ `unavailable` ~35 times over
+24 hours (confirmed via `/api/history/period`) and happened to self-recover to `on`
+every single time — pure luck. `switch.main_entrance_light` genuinely sat `off` for
+~7 hours that evening with no automation noticing.
+
+**Root cause:** `boundary_security_on` only triggers on `binary_sensor.
+security_lighting_required` going `off → on`. That sensor is `night_early OR
+security_visibility_poor OR security_weather_low_light` (`security_core.yaml`) — on
+2026-09-05/06 continuous rain kept `security_visibility_poor` on straight through the
+following night, so `security_lighting_required` never dropped to `off` at dawn and
+never produced a fresh edge at the next dusk. The lights were *correctly* supposed to
+stay on the whole time, but nothing was left running to notice if the physical switch
+(Sonoff, prone to WiFi dropouts — see BUG-A17/BUG-L19) silently lost that state. Not a
+repeat of BUG-A17 — `binary_sensor.garage_door_stale` was confirmed `off`/healthy
+throughout; this is an independent connectivity flakiness source, not yet root-caused.
+
+**Fix (two parts):**
+1. `boundary_security_on` also now triggers directly on `security_visibility_poor` and
+   `security_weather_low_light` going `off → on`, alongside the existing
+   `security_lighting_required` edge. `security_lighting_required` already recomputes
+   the instant either input changes, so this is defense-in-depth against a glitch in
+   that one template's own evaluation, not a functional change — day/night cycling
+   (`boundary_security_off`) is untouched.
+2. **New automation `boundary_security_watchdog`** (every 15 min, gated on
+   `security_lighting_required = on`): re-asserts any of the expected boundary lights
+   (`boundary_street` + `main_entrance` always; + `car_port`/`front`/`back`/
+   `office_entrance` if `anyone_connected_home`) that aren't `on`, verify + retry once
+   after 3s (same pattern as `lighting_gate_open_assist`, BUG-L19). Logs + notifies
+   only when a correction is actually made — a healthy night stays silent.
+
+**Deployed live:** `check_config` passed, `automation.reload` via Supervisor API,
+`automation.lighting_boundary_security_watchdog` confirmed registered and `on`.
+
+**Not fixed here:** the underlying Sonoff dropout cause itself (why the street light
+device goes `unavailable` so often) — the watchdog masks the symptom, it doesn't
+explain the flakiness. Worth a dedicated look if it keeps recurring, especially
+whether it correlates with rain (this device is outdoors).
+
+---
+
 ## Section 8: Cross-Domain Dependencies
 
 | Entity | Provider | Consumed by |
@@ -846,6 +899,15 @@ DONE 2026-06-29
               fixed-clock clear (entertainment_mode_daily_clear, lighting_entertainment.yaml) is now
               just a backstop for when that path never fires — moved 06:00→01:00 so a forgotten
               override doesn't bleed as far into the night.
+
+DONE 2026-09-06
+[✅] BUG-L21: boundary_security_on had no resilience against a dropped physical switch once
+              security_lighting_required had been sitting "on" for 24h+ (rain running straight
+              into the night) with no fresh edge to catch it. Fixed: two defense-in-depth
+              weather triggers added to boundary_security_on; new boundary_security_watchdog
+              automation (15-min interval, verify+retry) added to re-assert any expected
+              boundary light that isn't on. Underlying Sonoff dropout cause still open —
+              see BUG-L21 note in Section 7.
 ```
 
 ---
@@ -876,4 +938,13 @@ Caught before reload; all six re-fixed. Kept the incoming file's two genuine imp
 auto-off changed by user request from a flat 15 min bedtime-gated cap to 5 min after bedtime /
 10 min earlier, ungated. Scenario tables in Sections 3 and 7 updated; file inventory line count
 corrected 167 → 235.*
+*Updated: 2026-09-06 — BUG-L21 closed: user reported the street light hadn't come on that
+night. Root cause: `security_lighting_required` had sat "on" for 24h+ (continuous rain), so
+`boundary_security_on`'s off→on trigger never re-fired, and nothing was watching for
+`switch.boundary_street_light`/`switch.main_entrance_light` dropping out on their own (Sonoff
+flakiness, ~35 unavailable/on flaps in 24h, unrelated to the already-fixed BUG-A17 reload
+storm). Added two defense-in-depth weather triggers to `boundary_security_on` and a new
+15-min `boundary_security_watchdog` self-heal automation (verify+retry pattern from BUG-L19).
+Deployed live same session. Underlying Sonoff dropout cause not yet root-caused — flagged for
+a future session, possibly rain-correlated (outdoor device).*
 *Next review: After new AI cameras installed (cam motion valid sensors change)*

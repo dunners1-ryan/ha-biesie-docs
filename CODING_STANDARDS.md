@@ -109,6 +109,39 @@ AFTER FIXES — RELOAD NOT RESTART (unless alerts changed)
 
 ---
 
+## 🩺 Live API / Recorder Query Rules
+
+**2026-09-06 — logged, then corrected same session.** While diagnosing why the
+boundary street light didn't come on, a `curl` to `/api/logbook/<date>` with no
+`entity=` filter over a ~2-day window was issued against the live Supervisor API —
+initially assumed (from an ambiguous `ha core logs` line, "Thread DbWorker_2 is
+still running at shutdown", right before a Core restart) to have caused that
+restart. **That attribution was wrong.** PROJECT_STATE.md's open TODO already
+documented three unexplained Core restarts that same evening (~20:46 and ~20:54
+SAST, no update involved, candidate cause a `hikvision_next` entity-setup
+`AttributeError` / watchdog force-kill) from earlier, unrelated work — the restart
+observed here was the same pre-existing, still-unresolved event, not something this
+query triggered. See PROJECT_STATE.md for the actual open investigation.
+
+The unscoped-query practice below is still worth avoiding on its own merits (an
+unfiltered multi-day logbook build is real unnecessary load on a shared recorder),
+just not because it was confirmed to have crashed anything here:
+
+- **Never call `/api/logbook/<start>` without an `entity=` filter**, and never over
+  more than a few hours — it builds the *entire house* logbook for that window.
+- **Prefer `/api/history/period/<start>?filter_entity_id=...&minimal_response`**
+  for entity investigation — scope to the specific entities needed, and pass an
+  explicit `end_time` (the default window is short and silently truncates a query
+  meant to reach "now").
+- If a broad query is genuinely needed, page it (a few hours at a time) rather than
+  requesting a multi-day span in one call.
+- **Before blaming your own diagnostic query for a restart/outage you observe,
+  check PROJECT_STATE.md's open TODO first** — this box has had recurring
+  unexplained restarts independent of any session's actions; a coincidental restart
+  during your own investigation is more likely to be that than something you did.
+
+---
+
 ## 📝 YAML Comment Standards
 
 ### Automation Header Block (REQUIRED on every automation)
