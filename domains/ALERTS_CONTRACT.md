@@ -278,7 +278,7 @@ entity_id:
 | Stage | Entity | Status |
 |---|---|---|
 | Toggle | `input_boolean.security_alert_notify` | ✅ suppress pipeline escalations when cameras over-trigger |
-| Binary sensor | `binary_sensor.security_alert_active` | ✅ delay_on 5s, checks security_system_enabled + alert_notify |
+| Binary sensor | `binary_sensor.security_alert_active` | ✅ delay_on 5s, checks security_system_enabled + alert_notify — no delay_off, so it directly tracks `sensor.security_threat_level`'s own stability; see SECURITY_CONTRACT.md BUG-S78 (2026-09-07) for an incident where an undebounced upstream camera signal made this cycle ~1000+ times in 16h |
 | Context sensor | `sensor.security_alert_context` | ✅ single "Security Event" devices entry |
 | Alert entity | `alert.security_alert` | ✅ skip_first true (security_automations handles immediate) |
 | In aggregator trigger | Yes | ✅ added 2026-04-14 |

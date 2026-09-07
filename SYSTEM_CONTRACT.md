@@ -96,12 +96,13 @@ Telegram mirror  →  notify.telegram_bot_5527
 | `binary_sensor.anyone_home` | presence (Mobile App) | lighting | ✅ |
 | `binary_sensor.low_trust_present` | presence (derived) | security, lighting_departure, alerts_doors | ✅ FIXED (was broken — IV-01/IV-02 resolved) |
 | `input_boolean.low_trust_present` | context (legacy manual) | ~~security, lighting~~ — do not use | ❌ NEVER AUTO-SET — replaced by binary_sensor |
-| `binary_sensor.staff_on_site` | presence (derived) | context_global, security | ✅ |
+| `binary_sensor.staff_on_site` | presence (derived) | context_global, security, lighting | ✅ (lighting added 2026-09-07, LIGHTING_CONTRACT.md BUG-L22 — entrance_down_lights_daytime_low_light's staff-on-site carve-out; first lighting consumer of this entity, was previously security/context_global only) |
 | `input_boolean.staff_on_site` | context (legacy manual) | ~~security~~ — do not use | ❌ NEVER AUTO-SET — replaced by binary_sensor |
 | `sensor.security_trust_mode` | security (reads binary_sensor now) | alerts_doors, context_global | ✅ FIXED (IV-01 resolved) |
 | `binary_sensor.security_low_trust_active` | security (reads binary_sensor now) | lighting_security | ✅ FIXED |
 | `binary_sensor.main_gate_sensor` | ZHA hardware | presence, security | ✅ |
 | `binary_sensor.night_confirmed` | context (context_night) | security, lighting | ✅ |
+| `binary_sensor.night_early` | context (context_night, sun elevation < 2°) | security (one OR-branch of security_lighting_required), lighting (added 2026-09-07, LIGHTING_CONTRACT.md BUG-L22 — boundary_security_on/watchdog/entrance_down_lights_daytime_low_light all read it directly now, not just indirectly via security_lighting_required) | ✅ |
 | `binary_sensor.security_night_mode` | context (alias of night_confirmed) | security | ✅ |
 | `input_boolean.system_startup` | core (core_helpers) | presence (confidence gate) | ✅ |
 | `input_boolean.guest_mode` | context | security | ✅ (manual + startup-set) |

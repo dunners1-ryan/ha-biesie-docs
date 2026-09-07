@@ -2489,6 +2489,70 @@ the persistent override.
 
 ---
 
+### BUG-S78 — `security_grounds_motion` read raw, undebounced NVR motion signals for cam04/cam07/cam09/cam12, despite properly-debounced versions already existing — caused an hours-long false alert storm
+**Priority: HIGH | Status: ✅ FIXED 2026-09-07**
+
+**Reported by:** user — "have had a lot of alerts and don't think all warranted."
+
+**Symptom:** `binary_sensor.security_alert_active` flipped ~2118 times (1056 on-cycles) over
+a ~16h overnight window (confirmed via `/api/history/period`), and `sensor.security_threat_
+level` cycled `low → elevated → warning → critical` roughly once a minute for hours — not a
+real, sustained threat, a rapid oscillation. This would have generated a very large number
+of push notifications from the repeat-reminder pipeline (`alerts_security.yaml`) — most of
+them false.
+
+**Root cause:** `security_grounds_motion` (`security_zones.yaml`) is built from `expand()`
+over `group.security_grounds_front_cameras` / `group.security_grounds_rear_cameras`
+(`cameras_core.yaml`). Those two groups listed the **raw** `binary_sensor.camXX_..._
+motiondetection` entities for the 4 NVR analog cameras (cam04 car port, cam07 kitchen, cam09
+back garden/bedroom, cam12 back pond) — the unfiltered hardware signal, no debounce at all.
+`cameras_processing.yaml` already defines a `*_motion_valid` sensor for every one of these
+with a tuned `delay_on`/`delay_off` (cam04: 4s/30s, cam07: 6s/30s, cam09: 2s/45s, cam12:
+2s/45s) specifically because these cameras have "a known high false-positive rate" (own code
+comment: "washing line, headlights, cats") — but the grounds-motion aggregation simply wasn't
+using them. Any single-frame flicker on any of these 4 cameras propagated straight through
+to `security_threat_level` with zero smoothing. Circumstantially the storm coincided with a
+multi-day period of continuous rain (`weather.forecast_home` stuck `rainy`) — rain on a lens
+or pond ripples (cam12 is separately documented, see LIGHTING_CONTRACT.md's BUG-S50 note, as
+already known to fire for "frogs/moonlight") is a textbook trigger for exactly this class of
+camera. Could not forensically confirm which camera(s) fired the actual overnight storm —
+`binary_sensor.*_motiondetection`/`*_motion_valid`/`security_*_motion` are all deliberately
+excluded from the recorder (`configuration.yaml`, "high-frequency transient, no historical
+value"), and it had already gone quiet again (confirmed stable `low`/`off` over a live
+60s+ poll) by the time this was investigated.
+
+**Not affected — already correct:** `binary_sensor.cam05_inside_garage_motion_valid`/
+`cam14_lounge_motion_valid`/`cam15_passage_motion_valid` (garage/lounge/passage) — the
+inside-house pipeline (`security_inside_garage_motion`/`_main_motion`/`_bedrooms_motion` in
+`security_zones.yaml`) already reads their debounced `_motion_valid` versions directly, not
+a group of raw entities. User asked to check these three too; no code change was needed
+there. Also unaffected, deliberately: `security_perimeter_motion` (ipcam01/02/05 only — all
+AI/AcuSense) and the `ipcam03`/`ipcam04` entries inside the two groups above, which are dead
+weight left in place on purpose (see inline comments) — their real, already-debounced signal
+is the explicit `is_state('binary_sensor.ipcam0X_..._motion_valid','on')` check already
+present in `security_grounds_motion`'s own template. **AI cameras were deliberately left
+completely untouched per user request** — they're relied on for real visitor/vehicle
+detection and don't share this NVR false-positive problem, so adding debounce there would
+only risk delaying/missing a genuine arrival.
+
+**Fix:** `security_grounds_front_cameras` and `security_grounds_rear_cameras`
+(`cameras_core.yaml`) repointed at `cam04_car_port_front_motion_valid`, `cam07_front_
+kitchen_motion_valid`, `cam09_back_bedroom_motion_valid`, `cam12_back_pond_motion_valid` —
+reusing the debounce values that already existed rather than inventing new ones. No change
+to `security_perimeter_motion`, the inside-house pipeline, or any AI/AcuSense camera.
+
+**Deployed live:** `check_config` clean, `group.reload` called, both groups' membership
+confirmed via REST (`group.security_grounds_front_cameras`/`_rear_cameras` now list the
+`_motion_valid` entities), `binary_sensor.security_grounds_motion` confirmed still computing
+correctly post-reload (stable `off`, matches live camera states).
+
+**Not done — deferred:** actually root-causing which camera(s) drove that specific overnight
+storm (blocked by the recorder exclusion above) and confirming the fix holds through a real
+rain event live (weather was already clearing by the time this was fixed) — flagged for a
+follow-up check next time it rains for an extended period.
+
+---
+
 ### S18 — Notification severity/sound classification overhaul (2026-07-06)
 
 **Priority: MEDIUM | Status: ✅ APPLIED 2026-07-06**

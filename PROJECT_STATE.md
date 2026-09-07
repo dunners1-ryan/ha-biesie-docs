@@ -5,6 +5,52 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-07 — Security: BUG-S78, false alert storm root-caused and fixed
+      (`security_grounds_motion` reading raw undebounced NVR motion for cam04/
+      cam07/cam09/cam12); Lighting: BUG-L22 corrected same-day mistake +
+      entrance_down_lights given its own daytime-weather rule.** User: "have
+      had alot of alerts and don't think all warranted" + asked why front/back
+      security lights were coming on for daytime rain instead of only at night.
+      **Security fix:** measured `binary_sensor.security_alert_active` at
+      ~2118 changes (1056 on-cycles) over 16h overnight, `sensor.security_
+      threat_level` cycling low/elevated/warning/critical roughly once a
+      minute — a false-positive storm, not a real sustained threat. Root
+      cause: `security_grounds_front_cameras`/`_rear_cameras` groups
+      (`cameras_core.yaml`) listed cam04/cam07/cam09/cam12's raw `_
+      motiondetection` entities instead of their own already-existing,
+      already-tuned `_motion_valid` debounced sensors (`cameras_processing.
+      yaml` had delay_on/delay_off defined for all 4 the whole time, just
+      unused here) — any single-frame flicker on a known-false-positive-prone
+      NVR camera propagated straight to threat_level with zero smoothing.
+      Circumstantially rain-correlated (weather stuck `rainy` for days; cam12
+      separately documented as firing for pond ripples/frogs). Confirmed
+      cam05/cam14/cam15 (garage/lounge/passage) were NOT affected — the
+      inside-house pipeline already read their debounced versions correctly.
+      **Deliberately left every AI/AcuSense camera (ipcam01-05) untouched**
+      per user request — they don't share this failure mode and are relied on
+      for real visitor/vehicle detection. Fixed: both groups repointed at the
+      existing `_motion_valid` sensors. Deployed live (`check_config`,
+      `group.reload`, membership + `security_grounds_motion` verified via
+      REST). Not done: forensically identifying which camera drove last
+      night's specific storm (blocked by recorder exclusions on these
+      entities) and a live confirmation during a future rain event. Full
+      writeup: `SECURITY_CONTRACT.md` BUG-S78.
+      **Lighting correction:** the user confirmed the front/back/carport/
+      office night-vs-weather split from BUG-L21/L22 was right, but caught
+      that I'd wrongly bundled `entrance_down_lights` into the same
+      security-domain automation (`boundary_security_on`) — it's a comfort/
+      routine light, not a security light. Reverted that; gave it its own
+      `entrance_down_lights_daytime_low_light` automation (daytime rain/low-
+      light AND (anyone home OR staff on site) → on; condition no longer true
+      during the day → off; leaves it alone entirely once night starts, so
+      the existing evening/morning/arrival/bedtime routines keep sole
+      ownership overnight as before). Also halved `boundary_security_
+      watchdog`'s interval 15→30 min per user feedback ("seems too much").
+      Live state cleanup: turned off car_port/front/back/office_entrance
+      switches that were still on from the pre-fix daytime-rain logic rather
+      than waiting for weather to clear. Full writeup: `LIGHTING_CONTRACT.md`
+      BUG-L22.
+
 - [ ] **2026-09-06 — REPO-WIDE AUDIT NEEDED: `initial:`-resets-on-every-
       restart bug (CODING_STANDARDS.md Rule 5b), only fixed where it's
       been caught by accident so far (`utilities/` — Water Cooler + Gas
