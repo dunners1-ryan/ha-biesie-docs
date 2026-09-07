@@ -5,6 +5,41 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-07 — Dashboard: new "Boundary Lighting Watchdog" markdown card on
+      Operations → Security ("Camera System Control" section), status view for
+      the `boundary_security_watchdog` automation (BUG-L21/L22).** User: "Add
+      watchdog markdown type multine to security control dashboard with cardmod
+      colours." Dashboard-only session — no package YAML changed, so nothing
+      in `packages/` to commit; `.storage/lovelace.dashboard_operations` is
+      gitignored, so this entry is the only record of it (same pattern as the
+      2026-09-03 vacuum dashboard session). Card content (multiline markdown,
+      live-templated): automation on/off state, whether the boundary-lighting
+      window is currently active (`binary_sensor.security_lighting_required`),
+      and — only while active — each light the automation actually expects on
+      right now (street + main entrance always; + car_port/front/back/office
+      only if real night + someone home, mirroring `boundary_security_on`'s
+      own night-vs-weather split from BUG-L22) with a ✅/⚠️ per light against
+      its live state. `card_mod` border-left colour: greyed when the
+      automation is off or the window is idle (daytime), green when everything
+      expected is actually on, red (+ faint red background) if anything expected
+      is drifted off/unavailable — i.e. the card visually flags exactly the
+      condition the watchdog itself corrects on its next 30-min tick, not just
+      whether the automation entity is enabled.
+      **Deployed live via the WebSocket `lovelace/config`/`lovelace/config/save`
+      pattern** (no REST endpoint exists for lovelace config; used a scratchpad
+      Python venv with `websockets` since none was preinstalled) — read the
+      live config first (confirmed byte-identical to the file on disk before
+      editing), inserted the new heading+markdown card into the existing
+      "Camera System Control" vertical-stack, validated both Jinja templates
+      via `/api/template` before pushing (confirmed they render correctly
+      against live state — all boundary lights on, active window, green
+      border), saved, then read the config back over the WS API AND re-read
+      `.storage/lovelace.dashboard_operations` from disk to confirm both match
+      the intended result exactly. No HA restart needed (the WS save path
+      applies immediately, unlike a raw file edit — see CODING_STANDARDS.md's
+      ".storage/lovelace changes" restart-required note, which is about
+      editing the file directly, not this path).
+
 - [x] **2026-09-07 — Security: BUG-S78, false alert storm root-caused and fixed
       (`security_grounds_motion` reading raw undebounced NVR motion for cam04/
       cam07/cam09/cam12); Lighting: BUG-L22 corrected same-day mistake +

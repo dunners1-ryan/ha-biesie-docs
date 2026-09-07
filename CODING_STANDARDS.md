@@ -84,7 +84,7 @@ grep -i "entity_id_to_check" /root/config/.storage/core.entity_registry
 | New integration or custom component | Integration init requires restart |
 | New packages directory | `!include_dir_named` requires restart |
 | `customize.yaml` | Requires restart |
-| `.storage/lovelace` changes | **Full HA restart** — confirmed 2026-07-03 and again 2026-07-06 that a browser hard refresh (`Cmd+Shift+R`) is NOT reliably sufficient; the frontend can hold a stale in-memory copy of the dashboard config regardless of browser cache. Restart to guarantee it takes effect. Also avoid opening that dashboard's UI editor before restarting — an autosave from the stale in-memory copy would silently revert a direct `.storage` edit. |
+| `.storage/lovelace` changes — **edited as a raw file** (`Write`/`Edit` on the JSON directly) | **Full HA restart** — confirmed 2026-07-03 and again 2026-07-06 that a browser hard refresh (`Cmd+Shift+R`) is NOT reliably sufficient; the frontend can hold a stale in-memory copy of the dashboard config regardless of browser cache. Restart to guarantee it takes effect. Also avoid opening that dashboard's UI editor before restarting — an autosave from the stale in-memory copy would silently revert a direct `.storage` edit. **Does NOT apply** to a change pushed via the `lovelace/config/save` WebSocket command (see below) — that path goes through the same mechanism the UI editor itself uses and takes effect immediately, no restart, confirmed 2026-09-07. |
 
 ### Rules for alert changes
 - **Batch all alert changes into one session** to minimise restarts
@@ -102,7 +102,10 @@ AFTER FIXES — RELOAD NOT RESTART (unless alerts changed)
    - Helpers added/changed     → Reload Helpers
    - alert: entities changed   → ⚠️ Full HA restart required
    - configuration.yaml changed → ⚠️ Full HA restart required
-   - .storage/lovelace changed → ⚠️ Full HA restart required (hard refresh alone is not reliable)
+   - .storage/lovelace changed → ⚠️ Full HA restart required (hard refresh alone is not
+     reliable) — UNLESS pushed via the lovelace/config/save WebSocket call instead of a
+     raw file edit, which needs neither (see "Deploying a dashboard edit without a
+     restart" above)
 3. Verify in Developer Tools → States
 4. Commit + update docs in same session
 ```
@@ -482,6 +485,36 @@ Telegram-specific extras (`inline_keyboard`, `disable_notification`) go **direct
 ---
 
 ## 🎨 Dashboard Card Standards
+
+### Deploying a dashboard edit without a restart
+
+No REST endpoint exists for lovelace config — only the WebSocket API does. Editing
+`.storage/lovelace.<dashboard_id>` directly needs a full restart (see the table above).
+To avoid that: connect to `ws://supervisor/core/websocket` (or `wss://<host>:8123/api/
+websocket` from outside the supervisor network), authenticate with `{"type": "auth",
+"access_token": "<token>"}`, then:
+1. `{"id": 1, "type": "lovelace/config", "url_path": "<dashboard-url-path>"}` — read the
+   live config first. Diff it against the `.storage` file on disk before editing anything;
+   if they differ, another session/the UI editor changed it since you last looked.
+2. Edit the returned config object in Python/similar (JSON in, JSON out — same shape as
+   the `.storage` file's `data.config`).
+3. Validate any new/changed Jinja template (card content, `card_mod` style) via
+   `POST /api/template` (`{"template": "..."}`) BEFORE pushing — confirms it renders
+   against live state and catches syntax errors without touching the dashboard.
+4. `{"id": 2, "type": "lovelace/config/save", "url_path": "<dashboard-url-path>",
+   "config": <edited config>}` — takes effect immediately, no restart, no stale
+   frontend cache (unlike the raw-file path).
+5. Read the config back (`lovelace/config` again) AND re-read the `.storage` file from
+   disk — confirm both match what you intended, not just that the save call succeeded.
+
+No `websockets`-equivalent Python package is preinstalled — `pip install` hits an
+externally-managed-environment error; use a throwaway venv (`python3 -m venv`, install
+into it, delete it after) rather than `--break-system-packages` against the system
+Python. Get the dashboard's `url_path` from `.storage/lovelace_dashboards` (`data.items[]
+.url_path`), not its storage-key id (`dashboard_operations` the file vs. `dashboard-
+operations` the url_path — they differ by a hyphen/underscore and are NOT the same
+string). First used 2026-09-07 for the Boundary Lighting Watchdog card
+(LIGHTING_CONTRACT.md / PROJECT_STATE.md same-day entry).
 
 ### Template card defensive pattern
 
