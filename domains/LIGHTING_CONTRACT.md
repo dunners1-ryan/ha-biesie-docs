@@ -743,12 +743,13 @@ throughout; this is an independent connectivity flakiness source, not yet root-c
    the instant either input changes, so this is defense-in-depth against a glitch in
    that one template's own evaluation, not a functional change — day/night cycling
    (`boundary_security_off`) is untouched.
-2. **New automation `boundary_security_watchdog`** (every 15 min, gated on
-   `security_lighting_required = on`): re-asserts any of the expected boundary lights
-   (`boundary_street` + `main_entrance` always; + `car_port`/`front`/`back`/
-   `office_entrance` if `anyone_connected_home`) that aren't `on`, verify + retry once
-   after 3s (same pattern as `lighting_gate_open_assist`, BUG-L19). Logs + notifies
-   only when a correction is actually made — a healthy night stays silent.
+2. **New automation `boundary_security_watchdog`** (every 15 min — **halved to 30 min
+   2026-09-07, see BUG-L22**, gated on `security_lighting_required = on`): re-asserts
+   any of the expected boundary lights (`boundary_street` + `main_entrance` always;
+   + `car_port`/`front`/`back`/`office_entrance` if `anyone_connected_home` — **tightened
+   2026-09-07 to also require real night, see BUG-L22**) that aren't `on`, verify +
+   retry once after 3s (same pattern as `lighting_gate_open_assist`, BUG-L19). Logs +
+   notifies only when a correction is actually made — a healthy night stays silent.
 
 **Deployed live:** `check_config` passed, `automation.reload` via Supervisor API,
 `automation.lighting_boundary_security_watchdog` confirmed registered and `on`.

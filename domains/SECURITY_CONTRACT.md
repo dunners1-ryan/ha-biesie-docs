@@ -2513,7 +2513,7 @@ comment: "washing line, headlights, cats") — but the grounds-motion aggregatio
 using them. Any single-frame flicker on any of these 4 cameras propagated straight through
 to `security_threat_level` with zero smoothing. Circumstantially the storm coincided with a
 multi-day period of continuous rain (`weather.forecast_home` stuck `rainy`) — rain on a lens
-or pond ripples (cam12 is separately documented, see LIGHTING_CONTRACT.md's BUG-S50 note, as
+or pond ripples (cam12 is separately documented, see this file's own BUG-S50 above, as
 already known to fire for "frogs/moonlight") is a textbook trigger for exactly this class of
 camera. Could not forensically confirm which camera(s) fired the actual overnight storm —
 `binary_sensor.*_motiondetection`/`*_motion_valid`/`security_*_motion` are all deliberately
