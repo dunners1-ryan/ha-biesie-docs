@@ -5,6 +5,58 @@
 
 ## ⚠️ OPEN TODO
 
+- [ ] **2026-09-08 — Power: BUG-PWR-FORCECHARGE03 found (not fixed) — SOC number
+      writes to the inverter can silently fail to land on hardware, then
+      self-correct back to the stale value ~3.5 minutes later, poisoning the
+      next snapshot.** User asked to live-test the existing Force Charge
+      feature ("test that it works and remembers to default back to prior
+      settings which battled last time") after confirming the feature already
+      existed end-to-end (dashboard button, target-SOC input, save/override/
+      restore scripts, auto-restore-on-target monitor, restart recovery — all
+      built 2026-06-18/2026-08-09, documented in POWER_CONTRACT.md). Two real
+      force-charge cycles were run live (target = current SOC each time, so
+      restore triggered within seconds — chosen specifically to minimise real
+      grid-import cost/risk during the test). **Found and fixed same session:**
+      BUG-PWR-FORCECHARGE02 — the restore path never captured/restored
+      `select.inverter_1/2_energy_pattern`, leaving both inverters stuck on
+      "Battery First" indefinitely after every force charge; fixed by adding
+      `pattern` to the snapshot JSON + a restore step, live-tested working.
+      **Found, NOT fixed** — BUG-PWR-FORCECHARGE03: `number.inverter_1_program_
+      2_soc` correctly restored to 30 at 13:02:06, then silently reverted to 82
+      (the stale pre-restore value) at 13:05:47 with zero automation/script
+      activity in between (logbook-confirmed) — almost certainly a delayed
+      Solarman poll overwriting an optimistic HA write that never actually took
+      on the physical inverter register. The second test's own snapshot then
+      captured the wrong (82) value as if it were correct, permanently losing
+      the true 30% setting until caught by this session's manual 26-value diff
+      and corrected live. `automation.inverter_sync_check`'s existing 90s
+      settle-then-compare pattern only covers `energy_pattern` + the 6 charging
+      selects, never the 6 SOC numbers — this class of drift had zero existing
+      coverage. Full writeup + confirmed timeline: `POWER_CONTRACT.md` Issue 34.
+      **Live state:** corrected back to 30/30 on both inverters, held across
+      multiple poll cycles as of session end — house is in a known-good state.
+      **Decision needed before implementing a fix** — options, roughly in order
+      of robustness vs. added restore-cycle time:
+      1. **Long settle + verify + retry**: after each restore write, wait long
+         enough (observed drift took 3m41s to manifest — needs at least that,
+         plausibly longer to be confident) before re-reading and comparing to
+         the saved snapshot; retry once on mismatch; alert by name if still
+         wrong. Correctness over speed — adds several minutes to every force
+         charge cycle's restore phase.
+      2. **Verify only, alert, no auto-retry**: same long-wait re-check, but
+         just names the mismatch in a notification for manual correction
+         instead of attempting a retry (a dropped write may just drop again).
+         Faster restore, but the wrong value sits live until you notice.
+      3. **Extend `inverter_sync_check` to also watch the 6 SOC numbers**
+         (currently only watches energy_pattern + charging selects) — gives
+         general-purpose drift detection independent of Force Charge, catching
+         this class of issue however it's caused (not just this script).
+         Complementary to 1/2, not a replacement — worth doing regardless of
+         which restore-side option is chosen.
+      Not implemented pending user direction — flagged rather than guessed at,
+      since it directly affects how much you can trust "restore" during a real
+      low-SOC emergency, which is the whole point of this feature.
+
 - [x] **2026-09-08 — Infra: CRITICAL — hikvision_next `via_device` RuntimeError
       found and locally patched; restored all 7 NVR cameras' images/sub-streams
       after ~38h outage.** User: "why isn't the garage/kitchen/etc camera
@@ -4785,11 +4837,20 @@ script.force_charge_restore              ← internal restore: INV1 settings →
                                            FIXED 2026-06-19: re-enable inverter_programme_auto_enabled and
                                            clear force_charge_active NOW run BEFORE the guard condition.
                                            Previously guard abort left programme_auto OFF indefinitely.
+                                           FIXED 2026-09-08 (BUG-PWR-FORCECHARGE02): snapshot + restore now
+                                           also cover select.inverter_1/2_energy_pattern — previously left
+                                           stuck on "Battery First" after every cycle. Live-tested working.
 automation.force_charge_monitor          ← template trigger: fires when force_charge_active=on AND SOC ≥ target
                                            BUG FIXED 2026-06-19: original SOC-only trigger missed case where
                                            SOC was already AT target when force charge activated. force_charge_active
                                            is now embedded in the trigger template so it fires on both SOC change
                                            AND force_charge_active transition to ON.
+
+# ⚠️ 2026-09-08 (BUG-PWR-FORCECHARGE03, NOT FIXED): live-tested this whole chain for the
+# first time this session. Found the SOC-number restore writes (number.inverter_1/2_program_
+# N_soc) can silently fail to land on the physical inverter and self-revert ~3.5 min later,
+# poisoning the next snapshot — see open TODO above + POWER_CONTRACT.md Issue 34 for the full
+# confirmed timeline and fix options. Live drift already corrected; fix not yet implemented.
 ```
 
 ### Power Statistics Sensors (revised 2026-06-18)

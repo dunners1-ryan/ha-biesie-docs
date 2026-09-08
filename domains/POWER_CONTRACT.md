@@ -2866,6 +2866,83 @@ to `11 <= now_h < 15` to match `geyser_turn_on`'s actual trigger list.
 
 ---
 
+### Issue 33 — ✅ FIXED 2026-09-08: BUG-PWR-FORCECHARGE02 — Force Charge never restored `energy_pattern`
+
+**Files:** `packages/power/power_automations.yaml` (`script.force_charge_batteries`, `script.force_charge_restore`).
+**Found by:** user asked for a live end-to-end test of Force Charge (added 2026-06-18 — never
+actually invoked in this house's history until this session). First live run confirmed exactly
+the failure mode the user recalled ("battled last time"): `force_charge_batteries` step 3 sets
+**Battery First** on both inverters, but the snapshot (step 1) and `force_charge_restore` never
+captured or restored `select.inverter_1/2_energy_pattern` — only the P1–P6 charging selects and
+SOC numbers. After a full force-charge cycle (target = current SOC, so it round-tripped in
+seconds), both inverters were left stuck on Battery First indefinitely, with correction
+dependent entirely on `automation.inverter_energy_pattern_control` happening to overwrite it
+later on its own, unrelated logic (not guaranteed — e.g. it holds Battery First deliberately at
+night or under `conserve`/`loadshedding` orchestrator states).
+**Fix:** `force_charge_batteries`'s snapshot JSON now includes `"pattern": states('select.
+inverter_1_energy_pattern')`; `force_charge_restore` restores it on INV1 (with a `.get()`
+fallback to current state for any pre-fix snapshot missing the key) before the existing
+`force_inverter_sync` call propagates it to INV2. Live-tested twice 2026-09-08 (`script.reload`,
+`check_config` clean) — second run confirmed `energy_pattern` correctly back to "Load First" on
+both inverters within seconds of restore completing.
+
+### Issue 34 — 🔍 FOUND, NOT FIXED 2026-09-08: BUG-PWR-FORCECHARGE03 — SOC number writes can silently fail to land on hardware, then self-correct back to the stale value minutes later, poisoning the next snapshot
+
+**Files:** `packages/power/power_automations.yaml` (`script.force_charge_restore`, and by
+extension anything else that writes `number.inverter_1/2_program_N_soc` — e.g.
+`inverter_p4_grid_charge_control` or `force_charge_batteries` itself).
+**Found by:** the same live test session as Issue 33 above, via a full before/after diff of all
+12 P1–P6 charging+SOC values across both inverters plus `/api/logbook` timeline reconstruction
+(not caught by simpler methods — the drifted entity showed the *correct* restored value for
+3.5 minutes before silently reverting).
+
+**Confirmed sequence (recorder-verified via `/api/history/period`):**
+1. Test 1 (target = current SOC): `force_charge_restore` correctly wrote
+   `number.inverter_1_program_2_soc` back to its true baseline (30) at 13:02:06 SAST. Held
+   correctly for 3m41s.
+2. At 13:05:47 — with **no automation, script, or user action running** (confirmed via
+   logbook: the only event in that window was this session's own `script.reload`, which does
+   not write entity values) — `number.inverter_1_program_2_soc` silently reverted to **82**
+   (the stale value from the *original* test-1 override, before it was ever restored).
+3. Test 2 started 13:05:57, ran normally, and its own snapshot step captured **82** as if it
+   were the true baseline — because that's what the entity was reading at that instant. The
+   real value (30) was gone from the snapshot chain entirely. Test 2's restore then wrote the
+   entity back to 82 "correctly" (matching its own, now-corrupted, snapshot) — a fully
+   self-consistent, silently wrong result.
+
+**Root cause (assessed, not proven at the register level):** the Solarman `number` write
+(`number.set_value`) applies optimistically to the HA entity state on command; nothing in this
+config subsequently confirms the physical inverter register actually accepted it. Any
+subsequent Solarman poll of that register then overwrites HA's optimistic value with whatever
+the hardware actually holds — visibly, minutes after the "successful" write. Consistent with
+(though not proof of) the same underlying "Sunsynk drops rapid register writes" quirk already
+documented for `force_charge_restore`'s 2s inter-write spacing — just manifesting as a
+*delayed* correction rather than an immediate rejection.
+
+**Why existing safeguards didn't catch it:** `automation.inverter_sync_check`
+(`input_boolean.inverter_sync_status`) already waits 90s after a change before comparing
+INV1 vs INV2 — itself evidence the system's original design already knew these writes are not
+instantaneous — but it only compares `energy_pattern` and the 6 **charging selects**, never the
+6 **SOC numbers**. This exact class of drift has had zero coverage from any existing
+automation, on any package, until this session's manual diff caught it. It plausibly affects
+`inverter_p4_grid_charge_control`'s and `inverter_energy_pattern_control`'s own SOC writes too,
+not just Force Charge — not confirmed, but nothing distinguishes Force Charge's write path from
+theirs.
+
+**Live impact / correction:** `number.inverter_1/2_program_2_soc` were left at 82 (should be
+30) after this session's second test. Manually corrected back to 30 on both inverters
+2026-09-08 13:13 SAST via direct `number.set_value` and confirmed holding across multiple
+poll cycles before this doc was written. No other P1–P6 fields were affected (full 26-value
+diff against the pre-test baseline came back clean apart from this one).
+
+**Not fixed — needs a design decision before implementing** (see PROJECT_STATE.md open TODO):
+a 2s-later re-check (the spacing already used elsewhere in this script) would NOT have caught
+this — the false "success" held for 3m41s before reverting. Any real fix has to wait roughly
+that long before trusting a write, which meaningfully lengthens every restore cycle. Options
+outlined in PROJECT_STATE.md; not implemented pending user direction.
+
+---
+
 ## 12. Error Signatures (Watchman-Confirmed)
 
 These entities appear in watchman_report.txt as missing or unavailable. Map these to the issues above.
