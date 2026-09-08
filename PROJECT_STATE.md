@@ -42,6 +42,24 @@
       third-party code — a future HACS update to `hikvision_next` will
       silently overwrite it and reintroduce the crash.** Full writeup:
       `INFRA_CONTRACT.md` (hikvision_next Integration Notes).
+
+      **🔍 CHECK THIS FIRST if any NVR camera (cam04/05/07/09/12/14/15, or a
+      `_substream`) goes `unavailable` again, or right after any
+      `hikvision_next` HACS update — before re-diagnosing from scratch:**
+      ```bash
+      grep -n "via_device=" /config/custom_components/hikvision_next/hikvision_device.py
+      ```
+      - Line found but **commented out** (`#     via_device=...`) → patch is
+        still in place. This is NOT a recurrence of this bug — investigate
+        fresh, don't assume it's the same cause.
+      - Line found **active/uncommented** → an update overwrote the patch.
+        Re-comment it out, full HA restart, then re-verify all 7 cameras +
+        7 sub-streams are `idle` (`/api/states/camera.camXX_...`) and the log
+        has no `Error adding entity camera.*` — same steps as this session,
+        see `INFRA_CONTRACT.md` for the full writeup. Check upstream first
+        (https://github.com/maciej-or/hikvision_next/issues) in case a real
+        fix has shipped by then and the hand-patch can be retired instead.
+
       **Relationship to the still-open recurring-Core-restart TODO below**:
       likely the same integration, but NOT confirmed the same bug — that one
       was an `AttributeError` in `hikvision_next/sensor.py` during a Core

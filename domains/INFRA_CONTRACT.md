@@ -449,6 +449,16 @@ which would reintroduce this exact crash. Check this comment is still present
 after updating that integration; re-apply if not. Remove the patch (and this
 note) once upstream ships proper `via_device_id` support.
 
+**🔍 Before re-diagnosing a camera outage on this integration, check the patch
+is still in place:**
+```bash
+grep -n "via_device=" /config/custom_components/hikvision_next/hikvision_device.py
+```
+Commented out → patch intact, this isn't a recurrence, look elsewhere. Active/
+uncommented → an update reverted it; re-comment, full restart, verify all 7
+main + 7 sub-stream camera entities are `idle`. See `PROJECT_STATE.md`
+2026-09-08 entry for the full original incident and verification steps.
+
 **`tuya`** — **Corrected 2026-07-13** (was previously misattributed to `localtuya`
 throughout this doc and CLAUDE.md — confirmed via `.storage/core.entity_registry`
 and `.storage/core.config_entries`, which show a single `tuya` config entry and
