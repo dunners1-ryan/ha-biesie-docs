@@ -82,6 +82,7 @@ grep -i "entity_id_to_check" /root/config/.storage/core.entity_registry
 | `alert:` entities | Cannot be reloaded — always requires restart |
 | `configuration.yaml` | Core config, notify groups, recorder excludes |
 | New integration or custom component | Integration init requires restart |
+| Any `.py` file inside `custom_components/*` edited (even an existing one) | Full restart — Python modules are already imported in memory; a config-entry reload re-runs setup using the STALE code, it does not re-import the file. Confirmed 2026-09-08 patching `hikvision_next`. |
 | New packages directory | `!include_dir_named` requires restart |
 | `customize.yaml` | Requires restart |
 | `.storage/lovelace` changes — **edited as a raw file** (`Write`/`Edit` on the JSON directly) | **Full HA restart** — confirmed 2026-07-03 and again 2026-07-06 that a browser hard refresh (`Cmd+Shift+R`) is NOT reliably sufficient; the frontend can hold a stale in-memory copy of the dashboard config regardless of browser cache. Restart to guarantee it takes effect. Also avoid opening that dashboard's UI editor before restarting — an autosave from the stale in-memory copy would silently revert a direct `.storage` edit. **Does NOT apply** to a change pushed via the `lovelace/config/save` WebSocket command (see below) — that path goes through the same mechanism the UI editor itself uses and takes effect immediately, no restart, confirmed 2026-09-07. |

@@ -5,6 +5,50 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-08 — Infra: CRITICAL — hikvision_next `via_device` RuntimeError
+      found and locally patched; restored all 7 NVR cameras' images/sub-streams
+      after ~38h outage.** User: "why isn't the garage/kitchen/etc camera
+      showing an image" (following on from the BUG-S78 false-alert session) +
+      "HA seems rather slow to respond ... especially going back a page."
+      **Root cause:** `camera.cam05_inside_garage`/`cam07_front_kitchen`/
+      `cam09_back_bedroom`/`cam12_back_pond`/`cam14_lounge`/`cam15_passage`
+      (every NVR channel except cam04) plus ALL 7 cameras' `_substream`
+      entities had sat `unavailable` since 2026-09-06 ~19:06 SAST (~38h) —
+      predates BUG-S78 by almost a day, confirmed NOT caused by that fix. Two
+      full HA restarts did not clear it (ruled out a stuck connection).
+      Root-caused live: `hikvision_next`'s `DeviceInfo` for NVR-channel cameras
+      sets the deprecated `via_device` param; HA Core 2026.9 hard-crashes
+      (`RuntimeError`) on it instead of warning, whichever camera the
+      integration's enumeration reaches first each restart (confirmed: the
+      exact entity varies restart to restart) — and the crash aborts the rest
+      of that setup loop, leaving everything after it frozen on its restored
+      last-known state (confirmed via `restored: true` on every affected
+      entity). Verified via `WebSearch`/`WebFetch` before touching anything,
+      per user's explicit request: 5 open upstream issues (#365/#366/#368/
+      #371/#372, all filed within days of this session, no maintainer fix) and
+      a community-forum PSA with the exact same one-line fix, user-confirmed
+      working. Also found: the Security dashboard's 7 `picture-entity` cards
+      all point at the (unavailable) `_substream` entities — the likely cause
+      of the reported browser sluggishness, since each is a dead stream
+      connection attempt on every page load.
+      **Fix:** commented out the `via_device=...` line in `custom_components/
+      hikvision_next/hikvision_device.py` (loses only the cosmetic "grouped
+      under NVR" device hierarchy). Full restart required (Python module, not
+      a config reload) — done, verified live: all 7 cameras + 7 sub-streams
+      confirmed `idle`, no more `Error adding entity camera.*` in logs,
+      `check_config` clean, `security_capture_each_camera_motion` and all
+      lighting/security automations from the prior two sessions confirmed
+      still enabled and untouched. **⚠️ This is a hand-patch of vendored
+      third-party code — a future HACS update to `hikvision_next` will
+      silently overwrite it and reintroduce the crash.** Full writeup:
+      `INFRA_CONTRACT.md` (hikvision_next Integration Notes).
+      **Relationship to the still-open recurring-Core-restart TODO below**:
+      likely the same integration, but NOT confirmed the same bug — that one
+      was an `AttributeError` in `hikvision_next/sensor.py` during a Core
+      restart; this one is a `RuntimeError` in `hikvision_device.py`'s device
+      registration. Both point at `hikvision_next` struggling with this HA
+      Core version, but don't assume this session's fix closes that one too.
+
 - [x] **2026-09-07 — Dashboard: new "Boundary Lighting Watchdog" markdown card on
       Operations → Security ("Camera System Control" section), status view for
       the `boundary_security_watchdog` automation (BUG-L21/L22).** User: "Add

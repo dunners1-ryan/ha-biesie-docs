@@ -385,7 +385,69 @@ integration fails, the entire power domain goes unavailable.
 
 **`hikvision_next`** — Known issue: sets entity IDs with uppercase serial number
 (`DS-7116HGHI-F1...`). Deprecation warning in HA — will break in HA 2027.2.
-Bug should be filed upstream at maciej-or/hikvision_next.
+
+**`hikvision_next` — ⚠️ LOCAL PATCH APPLIED, 2026-09-08 (see below).** Also sets
+entity IDs with the wrong domain for its snapshot entities (`camera.ds_..._101_
+snapshot` should be `image.*`) — will break in HA 2027.5. Neither of these two
+cosmetic deprecations is urgent; unrelated to the patch below.
+
+**`hikvision_next` — CRITICAL bug, patched locally 2026-09-08 (all 7 NVR cameras'
+images/streams restored):**
+
+**Symptom (2026-09-06 evening → 2026-09-08):** `camera.cam05_inside_garage`,
+`cam07_front_kitchen`, `cam09_back_bedroom`, `cam12_back_pond`, `cam14_lounge`,
+`cam15_passage` (all NVR channels except cam04) and ALL 7 cameras' `_substream`
+entities sat `unavailable` continuously for ~38 hours. Two full HA restarts did
+NOT clear it — ruled out a stuck connection. Caused: no snapshot images in
+security notifications for these cameras (confirmed via a
+`homeassistant.helpers.service` warning: "Referenced entities camera.cam12_
+back_pond are missing"), notifications showing the wrong camera's photo (falling
+back to whichever camera's last real snapshot was available), and — separately
+confirmed — likely contributed to browser sluggishness on the Operations →
+Security dashboard, which has 7 `picture-entity` cards each pointed at one of
+the (unavailable) `_substream` entities.
+
+**Root cause:** `hikvision_device.py`'s `DeviceInfo` for NVR-channel cameras sets
+`via_device=(DOMAIN, serial_no)` to group them under the parent NVR device. HA
+Core 2026.9's `entity_platform.py` now hard-crashes (`RuntimeError: ... deprecated
+via_device parameter; use via_device_id instead`) on this instead of just
+warning, for whichever camera the integration's internal enumeration happens to
+reach first each restart (confirmed live: the exact entity that crashes changes
+between restarts) — and the crash aborts the rest of that setup loop, leaving
+every camera not yet processed stuck on its HA-restored last-known state
+(`restored: true` on all 7 unavailable entities, confirmed via `/api/states`) —
+not individually broken, just never reached. Per HA's own deprecation policy
+this shouldn't be a hard crash yet for a custom integration — only core
+integrations are supposed to raise `RuntimeError` here, custom ones should just
+get a warning until Core 2027.8 ([dev blog](
+https://developers.home-assistant.io/blog/2026/08/24/device-registry-follow-up-changes/))
+— but in practice `hikvision_next` (and evidently other custom integrations,
+per the community reports below) hits the hard error now regardless. Independently
+confirmed via 5 open upstream
+issues (all filed within days of each other, no maintainer response yet):
+[#365](https://github.com/maciej-or/hikvision_next/issues/365),
+[#366](https://github.com/maciej-or/hikvision_next/issues/366),
+[#368](https://github.com/maciej-or/hikvision_next/issues/368),
+[#371](https://github.com/maciej-or/hikvision_next/issues/371),
+[#372](https://github.com/maciej-or/hikvision_next/issues/372) — and a
+[community-forum PSA](https://community.home-assistant.io/t/psa-hikvision-next-integration-broken-in-ha-2026-9-fix-available/1023675)
+with the same fix applied here, user-confirmed working, no side effects
+reported.
+
+**Fix (patched live, user-approved after the above was verified):**
+`custom_components/hikvision_next/hikvision_device.py` — commented out the
+`via_device=...` line for NVR-channel `DeviceInfo`. Full HA restart required
+(Python module, not a YAML/config reload). Only loses the cosmetic "grouped
+under NVR" hierarchy in the device registry UI — no functional loss. **Verified
+live**: all 7 cameras + all 7 sub-streams confirmed `idle` post-restart, no more
+`Error adding entity camera.*` in logs, `check_config` clean, all automations
+(including `security_capture_each_camera_motion`) still enabled and untouched.
+
+**⚠️ Maintenance note:** this is a hand-patch of vendored third-party code — it
+will be **silently overwritten** by any future HACS update to `hikvision_next`,
+which would reintroduce this exact crash. Check this comment is still present
+after updating that integration; re-apply if not. Remove the patch (and this
+note) once upstream ships proper `via_device_id` support.
 
 **`tuya`** — **Corrected 2026-07-13** (was previously misattributed to `localtuya`
 throughout this doc and CLAUDE.md — confirmed via `.storage/core.entity_registry`
