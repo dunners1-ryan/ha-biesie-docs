@@ -5,6 +5,35 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-09 — Security: BUG-S79, `security_visibility_poor`/`_low_light`
+      were reading Met.no (`weather.forecast_home`), not OpenWeatherMap as
+      BUG-S43 assumed — boundary lights stuck on through a genuinely sunny
+      afternoon.** User: "Very much not cloudy and hasn't been for awhile this
+      afternoon actually sunny - look at solar output" — asked as a follow-up
+      after the previous day's session explained the BUG-L21/L22 weather-driven
+      lighting behavior without ever questioning whether the *weather data
+      itself* was right.
+      **Root cause:** BUG-S43 (2026-09-04) pointed these two sensors at
+      `weather.forecast_home` believing it was OpenWeatherMap — never actually
+      verified. It's HA's built-in Met.no integration (`attribution`:
+      "delivered by the Norwegian Meteorological Institute"). The real
+      OpenWeatherMap entity, `weather.openweathermap`, was showing `sunny`/0%
+      cloud/21.1°C at the exact moment `forecast_home` said `cloudy`/99.2%
+      cloud — cross-verified against `sensor.inverter_pv_power` (~5kW, not
+      remotely consistent with near-total cloud cover). `security_core.yaml`
+      was the ONLY file using `forecast_home` — `weather_core.yaml`,
+      `power_helpers.yaml`, `geyser_automations.yaml` all already correctly
+      use `weather.openweathermap`. Fixed: both sensors repointed. Deployed
+      live (`check_config`, `template.reload`) — confirmed `security_
+      visibility_poor`/`_weather_low_light`/`_lighting_required`/`_lighting_
+      allowed` all flipped `off` immediately, matching real conditions.
+      Left `main_entrance_light` to clear via `boundary_security_off`'s
+      existing 5-min hysteresis rather than force-clearing it. Also weakens
+      (doesn't invalidate) BUG-S78's rain-correlation hypothesis from two days
+      earlier, which partly leaned on this same wrong entity — noted as a
+      correction there rather than re-investigated. Full writeup:
+      `SECURITY_CONTRACT.md` BUG-S79.
+
 - [x] **2026-09-08/09 — Power: BUG-PWR-FORCECHARGE02 + 03 found and fixed — Force
       Charge's restore path didn't restore the energy pattern, and SOC number
       writes can silently fail to land on hardware then self-correct back to

@@ -2551,6 +2551,56 @@ storm (blocked by the recorder exclusion above) and confirming the fix holds thr
 rain event live (weather was already clearing by the time this was fixed) — flagged for a
 follow-up check next time it rains for an extended period.
 
+**⚠️ Correction 2026-09-09 (BUG-S79):** this entry's rain-correlation evidence
+("`weather.forecast_home` stuck `rainy`") leaned on the same wrong weather entity
+BUG-S79 (below) fixed — `weather.forecast_home` is Met.no, not OpenWeatherMap, and
+has since been shown to disagree with real conditions. Doesn't undo the actual fix
+here (the debounce repointing to `_motion_valid` sensors is correct regardless of
+what caused the storm), but the "rain-correlated" hypothesis is now weaker
+circumstantial evidence than presented — it may have been raining, or `weather.
+forecast_home` may have simply been wrong about that too. Not re-investigated.
+
+---
+
+### BUG-S79 — `security_visibility_poor`/`security_weather_low_light` read `weather.forecast_home`, which is Met.no, not OpenWeatherMap as BUG-S43 assumed — boundary lights stuck on for hours on a genuinely clear/sunny afternoon
+**Priority: MEDIUM | Status: ✅ FIXED 2026-09-09**
+
+**Reported by:** user — "Very much not cloudy and hasn't been for awhile this afternoon
+actually sunny - look at solar output," after the previous day's session (BUG-L21/L22)
+explained boundary-light weather activation without questioning the weather data itself.
+
+**Symptom:** `switch.boundary_street_light`/`main_entrance_light` stayed on through a
+sunny early afternoon. `weather.forecast_home` showed `cloudy`, 99.2% cloud coverage.
+
+**Root cause:** BUG-S43 (2026-09-04) repointed these two sensors at `weather.
+forecast_home`, asserting in its own comment that this was "the live OpenWeatherMap
+entity" — **never actually verified**. Checked live this session: `weather.
+forecast_home`'s `attribution` reads "Weather forecast from met.no, delivered by the
+Norwegian Meteorological Institute" — it's HA's built-in **Met.no** integration (config
+entry "Home"), not OpenWeatherMap. The real OpenWeatherMap entity is `weather.
+openweathermap` (config entry "OpenWeatherMap"), confirmed live showing `sunny`, 0%
+cloud cover, 21.1°C — matching reality and the user's own observation, cross-verified
+against `sensor.inverter_pv_power` reading ~5kW at the same moment (not remotely
+consistent with 99% cloud cover). `security_core.yaml` was the **only** place in the
+entire codebase using `weather.forecast_home` — `weather_core.yaml`, `power_helpers.
+yaml`, and `geyser_automations.yaml` all already correctly use `weather.openweathermap`.
+Met.no is itself a forecast model (not a live observation), which is a poor fit for "is
+it dark right now" decisions even when it's accurate — this instance just happened to
+be visibly wrong too.
+
+**Fix:** both sensors in `security_core.yaml` repointed to `weather.openweathermap`.
+
+**Deployed live:** `check_config` clean, `template.reload` via Supervisor API.
+Confirmed immediately: `security_visibility_poor`/`security_weather_low_light`/
+`security_lighting_required`/`security_lighting_allowed` all flipped to `off` the
+moment the reload landed, matching real conditions. `main_entrance_light` left to
+clear via `boundary_security_off`'s existing 5-min hysteresis rather than force-cleared
+manually.
+
+**Not done:** did not audit whether Met.no's "Home" config entry (`weather.
+forecast_home`) is used or needed anywhere else in the house, or whether it should be
+removed entirely now that nothing references it — out of scope for this session.
+
 ---
 
 ### S18 — Notification severity/sound classification overhaul (2026-07-06)
@@ -2618,12 +2668,18 @@ MISSING: input_datetime.low_trust_end
   Was: referenced cam03_rear_perimeter_motion_valid (never existed) → always off
   Now: references ipcam05_back_boundary_motion_valid — first active rear perimeter sensor
 
-⚠️ STILL OPEN — re-verified live 2026-07-08 (weather.home is genuinely absent from
-core.entity_registry; only weather.forecast_home and weather.openweathermap exist):
+✅ STALE/FIXED — see BUG-S43 (2026-09-04) then BUG-S79 (2026-09-09) below.
+Was: weather.home (genuinely absent from core.entity_registry; only
+weather.forecast_home and weather.openweathermap exist).
 MISSING: weather.home
   Referenced in: packages/security/security_core.yaml:76,82
   Effect: security_visibility_poor / security_weather_low_light always return 
           their false-branch (weather not in list)
+  History: BUG-S43 repointed this at weather.forecast_home, wrongly believing it
+  was the OpenWeatherMap entity (never actually verified — it's HA's built-in
+  Met.no integration). BUG-S79 corrected it again, this time to the real
+  weather.openweathermap, after a genuinely sunny afternoon got stuck reading
+  Met.no's incorrect 99% cloud cover for the same period.
 
 ✅ STALE/FIXED — see Section 6 ISSUE 4 (fixed 2026-04-15, D1):
 MISSING: binary_sensor.security_visibility_poor (in Watchman)
