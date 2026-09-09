@@ -5,57 +5,72 @@
 
 ## ⚠️ OPEN TODO
 
-- [ ] **2026-09-08 — Power: BUG-PWR-FORCECHARGE03 found (not fixed) — SOC number
-      writes to the inverter can silently fail to land on hardware, then
-      self-correct back to the stale value ~3.5 minutes later, poisoning the
-      next snapshot.** User asked to live-test the existing Force Charge
-      feature ("test that it works and remembers to default back to prior
-      settings which battled last time") after confirming the feature already
-      existed end-to-end (dashboard button, target-SOC input, save/override/
-      restore scripts, auto-restore-on-target monitor, restart recovery — all
-      built 2026-06-18/2026-08-09, documented in POWER_CONTRACT.md). Two real
-      force-charge cycles were run live (target = current SOC each time, so
-      restore triggered within seconds — chosen specifically to minimise real
-      grid-import cost/risk during the test). **Found and fixed same session:**
-      BUG-PWR-FORCECHARGE02 — the restore path never captured/restored
-      `select.inverter_1/2_energy_pattern`, leaving both inverters stuck on
-      "Battery First" indefinitely after every force charge; fixed by adding
-      `pattern` to the snapshot JSON + a restore step, live-tested working.
-      **Found, NOT fixed** — BUG-PWR-FORCECHARGE03: `number.inverter_1_program_
-      2_soc` correctly restored to 30 at 13:02:06, then silently reverted to 82
-      (the stale pre-restore value) at 13:05:47 with zero automation/script
-      activity in between (logbook-confirmed) — almost certainly a delayed
-      Solarman poll overwriting an optimistic HA write that never actually took
-      on the physical inverter register. The second test's own snapshot then
-      captured the wrong (82) value as if it were correct, permanently losing
-      the true 30% setting until caught by this session's manual 26-value diff
-      and corrected live. `automation.inverter_sync_check`'s existing 90s
-      settle-then-compare pattern only covers `energy_pattern` + the 6 charging
-      selects, never the 6 SOC numbers — this class of drift had zero existing
-      coverage. Full writeup + confirmed timeline: `POWER_CONTRACT.md` Issue 34.
-      **Live state:** corrected back to 30/30 on both inverters, held across
-      multiple poll cycles as of session end — house is in a known-good state.
-      **Decision needed before implementing a fix** — options, roughly in order
-      of robustness vs. added restore-cycle time:
-      1. **Long settle + verify + retry**: after each restore write, wait long
-         enough (observed drift took 3m41s to manifest — needs at least that,
-         plausibly longer to be confident) before re-reading and comparing to
-         the saved snapshot; retry once on mismatch; alert by name if still
-         wrong. Correctness over speed — adds several minutes to every force
-         charge cycle's restore phase.
-      2. **Verify only, alert, no auto-retry**: same long-wait re-check, but
-         just names the mismatch in a notification for manual correction
-         instead of attempting a retry (a dropped write may just drop again).
-         Faster restore, but the wrong value sits live until you notice.
-      3. **Extend `inverter_sync_check` to also watch the 6 SOC numbers**
-         (currently only watches energy_pattern + charging selects) — gives
-         general-purpose drift detection independent of Force Charge, catching
-         this class of issue however it's caused (not just this script).
-         Complementary to 1/2, not a replacement — worth doing regardless of
-         which restore-side option is chosen.
-      Not implemented pending user direction — flagged rather than guessed at,
-      since it directly affects how much you can trust "restore" during a real
-      low-SOC emergency, which is the whole point of this feature.
+- [x] **2026-09-08/09 — Power: BUG-PWR-FORCECHARGE02 + 03 found and fixed — Force
+      Charge's restore path didn't restore the energy pattern, and SOC number
+      writes can silently fail to land on hardware then self-correct back to
+      the stale value minutes later, poisoning the next snapshot.** User asked
+      to live-test the existing Force Charge feature ("test that it works and
+      remembers to default back to prior settings which battled last time")
+      after confirming the feature already existed end-to-end (dashboard
+      button, target-SOC input, save/override/restore scripts, auto-restore-
+      on-target monitor, restart recovery — all built 2026-06-18/2026-08-09,
+      documented in POWER_CONTRACT.md). Three real force-charge cycles run
+      live across the session (target = current SOC each time, minimising
+      real grid-import cost/risk during testing).
+      **BUG-PWR-FORCECHARGE02 (fixed, live-tested):** the restore path never
+      captured/restored `select.inverter_1/2_energy_pattern`, leaving both
+      inverters stuck on "Battery First" indefinitely after every force
+      charge. Fixed by adding `pattern` to the snapshot JSON + a restore step.
+      **BUG-PWR-FORCECHARGE03 (fixed via multi-stage watchdog):** TWO separate
+      silent-revert incidents caught in one test session — `number.inverter_1_
+      program_2_soc` correctly restored to 30, then reverted to 82 after
+      3m41s with zero automation activity in between; separately,
+      `program_4_soc`/`program_5_soc` on BOTH inverters correctly restored,
+      then reverted ~7-8 minutes later — undetected for 18+ hours (this
+      session's own manual verification diff ran too early to catch it) until
+      caught the next day while validating the fix for incident 1. Both
+      corrected live. Root cause: Solarman `number.set_value` applies
+      optimistically in HA; nothing confirms the physical register actually
+      took it, and a later poll can silently revert the entity to the true
+      (wrong) hardware state — with an inconsistent delay (3m41s vs ~7-8min
+      in the two data points seen). `automation.inverter_sync_check`'s
+      existing 90s settle-then-compare only covered `energy_pattern` + the 6
+      charging selects, never the 6 SOC numbers — zero prior coverage.
+      **Fix (per user direction — "extend inverter_sync as a watchdog that
+      reapplies and checks again... write the changes when reverting not full
+      snapshot"):** new `automation.force_charge_restore_verify` re-checks all
+      13 restored fields at 3 checkpoints spread across
+      `input_number.force_charge_verify_window_minutes` (default 20 min,
+      checkpoints ~4/10/20 min — chosen to straddle both observed delays).
+      Reapplies ONLY the specific field(s) that drifted at each checkpoint
+      (not a full snapshot rewrite), re-checks 15s later, re-syncs INV2 if
+      anything changed; only the FINAL checkpoint alerts (critical, names the
+      exact entity/expected/actual) on persistent failure. Also extended
+      `automation.inverter_sync_check` to compare the 6 SOC numbers between
+      INV1/INV2 (general-purpose coverage, independent of Force Charge —
+      though it alone can't catch this exact failure mode, since INV1/INV2
+      end up matching each other, just both wrong).
+      **Live-tested end-to-end (3rd cycle) after deploying — confirmed working
+      2026-09-09.** Temporarily lowered the verify window to 5 min for a fast
+      test, ran a real force-charge cycle, then — since the real hardware
+      revert is unpredictable and can't be triggered on demand — manually
+      injected a synthetic mismatch (set P3 SOC to 77, true value 60)
+      immediately after restore to exercise the detect/reapply/resync path.
+      Checkpoint 1 fired exactly on schedule (60s after trigger, matching the
+      20% mark), correctly detected the mismatch, reapplied only that field,
+      rechecked 15s later, confirmed corrected, and re-synced INV2 — all via
+      logbook + recorder timestamps. No false alert fired (checkpoint 1 isn't
+      final). `inverter_sync_check`'s extension also correctly triggered on
+      the SOC-number change. Verify window reset to the 20 min production
+      default afterward; final 26-value diff against a fresh clean baseline
+      came back clean.
+      **Not covered:** `inverter_p4_grid_charge_control` and
+      `inverter_energy_pattern_control` write these same registers during
+      normal operation with no verification pass — if they suffer the same
+      silent-write-drop, it's currently undetected; flagged as a candidate
+      follow-up, not fixed this session (scope was Force Charge specifically).
+      Full writeup + confirmed timelines for both incidents:
+      `POWER_CONTRACT.md` Issues 33 and 34.
 
 - [x] **2026-09-08 — Infra: CRITICAL — hikvision_next `via_device` RuntimeError
       found and locally patched; restored all 7 NVR cameras' images/sub-streams

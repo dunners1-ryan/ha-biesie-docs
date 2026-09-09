@@ -2886,29 +2886,37 @@ fallback to current state for any pre-fix snapshot missing the key) before the e
 `check_config` clean) — second run confirmed `energy_pattern` correctly back to "Load First" on
 both inverters within seconds of restore completing.
 
-### Issue 34 — 🔍 FOUND, NOT FIXED 2026-09-08: BUG-PWR-FORCECHARGE03 — SOC number writes can silently fail to land on hardware, then self-correct back to the stale value minutes later, poisoning the next snapshot
+### Issue 34 — ✅ FIXED (multi-stage watchdog) 2026-09-08/09: BUG-PWR-FORCECHARGE03 — SOC number writes can silently fail to land on hardware, then self-correct back to the stale value minutes later, poisoning the next snapshot
 
-**Files:** `packages/power/power_automations.yaml` (`script.force_charge_restore`, and by
-extension anything else that writes `number.inverter_1/2_program_N_soc` — e.g.
-`inverter_p4_grid_charge_control` or `force_charge_batteries` itself).
+**Files:** `packages/power/power_automations.yaml` (`script.force_charge_restore`,
+`automation.force_charge_restore_verify` [new], `automation.inverter_sync_check` [extended],
+and by extension anything else that writes `number.inverter_1/2_program_N_soc` — e.g.
+`inverter_p4_grid_charge_control` or `force_charge_batteries` itself, not directly fixed here).
 **Found by:** the same live test session as Issue 33 above, via a full before/after diff of all
-12 P1–P6 charging+SOC values across both inverters plus `/api/logbook` timeline reconstruction
-(not caught by simpler methods — the drifted entity showed the *correct* restored value for
-3.5 minutes before silently reverting).
+12 P1–P6 charging+SOC values across both inverters plus `/api/logbook` and `/api/history/period`
+timeline reconstruction (not caught by simpler methods — the drifted entities showed the
+*correct* restored value for minutes before silently reverting).
 
-**Confirmed sequence (recorder-verified via `/api/history/period`):**
+**Confirmed sequence, TWO separate incidents in one test session (recorder-verified):**
 1. Test 1 (target = current SOC): `force_charge_restore` correctly wrote
    `number.inverter_1_program_2_soc` back to its true baseline (30) at 13:02:06 SAST. Held
-   correctly for 3m41s.
-2. At 13:05:47 — with **no automation, script, or user action running** (confirmed via
-   logbook: the only event in that window was this session's own `script.reload`, which does
-   not write entity values) — `number.inverter_1_program_2_soc` silently reverted to **82**
-   (the stale value from the *original* test-1 override, before it was ever restored).
-3. Test 2 started 13:05:57, ran normally, and its own snapshot step captured **82** as if it
-   were the true baseline — because that's what the entity was reading at that instant. The
-   real value (30) was gone from the snapshot chain entirely. Test 2's restore then wrote the
-   entity back to 82 "correctly" (matching its own, now-corrupted, snapshot) — a fully
-   self-consistent, silently wrong result.
+   correctly for 3m41s, then at 13:05:47 — with **no automation, script, or user action
+   running** (confirmed via logbook: the only event in that window was this session's own
+   `script.reload`, which does not write entity values) — silently reverted to **82** (the
+   stale value from the *original* test-1 override, before it was ever restored). Test 2's own
+   snapshot then captured 82 as if it were the true baseline, permanently losing the real value
+   until this session's manual diff caught and corrected it.
+2. **A second, independent instance in the same session, initially missed:** Test 2's restore
+   correctly wrote `number.inverter_1/2_program_4_soc` back to 100 and `_program_5_soc` back to
+   60 on **both inverters** at 13:07:2x–13:07:49. This session's manual verification diff ran at
+   ~13:10 and reported these as correct (only P2 was flagged). But at 13:14:12–13:15:32 —
+   **7–8 minutes after the correct restore, ~4 minutes after the verification diff itself** —
+   all four entities (P4+P5, both inverters) silently reverted to **83** (the target value from
+   the override, before restore). This went completely undetected — no automation covered SOC
+   numbers at all (see below) — until the next day (2026-09-09) while live-testing the fix for
+   incident 1 above, discovered via a fresh baseline capture and `/api/history/period` lookback.
+   **P4/P5 were live at the wrong SOC target for 18+ hours** before being caught. Corrected live
+   2026-09-09.
 
 **Root cause (assessed, not proven at the register level):** the Solarman `number` write
 (`number.set_value`) applies optimistically to the HA entity state on command; nothing in this
@@ -2917,29 +2925,67 @@ subsequent Solarman poll of that register then overwrites HA's optimistic value 
 the hardware actually holds — visibly, minutes after the "successful" write. Consistent with
 (though not proof of) the same underlying "Sunsynk drops rapid register writes" quirk already
 documented for `force_charge_restore`'s 2s inter-write spacing — just manifesting as a
-*delayed* correction rather than an immediate rejection.
+*delayed* correction rather than an immediate rejection. **The delay is not a fixed constant** —
+3m41s for incident 1, ~7–8 minutes for incident 2, both within the same test session — which is
+why the fix below checks repeatedly across a window rather than once after a fixed wait.
 
 **Why existing safeguards didn't catch it:** `automation.inverter_sync_check`
-(`input_boolean.inverter_sync_status`) already waits 90s after a change before comparing
+(`input_boolean.inverter_sync_status`) already waited 90s after a change before comparing
 INV1 vs INV2 — itself evidence the system's original design already knew these writes are not
-instantaneous — but it only compares `energy_pattern` and the 6 **charging selects**, never the
-6 **SOC numbers**. This exact class of drift has had zero coverage from any existing
-automation, on any package, until this session's manual diff caught it. It plausibly affects
-`inverter_p4_grid_charge_control`'s and `inverter_energy_pattern_control`'s own SOC writes too,
-not just Force Charge — not confirmed, but nothing distinguishes Force Charge's write path from
-theirs.
+instantaneous — but it only compared `energy_pattern` and the 6 **charging selects**, never the
+6 **SOC numbers** (now fixed, see below). This exact class of drift had zero coverage from any
+existing automation, on any package, until this session's manual diffs caught it — and even a
+manual diff isn't reliable against it, since incident 2 above shows a diff taken minutes too
+early gives a false "all clear". It plausibly affects `inverter_p4_grid_charge_control`'s and
+`inverter_energy_pattern_control`'s own SOC writes too, not just Force Charge — not confirmed,
+but nothing distinguishes Force Charge's write path from theirs, and neither automation's own
+writes get any verification pass from this fix (out of scope — see "Not covered" below).
 
-**Live impact / correction:** `number.inverter_1/2_program_2_soc` were left at 82 (should be
-30) after this session's second test. Manually corrected back to 30 on both inverters
-2026-09-08 13:13 SAST via direct `number.set_value` and confirmed holding across multiple
-poll cycles before this doc was written. No other P1–P6 fields were affected (full 26-value
-diff against the pre-test baseline came back clean apart from this one).
+**Live impact / correction:** `number.inverter_1/2_program_2_soc` corrected to 30 on
+2026-09-08 13:13 SAST; `number.inverter_1/2_program_4_soc` corrected to 100 and
+`number.inverter_1/2_program_5_soc` corrected to 60 on 2026-09-09 07:23 SAST, both confirmed
+holding across multiple subsequent checks. No other P1–P6 fields were affected in either
+incident.
 
-**Not fixed — needs a design decision before implementing** (see PROJECT_STATE.md open TODO):
-a 2s-later re-check (the spacing already used elsewhere in this script) would NOT have caught
-this — the false "success" held for 3m41s before reverting. Any real fix has to wait roughly
-that long before trusting a write, which meaningfully lengthens every restore cycle. Options
-outlined in PROJECT_STATE.md; not implemented pending user direction.
+**Fix (deployed 2026-09-08/09, per user direction):** new `automation.force_charge_restore_verify`
+triggers when `force_charge_restore` finishes and re-checks all 13 restored INV1 fields at 3
+checkpoints spread across `input_number.force_charge_verify_window_minutes` (default 20 min →
+checkpoints at ~4/10/20 min, chosen to safely straddle both the 3m41s and ~7-8min delays actually
+observed). At each checkpoint, any field that drifted from the saved snapshot gets **only that
+specific field reapplied** (not a full snapshot rewrite — per user direction: "found in past
+writing smaller changes to inverter_1 as opposed to full program works better"), waits 15s,
+re-checks, and re-syncs INV2 if anything changed. Only the **final** checkpoint sends a critical
+alert (naming the exact entity/expected/actual) if a reapplied value still won't hold — earlier
+checkpoints silently self-heal so a transient drift caught early doesn't page anyone.
+Separately, `automation.inverter_sync_check` now also compares the 6 SOC numbers between INV1
+and INV2 (previously only charging selects + pattern), for general-purpose INV1↔INV2 drift
+coverage independent of Force Charge — though note this alone still can't catch this specific
+failure mode, since INV1 and INV2 end up matching each other, just both wrong; only
+`force_charge_restore_verify`'s comparison against the saved snapshot catches that.
+Config-validated (`check_config` clean) and reloaded live both times (`input_number.reload`,
+`automation.reload`) — no restart required.
+
+**Live-tested end-to-end 2026-09-09.** A real silent-hardware-revert can't be triggered on
+demand, so after running a genuine 3rd force-charge cycle (verify window temporarily lowered to
+5 min for a fast test), a synthetic mismatch was injected manually right after restore
+(`number.inverter_1_program_3_soc` set to 77, true value 60) to exercise the watchdog's
+detect/reapply/resync path under controlled conditions. Confirmed via recorder + logbook
+timestamps: checkpoint 1 fired exactly on schedule (60s after trigger — the 20% mark), detected
+the mismatch, reapplied only that one field, rechecked 15s later, confirmed corrected, and
+re-synced INV2 (INV2's P3 SOC updated within 2s of the sync call). No false alert fired
+(checkpoint 1 isn't the final checkpoint). `inverter_sync_check`'s SOC-number extension also
+correctly triggered off the same change. Verify window reset to the 20 min production default
+afterward; a final full 26-value diff against a clean baseline came back exactly matching. The
+final-checkpoint alert branch was not live-fired (would require a persistent failure that
+survives a reapply, which isn't safely reproducible on demand without repeatedly fighting a live
+register write) — verified by code review only, using the same comparison logic already proven
+correct in the reapply path above, just gated by `is_final`.
+
+**Not covered by this fix (acknowledged scope limit):** `inverter_p4_grid_charge_control` and
+`inverter_energy_pattern_control` write these same registers during their own normal operation
+and get no verification pass at all — if they suffer the same silent-write-drop, it's currently
+undetected. Extending verification to their writes too, if this pattern recurs, is a candidate
+follow-up but wasn't part of this session's scope.
 
 ---
 
