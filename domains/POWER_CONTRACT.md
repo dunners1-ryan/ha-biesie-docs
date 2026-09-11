@@ -165,7 +165,7 @@ Full ROI/payback analysis for both line items: `private_docs/POWER_SYSTEM_AUDIT_
 | `power_state.yaml` | house_power_health, power_state, inverter health, freq/temp | State |
 | `power_statistics.yaml` | Rolling average sensors + solar forecast accuracy + 4-state weather correlation + season factor (P6 2026-06-14) | Derived |
 | `power_strategy.yaml` | power_strategy, power_strategy_status, severity | Decision |
-| `power_automations.yaml` | Power domain automations — migrated from automations.yaml | Automation |
+| `power_automations.yaml` | Power domain automations — migrated from automations.yaml; includes `pool_pump_solar_control` + `automation.pool_manual_run`/`script.pool_manual_run` (added 2026-09-11, mirrors geyser's manual run) | Automation |
 | `geyser_automations.yaml` | Geyser heat pump scheduling — 4 automations + script.geyser_manual_run (E2 2026-06-14; E4 retrofit: orchestrator gate, midday solar-gated, at-temp proxy, window helpers, emergency off) | Automation |
 | `power_contract.yaml` | Documentation notes only — no executable YAML | Docs |
 | `battery_runtime.yaml` | Program-aware battery runtime, severity, confidence | Derived |
@@ -999,10 +999,14 @@ Switch entity: `switch.pool_pump_switch` (renamed from `switch.pool_pump_switch_
 ```
 input_number.pool_minimum_run_minutes       min  min run time before turn-off allowed (default: 45)
 input_number.pool_pre_shed_battery_threshold %   SOC threshold for pre-shed gate (default: 80)
-input_number.pool_target_hours_summer       h    daily run target in summer (default: 4)
-input_number.pool_target_hours_winter       h    daily run target in spring/autumn/winter (default: 1.5)
+input_number.pool_target_hours_summer       h    daily run target — summer bucket (default: 4)
+input_number.pool_target_hours_winter       h    daily run target — winter bucket (default: 1.5)
 input_datetime.pool_pump_last_on                 time-only — set by automation on pump start
+input_boolean.pool_manual_run_active             ON while manual run in progress
+input_select.pool_manual_run_duration            "30"/"60"/"90"/"120" minutes for manual run
 ```
+(`pool_target_hours_winter` now also covers spring until it ages past
+`season_spring_grace_days` — see Season Bucket note below.)
 
 **Runtime sensors:**
 ```
@@ -1013,7 +1017,7 @@ sensor.pool_pump_run_hours_today          h (float)  UI Helper — History Stats
                                                        Entity: switch.pool_pump_switch, State: on,
                                                        Type: Time, Start: midnight today, End: now
 sensor.pool_pump_continuous_run_minutes   min         elapsed time since last pump start
-sensor.pool_target_run_hours_today        h           season-aware target (summer vs other)
+sensor.pool_target_run_hours_today        h           bucket-aware target (summer vs winter bucket)
 sensor.pool_pump_control_status           string      human-readable reason why pump is/isn't running
 ```
 
@@ -1028,9 +1032,33 @@ input_number.last_sun_soc_target_winter      %   overnight charge target winter 
 input_number.last_sun_slot_start_hour        h   hour when last-sun-slot starts (default: 14.0)
 input_number.geyser_target_hours_summer      h   geyser daily solar target summer (default: 2.0)
 input_number.geyser_target_hours_winter      h   geyser daily solar target winter (default: 3.5)
-sensor.last_sun_soc_target                   %   season-aware (80% summer / 90% other)
-sensor.geyser_target_run_hours_today         h   season-aware geyser target
+sensor.last_sun_soc_target                   %   bucket-aware (80% summer bucket / 90% winter bucket)
+sensor.geyser_target_run_hours_today         h   bucket-aware geyser target
 ```
+
+**Season Bucket — spring grace period (added 2026-09-11):** `pool_target_run_hours_today`,
+`last_sun_soc_target`, and `geyser_target_run_hours_today` above don't read `sensor.season`
+directly any more — they read `sensor.season_bucket` (power_state.yaml), a binary
+summer/winter rollup added because all three were splitting strictly on
+`sensor.season == 'summer'`, which lumped spring AND autumn into the lower/"winter"
+bucket. JHB spring (Sep–Nov) warms up fast, so spring now joins the summer bucket —
+but only after a grace period at the start of spring (the first couple of weeks can
+still be cool), since going straight to summer targets on day 1 of spring would be too
+aggressive. Autumn is unchanged (stays in the winter bucket); only spring's
+classification moved.
+```
+input_number.season_spring_grace_days   d   days into spring before it joins the
+                                             summer bucket (default: 15 = 0.5 month)
+sensor.season_bucket                    —   "summer" or "winter" — summer when
+                                             sensor.season == summer, OR season ==
+                                             spring and days-in-state >= grace period;
+                                             winter otherwise (includes autumn, winter,
+                                             and spring still inside its grace window)
+```
+Cross-domain note: `sensor.last_sun_soc_target` is also read by `water_templates.yaml`
+(borehole last-sun-slot gating) — entity id and output range (a plain SOC %) are
+unchanged, only its seasonal computation moved behind `season_bucket`, so no
+WATER_CONTRACT.md update was needed.
 
 **Control logic summary (updated E3 2026-06-14 — orchestrator as primary gate):**
 
@@ -1040,7 +1068,7 @@ sensor.geyser_target_run_hours_today         h   season-aware geyser target
 - **Turn on (Branch 5)**: `energy_orchestrator_state in ['surplus', 'normal']` + headroom > 1200W + daily target not reached + local gates below. Replaces raw battery_state_health / load_shedding_stage / upcoming-shed SOC checks.
 - **Turn on local gates (preserved — not covered by orchestrator)**:
   - Grid-offline SOC floor: `grid_offline_soc_min_pool` (60%) — blocks when grid down and SOC too low
-  - Last-sun-slot: blocks from `last_sun_slot_start_hour` (14:00) when SOC < `last_sun_soc_target` (80%/90% by season)
+  - Last-sun-slot: blocks from `last_sun_slot_start_hour` (14:00) when SOC < `last_sun_soc_target` (80%/90% by season bucket)
   - Winter morning hold: `pool_winter_start_hour` (10:00) — no pool before 10:00 in winter
 - **Turn off (16:00 hard stop — Branch 0)**: unconditional — no minimum run time guard.
 - **Turn off (Branch 2a — grid offline + low SOC)**: immediately shuts off if grid is offline AND SOC < `grid_offline_soc_min_pool` (60%). Bypasses minimum run time.
@@ -1049,7 +1077,8 @@ sensor.geyser_target_run_hours_today         h   season-aware geyser target
 - **Turn off (Branch 3 — conserve / solar dropped)**: `energy_orchestrator_state == conserve` OR `solar_available_surplus < 800W` (hysteresis floor). Enforces minimum run time. Replaces raw battery_state_health low/critical + headroom checks.
 - **Turn off (target met — Branch 4)**: daily run hours >= season target — enforces minimum run time.
 - Minimum run time guards prevent short cycles (pump must run `pool_minimum_run_minutes` before most turn-offs). Does NOT apply to 16:00 hard stop, grid-offline, last-sun, or loadshedding_critical branches.
-- Season logic: `sensor.season == 'summer'` → summer target; all other seasons → winter target.
+- Season logic: `sensor.season_bucket == 'summer'` → summer target; otherwise → winter target (see Season Bucket note above — spring joins summer after a grace period).
+- **Manual run (added 2026-09-11 — mirrors geyser's manual run):** `script.pool_manual_run` (dashboard button "Run Pool Now", `appliance-control` view) sets `input_boolean.pool_manual_run_active` on, which triggers `automation.pool_manual_run` (power_automations.yaml). Turns the pump on immediately via `switch.turn_on`, waits up to `input_select.pool_manual_run_duration` (30/60/90/120 min) for the switch to go off on its own, then force-turns it off and clears the active flag. Runs independently of `load_control_pool_enabled` and every gate above — an explicit "run it anyway" request. Branch 5 (turn-on) additionally checks `pool_manual_run_active == off` so the scheduled solar logic doesn't fight a run already in progress, but none of `pool_pump_solar_control`'s turn-off branches (grid-offline protection, `loadshedding_critical`, daily target reached, etc.) are bypassed — if one of them turns the pump off early, `pool_manual_run`'s own wait just sees the switch go off and completes gracefully instead of timing out. Same pattern as `automation.geyser_manual_run` below, except pool has no verified-turn-on/off wrapper (uses plain `switch.turn_on`/`switch.turn_off` with `continue_on_error: true`, matching this automation's existing convention — see BUG-INFRA-TUYA01 in the bug catalog below).
 - `sensor.pool_pump_control_status` updated E3: reads orchestrator state as primary reason string (priority 1→11 ordered display).
 - `sensor.solar_available_surplus` (power_state.yaml) is the canonical solar headroom sensor — Watts (pv_power − load_power). Note: `sensor.solar_surplus_available` (solar_core.yaml) is a boolean string True/False — NOT a Watts value. Use `solar_available_surplus` in all appliance automations.
 - All notifications via `script.notify_power_event` (severity: information/warning, subsystem: energy).
@@ -3157,7 +3186,9 @@ input_number.grid_offline_soc_min_geyser        %   non-critical window min (def
 input_number.geyser_grid_offline_critical_soc   %   critical window min (default: 35)
 input_number.geyser_target_hours_summer         h   daily solar target summer (default: 2.0)
 input_number.geyser_target_hours_winter         h   daily solar target winter (default: 3.5)
-sensor.geyser_target_run_hours_today            h   season-aware target
+sensor.geyser_target_run_hours_today            h   bucket-aware target (sensor.season_bucket,
+                                                     added 2026-09-11 — see Pool Pump Control
+                                                     section's Season Bucket note in Section 8)
 ```
 
 **UI helper needed (before implementing):**

@@ -5,6 +5,52 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-11 — Power: Pool pump manual run (mirrors geyser's) + spring/summer
+      "season bucket" for pool + geyser targets.** User asked for a dashboard button
+      to run the pool pump for a chosen duration, "like we did with geyser" — found
+      geyser's existing pattern (`input_select.geyser_manual_run_duration` +
+      `input_boolean.geyser_manual_run_active` + `script.geyser_manual_run` +
+      `automation.geyser_manual_run`) and mirrored it for pool: new
+      `input_boolean.pool_manual_run_active`, `input_select.pool_manual_run_duration`
+      (30/60/90/120 min — pool runs longer than geyser's 30/60, per user choice),
+      `script.pool_manual_run`, and `automation.pool_manual_run` (power_automations.yaml).
+      Uses plain `switch.turn_on`/`switch.turn_off` with `continue_on_error: true`
+      (pool's existing convention, no verified-wrapper like geyser's) — turns the pump
+      on, waits up to the selected duration for the switch to go off on its own, then
+      force-turns it off. Runs independently of `load_control_pool_enabled` and
+      `pool_pump_solar_control`'s solar/orchestrator gates (an explicit "run it anyway"
+      request), but does NOT bypass that automation's own safety/target turn-off
+      branches (grid-offline protection, `loadshedding_critical`, daily target reached)
+      — same non-bypass design as geyser's hard-off windows vs its manual run. Branch 5
+      (pool's turn-on branch) gained a `pool_manual_run_active == off` condition so the
+      scheduled solar logic stays out of the way of an in-progress manual run, matching
+      geyser's turn-on branches. Dashboard: `appliance-control` view (`dashboard-
+      operations`, `.storage/lovelace.dashboard_operations`, git-ignored) — added a
+      "Manual Run" status markdown card to the Pool vertical-stack, the duration
+      selector to "Pool Controls", and a "Run Pool Now" button after it, mirroring the
+      Geyser section's existing layout exactly.
+      **Season bucket (same session, follow-up user request):** user noted pool +
+      geyser's season-based "toggles" could treat spring like summer, with a half-month
+      grace period at the start of spring. Found 3 sensors that split strictly on
+      `sensor.season == 'summer'` (lumping spring AND autumn into the lower "winter"
+      bucket): `sensor.pool_target_run_hours_today`, `sensor.last_sun_soc_target`
+      (also cross-domain — read by `water_templates.yaml` for borehole gating; entity id
+      and output range unchanged so no WATER_CONTRACT.md update needed), and
+      `sensor.geyser_target_run_hours_today`. (Geyser's own window-timing toggles all
+      split on `is_winter` = `season == 'winter'`, so spring/summer/autumn were already
+      identical there — no change needed for those.) Added new
+      `sensor.season_bucket` (power_state.yaml) — "summer" or "winter"; summer when
+      `sensor.season == 'summer'`, OR season is spring and days-in-state (via
+      `states.sensor.season.last_changed`) >= `input_number.season_spring_grace_days`
+      (new helper, default 15 = 0.5 month); winter otherwise. Repointed all 3 sensors
+      from `sensor.season` to `sensor.season_bucket`. Full detail: POWER_CONTRACT.md
+      Pool Pump Control section (Season Bucket note) + Manual Run bullet.
+      Files: `packages/power/power_helpers.yaml`, `packages/power/power_state.yaml`,
+      `packages/power/power_automations.yaml`, `.storage/lovelace.dashboard_operations`
+      (dashboard, git-ignored). Not yet live-verified (YAML + dashboard JSON syntax
+      validated only) — needs a HA reload/check + a real manual-run + season-bucket
+      check before this can be marked fully verified.
+
 - [x] **2026-09-09 — Security: BUG-S79, `security_visibility_poor`/`_low_light`
       were reading Met.no (`weather.forecast_home`), not OpenWeatherMap as
       BUG-S43 assumed — boundary lights stuck on through a genuinely sunny
@@ -5005,7 +5051,28 @@ input_number.geyser_grid_offline_critical_soc  %  20   critical window SOC floor
 sensor.geyser_control_status         ← 13-state priority display (power_state.yaml)
 binary_sensor.geyser_at_temperature  ← ON when power < 50W sustained 5 min while switch on
 sensor.geyser_daily_status           ← reached_temp/heating/low_energy/no_run (added 2026-06-17)
-sensor.geyser_target_run_hours_today ← season-aware daily target (2.0h summer / 3.5h winter)
+sensor.geyser_target_run_hours_today ← bucket-aware daily target (2.0h summer bucket / 3.5h
+                                        winter bucket — sensor.season_bucket, added 2026-09-11,
+                                        see Pool + Geyser Manual Run / Season Bucket below)
+```
+
+### Pool Manual Run + Season Bucket (power_helpers.yaml + power_state.yaml + power_automations.yaml — added 2026-09-11)
+```
+# Pool manual run — mirrors Geyser Entities' manual-run pair above
+input_boolean.pool_manual_run_active     ← ON while manual run in progress
+input_select.pool_manual_run_duration    ← "30"/"60"/"90"/"120" minutes for manual run
+script.pool_manual_run                   ← dashboard entry point ("Run Pool Now" button,
+                                            appliance-control view)
+automation.pool_manual_run               ← timed run via script.pool_manual_run; does not
+                                            bypass pool_pump_solar_control's safety/target
+                                            turn-off branches (see POWER_CONTRACT.md)
+
+# Season bucket — binary summer/winter rollup consumed by pool_target_run_hours_today,
+# geyser_target_run_hours_today, and last_sun_soc_target (spring joins the summer bucket
+# after a grace period; autumn unchanged, stays in the winter bucket)
+input_number.season_spring_grace_days    d   days into spring before it joins the summer
+                                              bucket (default: 15 = 0.5 month)
+sensor.season_bucket                     —   "summer" or "winter"
 ```
 
 ### Tuya Cloud Health Entities (core/tuya_health.yaml — added 2026-08-04, BUG-INFRA-TUYA01)
