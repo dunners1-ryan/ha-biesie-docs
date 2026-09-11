@@ -357,6 +357,77 @@ see ALERTS_CONTRACT.md BUG-A19 for the full per-domain rollout (Power, Water ×3
 Presence, plus the `notify_system_event`/`notify_security_event` callers: Temperature ×4,
 Device Power, Media, Network ×4, Security, Batteries, Garden).
 
+### All 6 scripts — Alert Click-Through (`click_url` → `clickAction`, added 2026-09-11)
+
+**Problem:** no mobile push in this repo carried a `clickAction` — tapping any HA
+notification (security, power, water, lighting, presence, or any `notify_system_event`
+caller) just opened the app to whatever screen it last had open, never the relevant
+control page. User request: security-camera alerts should open Security, power alerts
+should open Power Control, etc.
+
+**Fields added to all 6 `notify_*_event` scripts** (`security`, `power`, `water`,
+`lighting`, `presence`, `system`):
+- `click_url` (string, optional) — full URL. When omitted, resolves to a per-script
+  default via `link: "{{ click_url | default('<default>') }}"` in the top `variables:`
+  block.
+- `clickAction: "{{ link }}"` is now the first key in the nested `data:` block of
+  **every** `notify.mobile_app_*` call (all severities that use the legacy per-device
+  pattern — i.e. everywhere `actions`/`push`/`channel` already lived). The `information`
+  branches that still use `notify.send_message` are untouched — that service structurally
+  rejects any extra `data` key (same class of bug as BUG-N13/N14), so those pushes have
+  no click-through and fall back to opening the app normally.
+- `clickAction` is an Apple/Android Companion App key, not an HA one — both platforms
+  read it from `data.data.clickAction` on a legacy `notify.mobile_app_*` call. Telegram
+  is unaffected (no Telegram-side change this session).
+
+**Per-script default `click_url`** (all built on `external_url` —
+`https://ha.dunners.tech`, same domain the existing security-image attachment URLs
+already use, specifically because it must resolve both on home Wi-Fi and off it; see
+`notify_security_events.yaml` `img:` variable):
+
+| Script | Default click-through |
+|---|---|
+| `notify_security_event` | `/dashboard-operations/security-control` |
+| `notify_power_event` | `/dashboard-operations/power-control` |
+| `notify_water_event` | `/dashboard-operations/water-control` |
+| `notify_lighting_event` | `/dashboard-operations/light-control` |
+| `notify_presence_event` | `/dashboard-operations/presence-control` |
+| `notify_system_event` | `/dashboard-system/alerts` (fallback — see below) |
+
+**`notify_system_event` is shared by 7+ unrelated domains** (garden, media, network,
+dash-tablet batteries, device-battery fleet, device power, temperature, system health) —
+one static default can't be right for all of them, so callers pass their own
+`click_url` where a better page exists. Wired this session:
+
+| Caller | `click_url` passed |
+|---|---|
+| `alerts_media.yaml` (both calls) | Media Control (`/dashboard-operations/media-control`) |
+| `alerts_network.yaml` (all 8 calls — Device Down/WAN Down/WAN Degraded/Device Restart ×2 severities) | Network Control (`/dashboard-operations/network-control`) |
+| `alerts_temperature.yaml` — WAN/LAN Temp (4 calls) | Network Control (same router/gateway hardware) |
+| `alerts_temperature.yaml` — Device/Storage Temp (4 calls) | Media Control — `device_temp`/`storage_temp` groups are the `guardians` media server + its drives, not HA/Pi hardware |
+| `alerts_batteries.yaml` (dash tablets, both calls) | Batteries (`/dashboard-operations/battery-monitor`) |
+| `alerts_device_batteries.yaml` (fleet, both calls) | Batteries (same view, different device set — see the file's own header) |
+| `alerts_device_power.yaml` (both calls) | HA System (`/dashboard-system/ha-system`) — currently only monitors `binary_sensor.rpi_power_status` |
+| `alerts_system_health.yaml` (both calls) | HA System (`/dashboard-system/ha-system`) |
+| `alerts_garden.yaml` (all 3 calls) | *not overridden* — no dedicated Garden dashboard view exists; falls back to the Alerts page. Revisit if/when one is added. |
+| `camera_health` (via `notify_security_event` directly, not `notify_system_event`) | already correct — Security Control |
+
+**HA public/internal dashboard access — checked, no mismatch found:** all dashboards
+in `lovelace_dashboards` (`dashboard_overview`, `dashboard_operations`, `dashboard_system`,
+`operations_debug`, `map`) have `require_admin: false` and no per-view `visible:`
+restriction, so every non-admin household user (Vicky, Luke, Tayla — `system-users` group
+in `core.auth`) can open every click-through target, including the `system`/`alerts`
+fallback and `ha-system`. `trusted_networks` auth bypass is present in `configuration.yaml`
+but commented out (inactive) — both `external_url` (`https://ha.dunners.tech`, used here)
+and `internal_url` (`http://ha.dunners.tech:8123`) still require a normal HA login either
+way, so there's no "public vs. internal" exposure gap to correct.
+
+Deployed live via `script.reload` + `automation.reload` (WebSocket `lovelace/config/save`
+not needed here — no dashboard files touched by this change) — `ha core check` clean,
+both reloads returned `200 []`. Not yet exercised with a real push (would notify Ryan's/
+Vicky's phones) — send one real warning/critical alert per domain and confirm the tap
+opens the intended view before considering this fully verified.
+
 ---
 
 ## 6. DIRECT NOTIFY BYPASS VIOLATIONS

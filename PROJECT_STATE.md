@@ -5,6 +5,78 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-11 — Notifications/Alerts: mobile-push click-through (`clickAction`)
+      added to all 6 `notify_*_event` scripts + 7 broken dashboard nav links found
+      and fixed.** User: "want all alerts to link to correct pages when clicked eg
+      security camera alerts to security control and power to power_control" +
+      "read through the dashboards and make sure have right links - compare to HA
+      settings for public vs internal."
+      **Click-through:** no push in the repo carried a `clickAction` before this —
+      tapping any alert just opened the app, never the relevant page. Added a
+      `click_url` field (variable `link`, defaulting per-domain) to
+      `notify_security_event`/`notify_power_event`/`notify_water_event`/
+      `notify_lighting_event`/`notify_presence_event`/`notify_system_event`, and
+      `clickAction: "{{ link }}"` into the nested `data:` block of every
+      `notify.mobile_app_*` call on warning/critical (and security/system's info
+      branch, which also uses the legacy per-device pattern) — the `information`
+      branches on `notify.send_message` can't carry it (same class of bug as
+      BUG-N13/N14) and are unaffected. `notify_system_event` is shared by 7+
+      domains with no dashboard view of their own, so its callers
+      (`alerts_media.yaml`, `alerts_network.yaml`, `alerts_temperature.yaml`,
+      `alerts_batteries.yaml`, `alerts_device_batteries.yaml`,
+      `alerts_device_power.yaml`, `alerts_system_health.yaml`) now pass their own
+      `click_url` override; `alerts_garden.yaml` has no dedicated view yet and
+      falls back to the Alerts page. Bonus fix while in the files: a real
+      pre-existing bug in `notify_presence_events.yaml`'s iPhone warning branch —
+      `actions:` (mobile action buttons) was nested inside `push:` instead of a
+      sibling, silently disabling any action button on that specific
+      branch/device. Full field/default table + per-domain rationale:
+      NOTIFICATIONS_CONTRACT.md "Alert Click-Through"; ALERTS_CONTRACT.md BUG-A24.
+      **Dashboard link audit (found while wiring click-through):** built a full
+      inventory of every `navigation_path` across all 4 dashboards
+      (`dashboard-overview`, `dashboard-operations`, `dashboard-system`,
+      `operations-debug`) against each dashboard's actual view list from
+      `lovelace_dashboards`/live config, and found 7 distinct broken paths (9
+      occurrences) — leftovers from the debug views being split into their own
+      `operations-debug` dashboard and an old `dashboard-home` id that no longer
+      exists: "Network Debug"/"Presence Debug"/"Power History" buttons and two
+      "Water Debug" cards pointed at `/dashboard-operations/...-debug`
+      (nonexistent — real path is `/operations-debug/...`), two water template
+      cards pointed at `/dashboard-home/water-control` (dashboard doesn't exist),
+      one at `/dashboard-home/water-debug`, and `operations-debug`'s own
+      Presence heading pointed at `/dashboard-default_view/presence-debug`
+      (also nonexistent). Fixed live via the `lovelace/config/save` WebSocket
+      path (CODING_STANDARDS.md — throwaway venv + `websockets`, using
+      `SUPERVISOR_TOKEN`), not a raw `.storage` edit — no restart needed;
+      pre-save diffed live config against `.storage` (clean), pre-save re-read
+      right before each save (unchanged), and re-verified both live config and
+      `.storage` post-save. Full before/after audit table in ALERTS_CONTRACT.md
+      BUG-A24.
+      **HA public vs internal settings — checked, no mismatch:** all 6 dashboards
+      in `lovelace_dashboards` have `require_admin: false` and no per-view
+      `visible:` restriction (`core.auth` confirms Vicky/Luke/Tayla are
+      `system-users`, not admins) — every click-through target, including the
+      `system`/`alerts` fallback, is reachable by every household user.
+      `trusted_networks` auth bypass exists in `configuration.yaml` but is
+      commented out (inactive); `external_url` (`https://ha.dunners.tech`, used
+      for all click-through links, matching the existing security-image
+      convention) and `internal_url` both still require a normal HA login —
+      no public-exposure gap found.
+      Files: `packages/notifications/notify_security_events.yaml`,
+      `notify_power_event.yaml`, `notify_water_events.yaml`,
+      `notify_light_events.yaml`, `notify_presence_events.yaml`,
+      `notify_system_event.yaml`; `packages/alerts/alerts_media.yaml`,
+      `alerts_network.yaml`, `alerts_temperature.yaml`, `alerts_batteries.yaml`,
+      `alerts_device_batteries.yaml`, `alerts_device_power.yaml`,
+      `alerts_system_health.yaml`; `.storage/lovelace.dashboard_overview` +
+      `lovelace.dashboard_operations` + `lovelace.operations_debug` (dashboards,
+      git-ignored). Deployed live: `ha core check` clean, `script.reload` +
+      `automation.reload` both returned `200 []`, dashboard saves verified
+      against live config + disk. **Not yet exercised with a real push** (would
+      notify Ryan's/Vicky's phones) — send one real warning/critical alert per
+      domain and confirm the tap opens the intended view before marking fully
+      verified.
+
 - [x] **2026-09-11 — Power: Pool pump manual run (mirrors geyser's) + spring/summer
       "season bucket" for pool + geyser targets.** User asked for a dashboard button
       to run the pool pump for a chosen duration, "like we did with geyser" — found
