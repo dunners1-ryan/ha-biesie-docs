@@ -7,6 +7,16 @@
 #
 # Scope: All 16 packages/alerts/*.yaml files
 #        Plus cross-domain aggregation in alerts_summary.yaml
+# Last updated: 2026-09-11 — BUG-A24: alert click-through (`clickAction`) added to all
+# 6 notify_*_event scripts, with click_url overrides wired into alerts_media.yaml,
+# alerts_network.yaml, alerts_temperature.yaml, alerts_batteries.yaml,
+# alerts_device_batteries.yaml, alerts_device_power.yaml, alerts_system_health.yaml so
+# each domain opens its own dashboard view on tap (garden has no dedicated view yet,
+# falls back to the Alerts page). Also found + fixed 7 broken dashboard
+# navigation_path values (9 occurrences) across the Home/Operations/Debug dashboards
+# while auditing this, and checked HA's admin/public dashboard settings (no mismatch —
+# every dashboard is require_admin: false). See NOTIFICATIONS_CONTRACT.md "Alert
+# Click-Through" for the full field/default/override table.
 # Last updated: 2026-09-02 — New per-door mute: `input_boolean.laundry_door_alert_notify`
 # (alerts_doors.yaml), same pattern as `input_boolean.camera_alert_notify` (manual
 # dashboard toggle gating an alert without touching the domain-wide
@@ -173,21 +183,21 @@ fully correct. All domains route through the central notification script.
 | `alerts_helper.yaml` | 154 | ✅ Active | `active_alert_entities` sensor |
 | `alerts_summary.yaml` | 772 | ✅ Active | `alert_device_entities`, `global_alert_context`, all count sensors |
 | `alerts_doors.yaml` | 1408 | ✅ Active | Door/gate tiered severity, `alert.door_alert`, `automation.house_secured_check` (2026-08-23), laundry door+gate mute `input_boolean.laundry_door_alert_notify` (2026-09-02) |
-| `alerts_network.yaml` | 1365 | ✅ Active | WAN/LAN/device down, degraded, restart |
+| `alerts_network.yaml` | 1391 | ✅ Active | WAN/LAN/device down, degraded, restart |
 | `alerts_power.yaml` | 496 | ✅ Active | Grid offline, battery low, excess load, prepaid drift |
-| `alerts_temperature.yaml` | 1523 | ✅ Active | WAN/LAN/device/storage temps |
-| `alerts_device_power.yaml` | 438 | ✅ Active | Device power fault (RPi, UPS) — BUG-A04 fixed 2026-04-14 |
-| `alerts_media.yaml` | 307 | ✅ Active | Media server downtime |
-| `alerts_system_health.yaml` | 450 | ✅ Active | Critical sensor watchman monitoring |
+| `alerts_temperature.yaml` | 1531 | ✅ Active | WAN/LAN/device/storage temps |
+| `alerts_device_power.yaml` | 440 | ✅ Active | Device power fault (RPi, UPS) — BUG-A04 fixed 2026-04-14 |
+| `alerts_media.yaml` | 309 | ✅ Active | Media server downtime |
+| `alerts_system_health.yaml` | 452 | ✅ Active | Critical sensor watchman monitoring |
 | `alerts_presence.yaml` | 288 | ✅ Active | Unknown AP + occupancy anomaly — implemented 2026-04-16 |
 | `alerts_water.yaml` | 614 | ✅ Active | Water alert pipeline — implemented 2026-04-14 |
 | `alerts_security.yaml` | 253 | ✅ Active | Security alert pipeline — implemented 2026-04-14 |
 | `alerts_garden.yaml` | 282 | ✅ Active | Garden/pond pump unscheduled alert — implemented 2026-04-29 |
-| `alerts_batteries.yaml` | 446 | ✅ Active | Dashboard tablet battery low/overcharge alert — implemented 2026-05-27 |
-| `alerts_device_batteries.yaml` | 505 | ✅ Active | All OTHER battery devices (door/gate sensors, doorbell, phones, watches, laptops) — label-onboarded (`battery_monitor`), excludes inverter/UPS/dash-tablets — implemented 2026-08-21; staleness tier added 2026-08-24 (BUG-A20); per-device sparse-reporter stale override added 2026-08-31 (BUG-A22) |
+| `alerts_batteries.yaml` | 448 | ✅ Active | Dashboard tablet battery low/overcharge alert — implemented 2026-05-27 |
+| `alerts_device_batteries.yaml` | 507 | ✅ Active | All OTHER battery devices (door/gate sensors, doorbell, phones, watches, laptops) — label-onboarded (`battery_monitor`), excludes inverter/UPS/dash-tablets — implemented 2026-08-21; staleness tier added 2026-08-24 (BUG-A20); per-device sparse-reporter stale override added 2026-08-31 (BUG-A22) |
 | `alerts_camera_health.yaml` | 316 | ✅ Active | Camera fleet health (`alert.camera_health`) — missing from this inventory until 2026-07-06 |
 
-*Line counts re-verified against `wc -l packages/alerts/*.yaml` 2026-08-21 — every count above was stale (the 2026-04-13 baseline never got updated as files grew with subsequent bug fixes/features); all 16 corrected to live values, none were placeholders (`~N`) any more.*
+*Line counts re-verified against `wc -l packages/alerts/*.yaml` 2026-08-21 — every count above was stale (the 2026-04-13 baseline never got updated as files grew with subsequent bug fixes/features); all 16 corrected to live values, none were placeholders (`~N`) any more. 7 of them (network/temperature/device_power/media/system_health/batteries/device_batteries) re-verified again 2026-09-11 after BUG-A24's click_url additions.*
 
 **Note:** ALERTS_CONTEXT.md lists `alerts_core.yaml` and `alerts_device.yaml` — neither
 exists. That context file is stale; this contract is authoritative.

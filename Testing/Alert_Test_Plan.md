@@ -97,6 +97,20 @@
 > behaviour, unaffected; (3) kitchen door / garage security gate remain unaffected by the
 > mute either way (still in the shared Tier 2 loop); (4) mute left OFF overnight → back to
 > `on` by the next day without manual intervention.
+>
+> **⚠️ 2026-09-11: `clickAction` (tap-through) added to every domain's mobile push —
+> not covered by any test's Expected Results here.** All 6 `notify_*_event` scripts now
+> send `clickAction` in the nested `data:` block of every warning/critical (and, for
+> security/system, info) `notify.mobile_app_*` call, opening a specific dashboard view on
+> tap instead of just the app — see NOTIFICATIONS_CONTRACT.md "Alert Click-Through" and
+> ALERTS_CONTRACT.md BUG-A24 for the full per-domain default/override table. This is a
+> delivery-payload change across every test in this plan (1 through 8 all send at least
+> one push through one of these 6 scripts), not touched by a real push since shipping —
+> when each TEST is next run, add a check that tapping the notification opens the
+> documented view (Security→Security Control, Power→Power Control, Water→Water Control,
+> Network/Temperature-WAN-LAN→Network Control, Media/Temperature-Device-Storage→Media
+> Control, Batteries→Batteries, Device Power/System Health→HA System, Garden→Alerts page
+> fallback, no dedicated view yet).
 
 ---
 

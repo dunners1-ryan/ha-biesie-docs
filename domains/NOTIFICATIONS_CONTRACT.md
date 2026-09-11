@@ -2,6 +2,19 @@
 # NOTIFICATIONS CONTRACT
 # HABiesie — Notifications Domain
 # Generated: 2026-04-13
+# Last updated: 2026-09-11 — all 6 notify_*_event scripts gained `click_url` (variable
+# `link`, per-domain default) and now send `clickAction: "{{ link }}"` in every
+# notify.mobile_app_* call's nested data: block (warning/critical everywhere, plus
+# security/system's info branch — the only two that also use the legacy per-device
+# pattern on info) so tapping an alert opens the relevant dashboard view instead of
+# just the app. notify_system_event callers (media/network/temperature/batteries/
+# device-batteries/device-power/system-health) pass their own click_url override;
+# garden has no dedicated view yet and falls back to the Alerts page. See Section 3
+# "All 6 scripts — Alert Click-Through" and ALERTS_CONTRACT.md BUG-A24. Same session
+# also found and fixed 7 broken dashboard navigation_path values (9 occurrences) while
+# auditing this, and fixed a real actions:-nested-inside-push: bug on
+# notify_presence_events.yaml's iPhone warning branch (unrelated to click-through,
+# found in passing).
 # Last updated: 2026-08-21 (deep drift sweep) — Files Audited table had 3 filename
 # mismatches (notify_security_event/notify_presence_event/notify_lighting_event → live
 # names all differ by plural/naming) and was missing power_notifications.yaml entirely
