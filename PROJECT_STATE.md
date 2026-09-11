@@ -119,9 +119,21 @@
       Pool Pump Control section (Season Bucket note) + Manual Run bullet.
       Files: `packages/power/power_helpers.yaml`, `packages/power/power_state.yaml`,
       `packages/power/power_automations.yaml`, `.storage/lovelace.dashboard_operations`
-      (dashboard, git-ignored). Not yet live-verified (YAML + dashboard JSON syntax
-      validated only) — needs a HA reload/check + a real manual-run + season-bucket
-      check before this can be marked fully verified.
+      (dashboard, git-ignored).
+      **Follow-up same day — bug found on first live click:** user restarted HA (new
+      helpers need a restart), then clicked "Run Pool Now" twice — pump never turned
+      on. Log showed `Referenced entities script.pool_manual_run are missing or not
+      currently available`: `automation.pool_manual_run` (triggered by
+      `input_boolean.pool_manual_run_active`) was written, but `script.pool_manual_run`
+      itself — the thing the dashboard button actually calls via `script.turn_on`, whose
+      only job is to flip that boolean on — was never added, unlike its geyser mirror
+      (`script.geyser_manual_run`). Both failed clicks were no-ops (service call rejected
+      before touching anything, nothing left in a stuck state). Fixed by adding the
+      missing script (`packages/power/power_automations.yaml`, mirrors
+      `script.geyser_manual_run` exactly). Reload Scripts only, no restart. **User
+      confirmed working after reload** — pool manual run is now live-verified. The
+      season-bucket half (spring-as-summer grace period) is still unverified — first
+      spring boundary to actually test it is next Sept.
 
 - [x] **2026-09-09 — Security: BUG-S79, `security_visibility_poor`/`_low_light`
       were reading Met.no (`weather.forecast_home`), not OpenWeatherMap as
