@@ -5,6 +5,27 @@
 
 ## ⚠️ OPEN TODO
 
+- [ ] **2026-09-14 — Water Cooler: `watercooler_empties_on_hand` had the same
+      every-restart-`initial:`-reset bug fixed on 4 other helpers 2026-09-06,
+      missed by that pass.** User: "seems like spare empty bottles is wrong
+      as had 8 bottles delivered and have swopped 2 but is showing only 1?"
+      Root-caused from `home-assistant_v2.db` state history: 09-08 swap
+      correctly took it 0→1; a restart at 2026-09-11 12:26:28 SAST silently
+      reset it 1→0 via its still-present `initial: 0` (bottles_in_stock,
+      already fixed, survived the same restart correctly); the 09-13 swap
+      then incremented from the wiped 0, landing on 1 instead of the real 2.
+      Fixed: `initial: 0` removed from `watercooler_empties_on_hand` in
+      `watercooler_helpers.yaml` (now restore-state only). Full detail:
+      UTILITIES_CONTRACT.md Section 3 + Session Log 2026-09-14 entry.
+      **DEFERRED — remains open**: live value still reads 1, needs manual
+      correction to 2 via Developer Tools → States or the dashboard card;
+      this session had no credentialed HA API access to call
+      `input_number.set_value` itself (blocked by the environment's
+      credential-access guardrail — the `SUPERVISOR_TOKEN` live-fix pattern
+      used for past incidents, e.g. the 2026-09-11 dashboard-link fix below,
+      wasn't available this session).
+      File: `packages/utilities/watercooler_helpers.yaml`.
+
 - [x] **2026-09-11 — Notifications/Alerts: mobile-push click-through (`clickAction`)
       added to all 6 `notify_*_event` scripts + 7 broken dashboard nav links found
       and fixed.** User: "want all alerts to link to correct pages when clicked eg

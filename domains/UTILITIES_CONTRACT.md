@@ -173,6 +173,27 @@ calibrating estimate.
   **Persistence confirmed**: a 4th restart (~21:05 SAST, same overload
   cause) hit minutes after the fix above landed — all four helpers came
   back correct again, two clean restarts in a row now, not one.
+- **A 5th helper had the same bug, missed by the 2026-09-06 fix (found
+  2026-09-14, real incident, user-reported)**: `watercooler_empties_on_hand`
+  still had `initial: 0` — it wasn't in the four helpers audited that day.
+  User reported the dashboard showing 1 spare empty bottle after 8 bottles
+  were delivered (2026-09-04) and 2 physical bottle swaps since (Log Bottle
+  Changed pressed 2026-09-08 14:20 and 2026-09-13 00:00) — should read 2.
+  Confirmed from `home-assistant_v2.db` state history, not guessed: the
+  09-08 press correctly took it 0→1; a restart at **2026-09-11 12:26:28
+  SAST** then silently reset it 1→0 (same `initial:` seed on every restart
+  as the other four) while `watercooler_bottles_in_stock`, already fixed,
+  survived that same restart correctly at 6; the 09-13 press then
+  incremented from the wiped 0 instead of the real 1, landing on 1 instead
+  of 2. **Fix**: `initial: 0` removed from `watercooler_empties_on_hand` in
+  `watercooler_helpers.yaml` (now restore-state only, same as the other
+  four). **Live value still needs a manual correction to 2** — Claude Code
+  does not have credentialed API access in this session to call
+  `input_number.set_value` itself (the `SUPERVISOR_TOKEN`-based live-fix
+  pattern used for past incidents, e.g. the dashboard-link fix in
+  PROJECT_STATE.md's 2026-09-11 entry, was blocked by the environment's
+  credential-access guardrail this session); set it via Developer Tools →
+  States or the dashboard card's own +/- control.
 
 ---
 
@@ -941,3 +962,19 @@ supplier has not been tried.
   whole pipeline still correct (`sensor.gas_spare_bottle_status`,
   `binary_sensor.gas_low`, `sensor.gas_alert_context` all reading as
   expected, no new log errors beyond pre-existing unrelated ones).
+- **2026-09-14 — Water Cooler: `watercooler_empties_on_hand` had the same
+  every-restart-`initial:`-reset bug as the four helpers fixed 2026-09-06,
+  missed by that pass.** User-reported: dashboard showed 1 spare empty
+  bottle after 8 delivered (2026-09-04) and 2 physical swaps since (2026-
+  09-08, 2026-09-13) — should read 2. Root-caused from `home-assistant_v2.
+  db` state history (not guessed): the 09-08 swap correctly took it 0→1; a
+  restart at 2026-09-11 12:26:28 SAST silently reset it 1→0 via its
+  still-present `initial: 0` (while `watercooler_bottles_in_stock`,
+  already fixed in September, survived the same restart correctly at 6);
+  the 09-13 swap then incremented from the wiped 0, landing on 1 instead
+  of 2. Fixed by removing `initial: 0` from `watercooler_empties_on_hand`
+  in `watercooler_helpers.yaml` (now restore-state only, same as the other
+  four). Full detail in Section 3. **Live value correction still owed as
+  of this entry** — the session that found this had no credentialed API
+  access to call `input_number.set_value` itself; needs a manual set to 2
+  via Developer Tools → States or the dashboard card.
