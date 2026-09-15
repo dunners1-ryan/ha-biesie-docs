@@ -8,7 +8,20 @@
 # This document is the ground-truth record of what the lighting system
 # actually does, its dependencies, known bugs, and design decisions.
 #
-# Last updated: 2026-09-15 — BUG-L23: same "daytime weather lights up front/back" symptom
+# Last updated: 2026-09-15 — BUG-L24: garage_light was being turned on unconditionally by
+# all three lighting_arrival_night.yaml scenarios (Quiet Mode/Someone Home/Nobody Home),
+# with no check on binary_sensor.garage_door_sensor — bypassing the door gate
+# lighting_garage.yaml enforces (Section 4, "Garage — door gating"). input_boolean.
+# arrival_detected can be set by a pedestrian house_entry_event/laundry_entry_event
+# (presence_boundary.yaml), not just a vehicle at the driveway gate, so walking from the
+# garage into the house after parking (door already closed) could re-light the garage.
+# User-reported symptom: "garage light not turning off when door closes / turns on again
+# if garage door is closed." Fixed: switch.garage_light removed from each scenario's
+# unconditional switch.turn_on list, now gated on garage_door_sensor = on. Section 2 line
+# count corrected: lighting_arrival_night.yaml 235→269. Section 4's Night Arrival table and
+# "Garage — door gating" prose updated.
+#
+# Previously — 2026-09-15 — BUG-L23: same "daytime weather lights up front/back" symptom
 # class as BUG-L22, recurring via a DIFFERENT automation BUG-L22 never touched —
 # security_lighting_engine's AREA branch (lighting_security.yaml), gated only on
 # binary_sensor.security_lighting_allowed (night OR daytime-poor-visibility), not real
@@ -21,7 +34,7 @@
 # lighting_security.yaml 145→161. Section 4's Boundary Security + Security Lighting
 # Engine tables updated. Section 8's security_lighting_allowed row updated.
 #
-# Previously — 2026-09-07 — BUG-L22: front/back/carport/office security lights no
+# Before that — 2026-09-07 — BUG-L22: front/back/carport/office security lights no
 # longer fire for daytime weather alone (night_early gate added); entrance_down_lights
 # pulled back OUT of the security-domain boundary automations (a same-day mistake) into
 # its own entrance_down_lights_daytime_low_light automation; boundary_security_watchdog
@@ -106,7 +119,7 @@ person.*                             ← HA mobile geo — UNRELIABLE for local 
 | `lighting_scenes.yaml` | 85 | All scene definitions |
 | `lighting_morning.yaml` | 257 | Morning wake routine (presence + time triggered) |
 | `lighting_evening.yaml` | 127 | Evening routine (civil night triggered) |
-| `lighting_arrival_night.yaml` | 235 | Night arrival scenarios (3 modes) |
+| `lighting_arrival_night.yaml` | 269 | Night arrival scenarios (3 modes; garage_light door-gated in all three, 2026-09-15, BUG-L24) |
 | `lighting_departure.yaml` | 91 | Departure light cleanup (day + night) |
 | `lighting_bedtime.yaml` | 217 | Kids + full bedtime routines |
 | `lighting_boundary.yaml` | 471 | Boundary/street security lighting + gate-open assist (2026-08-03) + watchdog (2026-09-06, BUG-L21) + daytime entrance-down-lights weather rule (2026-09-07, BUG-L22) + master enable toggle (2026-09-15, BUG-L23) |
@@ -193,9 +206,17 @@ Always-on (all scenarios): boundary_street_light, back_house_security_light
 
 | Scenario | Condition | Lights ON |
 |---|---|---|
-| Quiet mode | quiet_arrival_mode=on | garage_light, main_entrance, entrance_down_lights, laundry, front_house_security (2026-07-17) → front_house_security OFF after **5min if after bedtime** (`bedtime_mode`=on **or** clock ≥21:30, incl. after midnight), else **10min** (2026-08-29) |
-| Someone home | anyone_connected_home=on, not quiet | garage_light, main_entrance, entrance_down_lights, dining_room, pool_patio, front_security, laundry → after 5min, two independent gates: (a) pool_patio + front_security OFF if bar not occupied AND bedtime_mode=on; (b) entrance_down + dining_room + laundry OFF if bedtime_mode=off, **skipping any of the three that were already on before the arrival** (2026-08-29) |
-| Nobody home | anyone_connected_home=off | garage_light, main_entrance, entrance_down_lights, front_house_security, pool_patio, dining_room, laundry |
+| Quiet mode | quiet_arrival_mode=on | garage_light (**door-gated, 2026-09-15 BUG-L24 — see below**), main_entrance, entrance_down_lights, laundry, front_house_security (2026-07-17) → front_house_security OFF after **5min if after bedtime** (`bedtime_mode`=on **or** clock ≥21:30, incl. after midnight), else **10min** (2026-08-29) |
+| Someone home | anyone_connected_home=on, not quiet | garage_light (**door-gated, 2026-09-15 BUG-L24 — see below**), main_entrance, entrance_down_lights, dining_room, pool_patio, front_security, laundry → after 5min, two independent gates: (a) pool_patio + front_security OFF if bar not occupied AND bedtime_mode=on; (b) entrance_down + dining_room + laundry OFF if bedtime_mode=off, **skipping any of the three that were already on before the arrival** (2026-08-29) |
+| Nobody home | anyone_connected_home=off | garage_light (**door-gated, 2026-09-15 BUG-L24 — see below**), main_entrance, entrance_down_lights, front_house_security, pool_patio, dining_room, laundry |
+
+**Garage light is door-gated in all three scenarios above (2026-09-15, BUG-L24).** Each
+scenario's `switch.turn_on` list no longer includes `switch.garage_light` directly — it's
+turned on separately, only `if binary_sensor.garage_door_sensor = on`. Before this fix, any
+`arrival_detected` edge (including a pedestrian `house_entry_event`/`laundry_entry_event`
+walking into the house, not just a vehicle arriving) unconditionally re-lit the garage even
+with the door already closed, undoing `lighting_garage.yaml`'s door-close-turns-off rule
+(Section 4 "Garage — door gating" below). See BUG-L24 (Section 7).
 
 **Trigger:** `input_boolean.arrival_detected` `from: "off"` → `to: "on"`, condition
 `binary_sensor.night_confirmed` = on. `mode: restart`. The `from: "off"` guard is the
@@ -301,6 +322,13 @@ on with nobody in the garage — lighting the garage overnight. Three changes:
    Necessary because of (1): if the phone hits the garage AP *before* the door opens, the
    presence branch is correctly suppressed, so the door opening is the only remaining chance
    to light the garage. Daytime "door opens, nobody there" still does not light.
+
+**Arrival scenarios also door-gated (2026-09-15, BUG-L24).** The 2026-08-03 changes above
+only touched `lighting_garage.yaml` itself — `lighting_arrival_night.yaml`'s three scenarios
+kept turning `switch.garage_light` on unconditionally on every `arrival_detected` edge,
+bypassing the door gate entirely. Fixed same as the door-open/presence branches: garage_light
+turn-on is now gated on `binary_sensor.garage_door_sensor` = on in all three scenarios. See
+BUG-L24 (Section 7) for the full symptom/root-cause writeup.
 
 **Known trade-off:** entering the garage through the internal house door with the roller door
 shut gives no automatic light, day or night. Accepted deliberately — the garage is normally
@@ -898,6 +926,49 @@ still come on as before.
 
 ---
 
+### BUG-L24 [MEDIUM] — ✅ FIXED 2026-09-15 — `lighting_arrival_night.yaml`'s three arrival scenarios turned garage_light on unconditionally, undoing `lighting_garage.yaml`'s door gate
+
+**File:** `packages/lighting/lighting_arrival_night.yaml` (bug), `packages/lighting/lighting_garage.yaml` (the door-gated design this bypassed — see "Garage — door gating" in Section 4)
+**Status:** ✅ FIXED 2026-09-15
+
+**Reported by:** user — "why is garage light not turning off when door closes and why turns
+on again if garage door is closed?"
+
+**Root cause:** the 2026-08-03 door-gating work (BUG-L context, Section 4) only touched
+`lighting_garage.yaml` itself — it never audited the other automations that also call
+`switch.turn_on` on `switch.garage_light`. All three scenarios in `lighting_arrival_night.yaml`
+(Quiet Mode, Someone Home, Nobody Home) turned `switch.garage_light` on unconditionally as
+part of a bundled `switch.turn_on` target list, with no check on
+`binary_sensor.garage_door_sensor` at all. `input_boolean.arrival_detected` — the sole
+trigger for this automation — isn't only set by a vehicle arriving at the driveway gate
+(`security_gate_vehicle_stage1`, security_automations.yaml): `house_entry_event` and
+`laundry_entry_event` (presence_boundary.yaml) also set it, firing on the **front door /
+laundry door** sensor — i.e. a pedestrian walking into the house, which is exactly what
+happens moments after someone parks in the garage and walks inside. Because
+`arrival_detected` auto-clears 5 minutes after being set (`presence_clear_arrival_flag`),
+a normal arrival sequence could do this: gate opens → garage door opens → car parks →
+garage door closes (`lighting_garage.yaml`'s `door_closed` trigger correctly turns
+`switch.garage_light` OFF) → occupant walks from garage into the house through the
+laundry/front door → `laundry_entry_event`/`house_entry_event` fires a **fresh**
+`arrival_detected` off→on edge → `lighting_arrival_night` re-fires and turns
+`switch.garage_light` back ON, door closed, nobody in the garage. From the user's
+perspective this reads as both reported symptoms at once: "doesn't turn off" (it does, but
+is re-lit again within seconds/minutes) and "turns on again when the door is closed."
+
+**Fix:** in all three scenarios, `switch.garage_light` was removed from the bundled
+unconditional `switch.turn_on` target list and is now turned on separately, immediately
+after, inside `if: condition: state, entity_id: binary_sensor.garage_door_sensor, state:
+"on"`. No other entity or timing in any of the three scenarios changed. This makes
+`lighting_arrival_night.yaml` respect the same door gate `lighting_garage.yaml` and
+`lighting_gate_open_assist` (lighting_boundary.yaml) already enforce for this switch.
+
+**Deployed:** YAML-only change (1 automation, same trigger/conditions, 3 sequences edited) —
+needs `ha core check` + `Reload Automations`. Not yet live-verified against a real arrival —
+next night arrival where the garage door is already closed by the time a pedestrian
+entry event fires should confirm the light stays off.
+
+---
+
 ## Section 8: Cross-Domain Dependencies
 
 | Entity | Provider | Consumed by |
@@ -1116,4 +1187,15 @@ reverted out of `boundary_security_on`/`_off`/the watchdog into new automation
 on site) → on, otherwise → off, hands off entirely once night starts); `boundary_security_
 watchdog` interval halved 15→30 min. Live state cleanup: turned off the 4 switches already
 incorrectly on from before the fix. Deployed live same session.*
+*Updated: 2026-09-15 — BUG-L23 closed (see above). BUG-L24 opened and closed same day:
+user reported the garage light not turning off when the garage door closes, and turning
+back on again with the door already closed. Root cause: `lighting_arrival_night.yaml`'s
+three arrival scenarios turned `switch.garage_light` on unconditionally, with no
+`garage_door_sensor` check, bypassing the door gate `lighting_garage.yaml` enforces since
+2026-08-03 — a pedestrian `house_entry_event`/`laundry_entry_event` arrival (walking in
+after parking, garage door already shut) could re-fire `arrival_detected` and re-light the
+garage. Fixed: `switch.garage_light` pulled out of each scenario's unconditional
+`switch.turn_on` list, now gated on `binary_sensor.garage_door_sensor`=on. Section 2 line
+count corrected 235→269. Section 4's Night Arrival table and "Garage — door gating" prose
+updated.*
 *Next review: After new AI cameras installed (cam motion valid sensors change)*

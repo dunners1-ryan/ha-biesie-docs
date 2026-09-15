@@ -5,6 +5,33 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-15 — Lighting: BUG-L24 — garage light not turning off when the garage door
+      closes, and turning back on again after the door is already closed.** User: "why is
+      garage light not turning off when door closes and why turns on again if garage door
+      is closed?" Investigated `lighting_garage.yaml` and `lighting_arrival_night.yaml`
+      live. `lighting_garage.yaml`'s `door_closed` trigger (added 2026-08-03) correctly
+      turns `switch.garage_light` OFF the instant the door closes — that part works.
+      Root cause was a gap in the 2026-08-03 door-gating work: it only touched
+      `lighting_garage.yaml` itself, never auditing the other automations that also call
+      `switch.turn_on` on `switch.garage_light`. All three scenarios in
+      `lighting_arrival_night.yaml` (Quiet Mode/Someone Home/Nobody Home) turned
+      `switch.garage_light` on unconditionally, with no check on
+      `binary_sensor.garage_door_sensor`. `input_boolean.arrival_detected` — the sole
+      trigger for that automation — isn't only set by a vehicle at the driveway gate
+      (`security_gate_vehicle_stage1`); `house_entry_event`/`laundry_entry_event`
+      (`presence_boundary.yaml`) also set it, firing on the front door/laundry door sensor
+      — i.e. a pedestrian walking into the house, exactly what happens moments after
+      someone parks in the garage and walks inside. Because `arrival_detected` auto-clears
+      5 minutes after being set, that walk-in could land as a fresh off→on edge and
+      re-fire `lighting_arrival_night` after the garage door was already shut, re-lighting
+      the garage — matching both symptoms the user described. Fixed: `switch.garage_light`
+      removed from all three scenarios' unconditional `switch.turn_on` target lists, now
+      turned on separately inside an `if: garage_door_sensor = on` guard, matching the door
+      gate `lighting_garage.yaml` already enforces. Full detail: LIGHTING_CONTRACT.md
+      BUG-L24. **Deployed:** YAML-only (1 file, 3 sequences edited) — needs `ha core check`
+      + Reload Automations. Not yet live-verified against a real arrival.
+      File: `packages/lighting/lighting_arrival_night.yaml`.
+
 - [x] **2026-09-15 — Lighting/Alerts: BUG-L23 (front/back security lights firing on
       daytime rain via a second, previously-undocumented automation) + BUG-A25 (daytime
       "elevated" dog/leaf motion nagging every 5/15/30/60min while home) fixed, plus a new
@@ -5604,7 +5631,7 @@ alert.gas_alert                                       ← confirmed live 2026-09
 | 🔔 Alerts | Updated 2026-05-27 (stale — see ALERTS_CONTRACT.md for current state, re-audited 2026-08-21) | alert.camera_health added 2026-04-29 (alerts/ = **16 files** as of 2026-08-21, doc-drift corrected — was 14, then grew further with alerts_device_batteries.yaml). **2026-05-27:** alerts_batteries.yaml added (15th file) — full battery alert pipeline for Honor 10 Dash + Honor X7 Dash. Pipeline: per-device low + overcharge binary sensors → dash_battery_alert_context → alert.dash_battery_alert → aggregator. Screen brightness management added in packages/admin/tablets.yaml (night dim, away dim, morning/arrival restore). ⚠️ Requires HA restart (alert: entity). |
 | 🔔 Notifications | Scripts correct | All C-series bypasses resolved. BUG-N02 counter entity correct. |
 | 🧭 Presence | Alert pipeline live | Unknown AP alert + occupancy anomaly implemented. Trust chain intact. |
-| 💡 Lighting | Stable | All L01–L20 fixed. BUG-L11–L14 (2026-06-14): morning_wake noon ceiling; arrival cooldown always-blocked fix; nobody-home front security light added; wrong garage entity (stw_3gang→garage_light) in all 3 arrival scenarios. M1/M2/M3 implemented. ~~SOC-based energy saving trigger remains future work (power session).~~ **✅ Done — doc-drift correction 2026-08-21:** `energy_saving_mode_auto_enable`/`_auto_disable` shipped in `power_automations.yaml` 2026-06-19 (confirmed live during this session's LIGHTING_CONTRACT.md sweep). **BUG-L20 (2026-08-29):** an out-of-band copy of `lighting_arrival_night.yaml` built on a pre-2026-06-14 base re-introduced BUG-L03/L12/L13/L14/L15 at once; caught before reload and all re-fixed — ⚠️ `automation.reload` still owed. |
+| 💡 Lighting | Stable | All L01–L20 fixed. BUG-L11–L14 (2026-06-14): morning_wake noon ceiling; arrival cooldown always-blocked fix; nobody-home front security light added; wrong garage entity (stw_3gang→garage_light) in all 3 arrival scenarios. M1/M2/M3 implemented. ~~SOC-based energy saving trigger remains future work (power session).~~ **✅ Done — doc-drift correction 2026-08-21:** `energy_saving_mode_auto_enable`/`_auto_disable` shipped in `power_automations.yaml` 2026-06-19 (confirmed live during this session's LIGHTING_CONTRACT.md sweep). **BUG-L20 (2026-08-29):** an out-of-band copy of `lighting_arrival_night.yaml` built on a pre-2026-06-14 base re-introduced BUG-L03/L12/L13/L14/L15 at once; caught before reload and all re-fixed — ⚠️ `automation.reload` still owed. **BUG-L21/L22/L23 (2026-09-06/07/15):** boundary lighting resilience + daytime-weather false-triggers on front/back/carport/office (two separate automations) + dedicated boundary master toggle — see LIGHTING_CONTRACT.md. **BUG-L24 (2026-09-15):** same garage-entity family as BUG-L14 above, different bug — all 3 `lighting_arrival_night.yaml` scenarios turned `switch.garage_light` on unconditionally (no door check), undoing `lighting_garage.yaml`'s 2026-08-03 door gate; a pedestrian `house_entry_event`/`laundry_entry_event` arrival after parking (door already shut) could re-light the garage. Fixed: garage_light turn-on in all 3 scenarios now gated on `binary_sensor.garage_door_sensor`=on. |
 | 🌐 Network | Updated 2026-05-28 | **2026-05-28:** sensor.ups_accessories_power (sum of USB1/2/3 + TypeC + DC out) and sensor.ups_visibility_score (accessories / total × 100) added to network_ups.yaml — mirrors load_visibility_score pattern from power domain. **2026-05-27:** network_ups.yaml added — EcoFlow River Pro UPS monitoring (packages/network/). Sensors: ups_on_battery, ups_runtime_seconds/friendly/eta, ups_status_card, ups_runtime_severity, ups_load_percent/status, ups_load_markdown. Helpers: 6 input_numbers + 1 input_boolean. Automations: AC Always On enforcement, on-battery notify, grid restore notify, battery warning/critical, load warning. All alerts via script.notify_power_event. | BUG-NET01 fixed 2026-04-28: unifi_cpu_5m_max availability → has_value(unifi_gateway_cpu_utilization). BUG-NET02 fixed 2026-04-28: unifi_memory_5m_max availability was self-referencing → has_value(unifi_gateway_memory_utilization). BUG-NET03 fixed 2026-04-28: packet loss removed from wan_health_score (ping_sum_5min is latency sum not pass count); score now uses latency + jitter only. BUG-NET04 fixed 2026-04-21. All verified live in network_helpers.yaml. |
 | 🏗️ Context | All fixed | BUG-CTX01 fixed 2026-04-30: context_presence.yaml → presence/presence_trust.yaml. BUG-CTX02 fixed 2026-04-28: context_schedules.yaml deleted, bedtime_mode in lighting_helpers. BUG-CTX03 fixed 2026-04-30: home_context now derives from security_nobody_home + night_confirmed, no longer imports sensor.security_mode from security/. |
 | 🔧 Infra | All fixed 2026-04-28 | BUG-CORE01 fixed (ha_events_per_second removed). BUG-INF01 fixed (printer_cartridge_low dangling }}). BUG-BKP01 fixed (github.yaml routed through notify_system_event). BUG-WEA01 confirmed already fixed. |
