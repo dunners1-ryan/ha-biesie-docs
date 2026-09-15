@@ -2567,7 +2567,12 @@ check of its own and pushed/repeated on ordinary daytime `elevated`-tier grounds
 (`family_movement`) already suppressing the equivalent case in the main router. Fixed as
 ALERTS_CONTRACT.md BUG-A25 — no `security_logic.yaml`/`security_automations.yaml` change,
 since the fix lives entirely in the separate alerts-domain pipeline this bug's own
-Root Cause section describes.
+Root Cause section describes. Same-day follow-up on the same BUG-A25: that pipeline's
+"Camera:" field also read the unrelated global `input_text.security_last_motion_camera`
+instead of `sensor.security_trigger_camera` (the sensor this contract's own Section 1
+pipeline diagram already documents as the canonical real-time trigger camera, sibling to
+`sensor.security_movement_path`) — a BUG-S69/S76-class mismatch-potential in a pipeline
+those two fixes never touched. Now reads the same sensor `security_movement_path` reads.
 
 ---
 

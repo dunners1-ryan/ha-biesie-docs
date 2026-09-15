@@ -396,7 +396,11 @@ Then manually trigger motion on a camera
 > do now). Method A/B above target `warning`, which is unaffected — but add a case with
 > someone home AND a rear-camera trigger that only reaches `elevated` (e.g. a single
 > uncorroborated grounds hit) and confirm NO push/repeat-reminder fires in that case,
-> confirming it still fires when nobody's home. See ALERTS_CONTRACT.md BUG-A25.
+> confirming it still fires when nobody's home. Same-day follow-up: the "Camera:" field in
+> both `alert.security_alert` and the repeat-reminder now reads `sensor.security_trigger_
+> camera` instead of `input_text.security_last_motion_camera` — confirm the reported
+> Camera name matches a currently-active camera consistent with the Path field, not a
+> stale/unrelated one. See ALERTS_CONTRACT.md BUG-A25.
 | Escalation reminder after 5 min if threat persists | ✅ | |
 | Alert clears after motion stops + delay_off (30s) | ✅ | |
 

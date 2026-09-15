@@ -42,17 +42,30 @@
       95, consistent with a dog moving yard→passage. Fixed: `binary_sensor.security_
       alert_active` now only counts `elevated` while `anyone_connected_home` is off;
       `warning`/`critical` unaffected (those tiers already require nobody-home or night
-      in `security_threat_level`'s own rules). Noted, not fixed: the `Camera`/`Path`
-      mismatch potential in this same reminder text (two independently-updating globals,
-      no atomic snapshot) is the same bug class as BUG-S69/S76, never patched in this
-      separate pipeline — flagged for a future pass.
+      in `security_threat_level`'s own rules).
+      **Same-day follow-up ("fix deferred bug"):** the `Camera`/`Path` mismatch
+      potential flagged above (two independently-updating trackers, no atomic snapshot —
+      same bug class as BUG-S69/S76, never patched in this separate `alerts_security.yaml`
+      pipeline) — investigated the specific reported instance first: `Cam15 Passage` +
+      `Rear Left` turned out NOT to be stale/mismatched (cam12 pond → "rear left" AND
+      cam15 passage were both genuinely active at once — a dog moving yard→passage — and
+      `sensor.security_trigger_camera`'s priority list ranks cam15 above cam12, explaining
+      the exact pairing seen). But the underlying fragility was real regardless: all 3
+      "Camera:" reads in this pipeline (`alert.security_alert`, `security_alert_repeat_
+      reminder`, the alert-context `devices` string) used `input_text.security_last_
+      motion_camera` — a GLOBAL tracker written by an unrelated automation
+      (`security_capture_each_camera_motion`) with no relationship to "Path:"
+      (`sensor.security_movement_path`) — so a genuine drift was always possible, this
+      instance just wasn't one. Fixed: switched all 3 to `sensor.security_trigger_camera`,
+      a live sensor computed from the exact same `*_motion_valid` inputs `security_
+      movement_path` reads — both now always describe the same real-time instant.
       Full detail: LIGHTING_CONTRACT.md BUG-L23, ALERTS_CONTRACT.md BUG-A25,
       SECURITY_CONTRACT.md (cross-reference note after BUG-S78).
       **Deployed:** YAML-only across 4 files, parses clean. Needs `ha core check` +
       Reload Automations + a full YAML reload-all (or restart) for the new helper to
       register — not yet done or live-verified this session (no HA API access available).
-      `docs/Testing/Alert_Test_Plan.md` Test 6 flagged for re-run against the new
-      elevated-tier presence gate.
+      `docs/Testing/Alert_Test_Plan.md` Test 6 flagged for re-run against both the
+      elevated-tier presence gate and the Camera-field source swap.
       Files: `packages/lighting/lighting_security.yaml`,
       `packages/lighting/lighting_boundary.yaml`, `packages/lighting/lighting_helpers.yaml`,
       `packages/alerts/alerts_security.yaml`.
