@@ -8,7 +8,20 @@
 # This document is the ground-truth record of what the lighting system
 # actually does, its dependencies, known bugs, and design decisions.
 #
-# Last updated: 2026-09-07 — BUG-L22: front/back/carport/office security lights no
+# Last updated: 2026-09-15 — BUG-L23: same "daytime weather lights up front/back" symptom
+# class as BUG-L22, recurring via a DIFFERENT automation BUG-L22 never touched —
+# security_lighting_engine's AREA branch (lighting_security.yaml), gated only on
+# binary_sensor.security_lighting_allowed (night OR daytime-poor-visibility), not real
+# night. Now also requires binary_sensor.night_early. Plus: new dedicated
+# input_boolean.boundary_security_lights_enabled (lighting_helpers.yaml) — master on/off
+# for the whole boundary_security_on/watchdog routine, deliberately separate from
+# input_boolean.security_event_lights (which only ever gated security_lighting_engine,
+# a different automation — user request: don't couple the two). Section 2 line counts
+# corrected: lighting_helpers.yaml 82→97, lighting_boundary.yaml 458→471,
+# lighting_security.yaml 145→161. Section 4's Boundary Security + Security Lighting
+# Engine tables updated. Section 8's security_lighting_allowed row updated.
+#
+# Previously — 2026-09-07 — BUG-L22: front/back/carport/office security lights no
 # longer fire for daytime weather alone (night_early gate added); entrance_down_lights
 # pulled back OUT of the security-domain boundary automations (a same-day mistake) into
 # its own entrance_down_lights_daytime_low_light automation; boundary_security_watchdog
@@ -89,15 +102,15 @@ person.*                             ← HA mobile geo — UNRELIABLE for local 
 
 | File | Lines | Purpose |
 |---|---|---|
-| `lighting_helpers.yaml` | 82 | All input_datetime, input_boolean, input_button helpers |
+| `lighting_helpers.yaml` | 97 | All input_datetime, input_boolean, input_button helpers (2026-09-15, BUG-L23: +`boundary_security_lights_enabled`) |
 | `lighting_scenes.yaml` | 85 | All scene definitions |
 | `lighting_morning.yaml` | 257 | Morning wake routine (presence + time triggered) |
 | `lighting_evening.yaml` | 127 | Evening routine (civil night triggered) |
 | `lighting_arrival_night.yaml` | 235 | Night arrival scenarios (3 modes) |
 | `lighting_departure.yaml` | 91 | Departure light cleanup (day + night) |
 | `lighting_bedtime.yaml` | 217 | Kids + full bedtime routines |
-| `lighting_boundary.yaml` | 458 | Boundary/street security lighting + gate-open assist (2026-08-03) + watchdog (2026-09-06, BUG-L21) + daytime entrance-down-lights weather rule (2026-09-07, BUG-L22) |
-| `lighting_security.yaml` | 145 | Security event lighting engine |
+| `lighting_boundary.yaml` | 471 | Boundary/street security lighting + gate-open assist (2026-08-03) + watchdog (2026-09-06, BUG-L21) + daytime entrance-down-lights weather rule (2026-09-07, BUG-L22) + master enable toggle (2026-09-15, BUG-L23) |
+| `lighting_security.yaml` | 161 | Security event lighting engine (2026-09-15, BUG-L23: AREA branch night-gated) |
 | `lighting_garage.yaml` | 215 | Garage presence-aware lighting (door-gated since 2026-08-03) |
 | `lighting_office_presence.yaml` | 130 | Office presence-aware lighting |
 | `lighting_bar_presence.yaml` | 319 | Bar presence + Telegram confirmation |
@@ -226,11 +239,11 @@ when turned on by evening_routine. See BUG-L01 and BUG-L02.
 
 | ID | Trigger | Action |
 |---|---|---|
-| `boundary_security_on` | security_lighting_required ON (10s stable) OR `security_visibility_poor`/`security_weather_low_light` ON (2026-09-06, BUG-L21, defense-in-depth) OR button | boundary_street + main_entrance always; + car_port/front/back/office_entrance **only if it's real night (`night_early`=on) AND someone home** (tightened 2026-09-07, BUG-L22 — previously fired for daytime weather alone too) |
+| `boundary_security_on` | security_lighting_required ON (10s stable) OR `security_visibility_poor`/`security_weather_low_light` ON (2026-09-06, BUG-L21, defense-in-depth) OR button | **Gated on `input_boolean.boundary_security_lights_enabled` = on (2026-09-15, BUG-L23 — dedicated master toggle, not `security_event_lights`).** When enabled: boundary_street + main_entrance always; + car_port/front/back/office_entrance **only if it's real night (`night_early`=on) AND someone home** (tightened 2026-09-07, BUG-L22 — previously fired for daytime weather alone too) |
 | `entrance_down_lights_daytime_low_light` | `security_visibility_poor`/`security_weather_low_light`/`anyone_connected_home`/`staff_on_site` edges | Daytime-only (`night_early`=off) rule: ON when (poor OR low light) AND (anyone home OR staff on site); OFF when that's no longer true, still daytime-only. Added 2026-09-07 (BUG-L22) — deliberately NOT part of the security-domain boundary automations; leaves the light to the normal evening/morning/arrival/bedtime routines once night starts. |
 | `boundary_security_off` | security_lighting_required OFF (5min hysteresis) OR button | All boundary lights off (condition: threat_level=low) |
 | `lighting_gate_open_assist` | `binary_sensor.main_gate_sensor` off→on, **gated on `security_lighting_required` = on** (same window as the two above) | garage_light + front_house_security_light ON for 10 min, then OFF again — **only the ones that were off when the gate opened** (pre-state captured in `variables:`). Added 2026-08-03. **Verify + retry added 2026-08-05 (BUG-L19):** re-checks each switch 3s after the initial `turn_on` and retries once if it didn't confirm `on` — covers a Sonoff device mid-reconnect. |
-| `boundary_security_watchdog` | Every 30 min (was 15 min, halved 2026-09-07 per user feedback), gated on `security_lighting_required` = on | Re-asserts any expected boundary light (same set as `boundary_security_on`'s night-gated target — NOT entrance_down_lights) that isn't `on` — verify + retry once after 3s, logs/notifies only on an actual correction. Added 2026-09-06 (BUG-L21) — closes the gap where `security_lighting_required` sitting "on" for 24h+ (e.g. rain running into the night) left no edge to catch a dropped Sonoff switch. |
+| `boundary_security_watchdog` | Every 30 min (was 15 min, halved 2026-09-07 per user feedback), gated on `security_lighting_required` = on **AND `boundary_security_lights_enabled` = on (2026-09-15, BUG-L23)** | Re-asserts any expected boundary light (same set as `boundary_security_on`'s night-gated target — NOT entrance_down_lights) that isn't `on` — verify + retry once after 3s, logs/notifies only on an actual correction. Added 2026-09-06 (BUG-L21) — closes the gap where `security_lighting_required` sitting "on" for 24h+ (e.g. rain running into the night) left no edge to catch a dropped Sonoff switch. |
 
 **Gate-open assist (added 2026-08-03) — handoff rules.** The 10-minute auto-off is
 deliberately conservative, because three other automations can legitimately own these two
@@ -250,11 +263,19 @@ front security light until the arrival pipeline caught up.
 
 ### Security Lighting Engine (`lighting_security.yaml`)
 
+Hard block: `binary_sensor.security_lighting_allowed` (night OR daytime poor-visibility/
+low-light weather — see Section 8). **2026-09-15 (BUG-L23):** `area` additionally requires
+`binary_sensor.night_early` = on — `security_lighting_allowed` alone let a rainy daytime
+with nobody home (`security_threat_level` rule 4: grounds + nobody + medium/high confidence
+→ `warning`, no night check) light up front/back in broad daylight. `full` and `perimeter`
+are unchanged — still weather-triggerable (a genuine critical intrusion, or the street light
+alone, are judged fine to light regardless of time).
+
 | Intent | Action |
 |---|---|
 | `full` | All security lights ON |
-| `area` + front path | front_house_security + main_entrance ON |
-| `area` + rear path | back_house_security ON |
+| `area` + front path | front_house_security + main_entrance ON — **now also requires `night_early`=on (2026-09-15, BUG-L23)** |
+| `area` + rear path | back_house_security ON — **now also requires `night_early`=on (2026-09-15, BUG-L23)** |
 | `perimeter` | boundary_street_light ON |
 | Reset (threat=low for 3min) | car_port/front/back/office OFF; boundary/main_entrance if security_lighting_required=off |
 
@@ -317,6 +338,7 @@ PRESENCE_CONTRACT.md.)*
 morning_routine_ran_today     ← once-per-day gate for morning
 evening_routine_ran_today     ← once-per-day gate for evening
 bedtime_mode                  ← set by bedtime, cleared by morning (lives in lighting_helpers.yaml — moved from context_schedules.yaml 2026-04-28)
+boundary_security_lights_enabled ← NEW 2026-09-15 (BUG-L23) — master on/off for boundary_security_on/watchdog (lighting_boundary.yaml). Deliberately separate from security_helpers.yaml's input_boolean.security_event_lights, which only ever gated the different security_lighting_engine automation.
 # kids_bedtime_enabled        ← REMOVED 2026-04-28 (no consumers — BUG-L07 fixed)
 ```
 
@@ -821,6 +843,61 @@ the same night," just less overhead/log churn.
 
 ---
 
+### BUG-L23 [MEDIUM] — Front/back security lights still lit up for daytime rain, via a DIFFERENT automation BUG-L22 never touched; plus no dedicated on/off for boundary lighting
+
+**File:** `packages/lighting/lighting_security.yaml`, `packages/lighting/lighting_boundary.yaml`, `packages/lighting/lighting_helpers.yaml`
+**Status:** ✅ FIXED 2026-09-15
+
+**Reported by:** user, from a live "Security Alert still active (5min)" push (Cam15
+Passage / Rear Left / ELEVATED / 95%) plus a follow-up on the previous session's boundary-
+lighting explanation: "front and back security lights should only come on at night time
+and off in the morning with boundary lights - rain or bad weather should not be triggering
+front / back security lights as that doesn't make sense." Also: "Security event boolean
+should not turn off boundary street security - should have its own boolean for control."
+
+**Root cause 1 — `security_lighting_engine`'s AREA branch, not `boundary_security_on`:**
+BUG-L22 (2026-09-07) fixed exactly this symptom, but only in `boundary_security_on` — that
+automation's front/back branch already correctly required `night_early` AND
+`anyone_connected_home`. The actual culprit this time was the separate, threat-driven
+`security_lighting_engine` (lighting_security.yaml), whose only gate is
+`binary_sensor.security_lighting_allowed` — defined as `night_early OR
+security_visibility_poor OR security_weather_low_light` (security_core.yaml), i.e. true on
+any rainy/overcast daytime moment, not just at night. `sensor.security_threat_level`'s rule
+4 (`grounds + nobody_home + medium/high confidence → warning`) has no night check either —
+so a rainy day with nobody home, plus rain-induced false NVR motion on the rear cameras
+(cam09/cam12 — the same false-positive-prone hardware behind BUG-S65/S78), reaches
+`warning` → `security_lighting_intent` = `area` → front/back lights fire in broad
+daylight, with the whole chain never checking real time-of-day. This was previously
+undocumented in this contract — `security_lighting_engine`'s table (Section 4) had no
+gate notes at all before this fix, unlike `boundary_security_on`'s already-detailed row.
+
+**Fix:** AREA branch's `choose` conditions now also require `binary_sensor.night_early` =
+`on`. `full` (genuine critical intrusion — arguably fine to light everything regardless of
+time) and `perimeter` (street light only, same as boundary's "always" pair) are unchanged.
+
+**Root cause 2 — no independent control for boundary lighting:** the only existing
+lighting-preference toggle, `input_boolean.security_event_lights` (security_helpers.yaml),
+is scoped to `security_lighting_engine` only (per its own doc comment: "when OFF, security
+events do NOT trigger additional lights... practically only matters after bedtime"). It was
+never wired into `boundary_security_on`/`_watchdog` at all — so there was no way to
+independently disable the weather/night-driven boundary routine, and user explicitly did
+not want the two coupled together ("should have its own boolean for control").
+
+**Fix:** new `input_boolean.boundary_security_lights_enabled` (lighting_helpers.yaml,
+default ON) — added as a condition on both `boundary_security_on` and
+`boundary_security_watchdog`. `boundary_security_off` (turning lights off) and
+`lighting_gate_open_assist` are unaffected — disabling the toggle stops the routine from
+turning lights *on*, it doesn't block turning them off or the separate gate-open comfort
+feature.
+
+**Deployed:** YAML-only change (2 automations + 1 new helper) — needs `ha core check`,
+`Reload Automations`, and a full YAML reload-all (or restart) for the new helper to
+register. Not yet live-verified against a real rain event — next daytime rain with nobody
+home should confirm front/back stay off, and the next real night event should confirm they
+still come on as before.
+
+---
+
 ## Section 8: Cross-Domain Dependencies
 
 | Entity | Provider | Consumed by |
@@ -841,7 +918,7 @@ the same night," just less overhead/log churn.
 | `binary_sensor.staff_on_site` | presence/presence_trust.yaml (maid OR gardener — see SYSTEM_CONTRACT.md for the staff_on_site/low_trust_present distinction) | **New 2026-09-07 (BUG-L22)** — entrance_down_lights_daytime_low_light (daytime rain + staff-on-site carve-out). First lighting-domain consumer of this entity; SYSTEM_CONTRACT.md's cross-domain interface row updated to match. |
 | `sensor.security_lighting_intent` | security_logic.yaml | security lighting engine |
 | `sensor.security_movement_path` | security_logic.yaml | security lighting engine area selection |
-| `binary_sensor.security_lighting_allowed` | security_core.yaml | security lighting hard block |
+| `binary_sensor.security_lighting_allowed` | security_core.yaml | security lighting hard block for `full`/`perimeter` intents. **`area` intent additionally requires `night_early` directly (2026-09-15, BUG-L23)** — this sensor is true for night OR daytime poor-visibility/low-light weather, which let `area` (front/back) fire on a rainy day with nobody home; see BUG-L23. |
 | `input_boolean.bedtime_mode` | lighting_helpers.yaml (moved from context_schedules.yaml, 2026-04-28 — matches Section 5's Helper Inventory note; `context_schedules.yaml` no longer exists) | bar cutoff, bar wind-down |
 | `input_boolean.entertaining_mode` | presence/presence_trust.yaml (moved from context_presence.yaml, 2026-04-30, BUG-P11) — also actively read by `sensor.security_correlation` (`security_logic.yaml`) to suppress grounds-motion classification, see SECURITY_CONTRACT.md ISSUE 14 | (consumed by security correlation + door alerts, not directly by lighting yet) |
 | `input_boolean.holiday_mode` | presence/presence_trust.yaml (moved from context_presence.yaml, 2026-04-30, BUG-P11) — also read by `sensor.security_correlation` to escalate to `intruder_high`, see SECURITY_CONTRACT.md ISSUE 14 | bedtime schedule selection |

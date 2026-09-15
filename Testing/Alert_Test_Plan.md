@@ -390,6 +390,13 @@ Then manually trigger motion on a camera
 | `sensor.security_alert_context` | warning or critical | |
 | Alert widget shows classification + camera | ✅ | |
 | `skip_first: true` means NO duplicate with security_automations notification | ✅ | |
+
+> **⚠️ Due for re-run — 2026-09-15 (BUG-A25):** `binary_sensor.security_alert_active` no
+> longer treats `elevated` as alert-worthy while anyone's home (only `warning`/`critical`
+> do now). Method A/B above target `warning`, which is unaffected — but add a case with
+> someone home AND a rear-camera trigger that only reaches `elevated` (e.g. a single
+> uncorroborated grounds hit) and confirm NO push/repeat-reminder fires in that case,
+> confirming it still fires when nobody's home. See ALERTS_CONTRACT.md BUG-A25.
 | Escalation reminder after 5 min if threat persists | ✅ | |
 | Alert clears after motion stops + delay_off (30s) | ✅ | |
 

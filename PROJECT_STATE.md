@@ -5,6 +5,58 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-15 — Lighting/Alerts: BUG-L23 (front/back security lights firing on
+      daytime rain via a second, previously-undocumented automation) + BUG-A25 (daytime
+      "elevated" dog/leaf motion nagging every 5/15/30/60min while home) fixed, plus a new
+      dedicated boundary-lighting toggle.** User reported a live "Security Alert still
+      active (5min)" push (`Threat: ELEVATED Score: 95% Path: Rear Left, Camera: Cam15
+      Passage`) while home, and separately: "front and back security lights should only
+      come on at night time and off in the morning with boundary lights - rain or bad
+      weather should not be triggering front/back security lights" + "Security event
+      boolean should not turn off boundary street security - should have its own boolean
+      for control."
+      **BUG-L23:** BUG-L22 (2026-09-07) already night-gated `boundary_security_on`'s
+      front/back branch, but `security_lighting_engine` (`lighting_security.yaml`) — a
+      separate, threat-driven automation this contract had never fully gated in its own
+      table — turns on the same lights via its `area` intent, hard-blocked only on
+      `binary_sensor.security_lighting_allowed` (true for night OR daytime poor-
+      visibility/low-light weather, not real night alone). A rainy day with nobody home
+      plus rain-induced false NVR motion on cam09/cam12 (same hardware as BUG-S65/S78)
+      reaches `security_threat_level`='warning' (rule 4 has no night check) →
+      `security_lighting_intent`='area' → front/back on in daylight. Fixed: `area`
+      branch now also requires `binary_sensor.night_early`=on; `full`/`perimeter`
+      unchanged. Also added `input_boolean.boundary_security_lights_enabled`
+      (lighting_helpers.yaml, default ON) as a dedicated master toggle for
+      `boundary_security_on`/`_watchdog` — deliberately separate from
+      `input_boolean.security_event_lights`, which only ever gated the different
+      `security_lighting_engine`, per explicit user request not to couple the two.
+      **BUG-A25:** the "still active" reminder pipeline (`alerts_security.yaml`,
+      entirely separate from the classifier/router) treated `sensor.security_threat_
+      level`='elevated' as push-worthy with no presence check — `security_threat_level`'s
+      own catch-all rule explicitly assigns `elevated` to "daytime / low confidence /
+      family home" grounds/perimeter motion rather than dropping it (mirroring RUNG 7b's
+      philosophy), but nothing downstream gave this the equivalent of the classifier's own
+      RUNG 3 (`family_movement`, silent while anyone's home) — so it pushed and then
+      repeated via `security_alert_repeat_reminder` every 5/15/30/60min. The 95% score
+      needs no presence bonus at all: inside(+50) + grounds(+25) + high confidence(+20) =
+      95, consistent with a dog moving yard→passage. Fixed: `binary_sensor.security_
+      alert_active` now only counts `elevated` while `anyone_connected_home` is off;
+      `warning`/`critical` unaffected (those tiers already require nobody-home or night
+      in `security_threat_level`'s own rules). Noted, not fixed: the `Camera`/`Path`
+      mismatch potential in this same reminder text (two independently-updating globals,
+      no atomic snapshot) is the same bug class as BUG-S69/S76, never patched in this
+      separate pipeline — flagged for a future pass.
+      Full detail: LIGHTING_CONTRACT.md BUG-L23, ALERTS_CONTRACT.md BUG-A25,
+      SECURITY_CONTRACT.md (cross-reference note after BUG-S78).
+      **Deployed:** YAML-only across 4 files, parses clean. Needs `ha core check` +
+      Reload Automations + a full YAML reload-all (or restart) for the new helper to
+      register — not yet done or live-verified this session (no HA API access available).
+      `docs/Testing/Alert_Test_Plan.md` Test 6 flagged for re-run against the new
+      elevated-tier presence gate.
+      Files: `packages/lighting/lighting_security.yaml`,
+      `packages/lighting/lighting_boundary.yaml`, `packages/lighting/lighting_helpers.yaml`,
+      `packages/alerts/alerts_security.yaml`.
+
 - [ ] **2026-09-14 — Water Cooler: `watercooler_empties_on_hand` had the same
       every-restart-`initial:`-reset bug fixed on 4 other helpers 2026-09-06,
       missed by that pass.** User: "seems like spare empty bottles is wrong
@@ -4676,6 +4728,15 @@ binary_sensor.security_gate_loitering           ← added 2026-07-02 (S17), dela
 input_boolean.security_visitor_alerts_suppressed ← added 2026-08-31 (BUG-S77), scoped mute for the visitor router branch only
                                                   ← dashboard entry added 2026-09-02 (was built but never wired into any
                                                     dashboard — Operations → Security → "Camera System Control" card)
+```
+
+### Boundary Lighting (added 2026-09-15)
+```
+input_boolean.boundary_security_lights_enabled  ← lighting_helpers.yaml — master on/off for
+                                                    boundary_security_on/watchdog (lighting_boundary.yaml).
+                                                    Deliberately separate from input_boolean.security_event_lights
+                                                    (security_helpers.yaml), which only ever gates the different
+                                                    security_lighting_engine automation. See LIGHTING_CONTRACT.md BUG-L23.
 ```
 
 ### Presence Persons

@@ -2560,6 +2560,15 @@ what caused the storm), but the "rain-correlated" hypothesis is now weaker
 circumstantial evidence than presented — it may have been raining, or `weather.
 forecast_home` may have simply been wrong about that too. Not re-investigated.
 
+**See also (2026-09-15):** a related but distinct gap in the same downstream alert
+pipeline — `alerts_security.yaml`'s `binary_sensor.security_alert_active` had no presence
+check of its own and pushed/repeated on ordinary daytime `elevated`-tier grounds motion
+(dogs, leaves) even while the family was home, despite the classifier's own RUNG 3
+(`family_movement`) already suppressing the equivalent case in the main router. Fixed as
+ALERTS_CONTRACT.md BUG-A25 — no `security_logic.yaml`/`security_automations.yaml` change,
+since the fix lives entirely in the separate alerts-domain pipeline this bug's own
+Root Cause section describes.
+
 ---
 
 ### BUG-S79 — `security_visibility_poor`/`security_weather_low_light` read `weather.forecast_home`, which is Met.no, not OpenWeatherMap as BUG-S43 assumed — boundary lights stuck on for hours on a genuinely clear/sunny afternoon
