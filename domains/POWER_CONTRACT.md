@@ -166,7 +166,7 @@ Full ROI/payback analysis for both line items: `private_docs/POWER_SYSTEM_AUDIT_
 | `power_statistics.yaml` | Rolling average sensors + solar forecast accuracy + 4-state weather correlation + season factor (P6 2026-06-14) | Derived |
 | `power_strategy.yaml` | power_strategy, power_strategy_status, severity | Decision |
 | `power_automations.yaml` | Power domain automations — migrated from automations.yaml; includes `pool_pump_solar_control` + `automation.pool_manual_run`/`script.pool_manual_run` (added 2026-09-11, mirrors geyser's manual run) | Automation |
-| `geyser_automations.yaml` | Geyser heat pump scheduling — 4 automations + script.geyser_manual_run (E2 2026-06-14; E4 retrofit: orchestrator gate, midday solar-gated, at-temp proxy, window helpers, emergency off) | Automation |
+| `geyser_automations.yaml` | Geyser heat pump scheduling — 10 automations (turn_on, morning_backstop, turn_off, sports_night_scheduler, manual_run, heat_up_duration_capture, reached_temp_tracker, period_energy_snapshot, daily_minimum_check, morning_override_midday_clear) + script.geyser_manual_run (E2 2026-06-14; E4 retrofit: orchestrator gate, midday solar-gated, at-temp proxy, window helpers, emergency off; grown to 10 automations across E5-E10 + BUG-PWR-GEYSER01-05 — count corrected 2026-09-15, was stale at "4" since at least E4) | Automation |
 | `power_contract.yaml` | Documentation notes only — no executable YAML | Docs |
 | `battery_runtime.yaml` | Program-aware battery runtime, severity, confidence | Derived |
 | `battery_state.yaml` | battery_state_health (strong/healthy/low/critical) | State |
@@ -1703,8 +1703,14 @@ automation.geyser_period_energy_snapshot  (added 2026-06-17; alerts added 2026-0
   Morning alert (added 2026-06-18): if morning_kwh < 0.5 AND NOT reached_temp_today
     → severity: warning "Geyser morning run produced almost nothing (X kWh)"
     → tells user tank is cold and evening early start will fire
-  Midday alert (added 2026-06-18): if midday_delta < adequate_threshold AND NOT reached_temp_today
-    → severity: information "Poor midday — early evening start at 17:00/17:30"
+  Midday alert (added 2026-06-18, escalated to critical + auto-trigger 2026-06-20,
+  split by BUG-PWR-GEYSER05 2026-09-15 — see Issue 35): if midday_delta <
+  adequate_threshold AND NOT at_temp_now, branches on whether the geyser reached
+  temperature at any point DURING the midday window (geyser_midday_reached_temp_today):
+    → reached temp during midday, since cooled from use: severity information,
+      "Geyser — midday reheat after good solar, topping up" + forced 60-min run
+    → never reached temp all midday (genuine shortfall): severity critical,
+      "🔴 Geyser — poor midday, forcing 60-min run" + forced 60-min run
     → midday_delta = midday_end − morning_end (midday-window energy only)
 
 automation.geyser_daily_minimum_check  (added 2026-06-17)
@@ -1736,7 +1742,7 @@ Force-on time = 15:00 − required minutes (90→13:30, 60→14:00, 30→14:30),
 
 **Sticky-flag bug fix (same day, 2026-06-20):** `geyser_period_energy_snapshot`'s midday alert and `geyser_daily_minimum_check`'s 20:00 "all good" branch both used to gate on `input_boolean.geyser_reached_temp_today`, which only resets at midnight. A geyser that reached temperature once overnight/early-morning stayed flagged on for the rest of the day even after the tank cooled from daytime use — silently suppressing both checks (root cause of a missing midday notification despite the tank being cold by 15:30). Both now use `binary_sensor.geyser_at_temperature` (real-time) for the actual decision; the sticky flag is kept only in log/notification text for context.
 
-**Midday safety-net auto-trigger (added 2026-06-20):** The midday alert in `geyser_period_energy_snapshot` (15:00) is escalated from severity `information` to `critical` and now auto-triggers a forced 60-minute run — via the existing manual-run mechanism (`input_select.geyser_manual_run_duration` = "60" + `input_boolean.geyser_manual_run_active` → on) — when the tank is not at temperature and the midday delta is below threshold. This is a backstop for the case where Branch 2b (forced minimum, above) doesn't end up running the geyser. Gated by: switch off, `load_control_geyser_enabled` on, `geyser_manual_run_active` off, orchestrator not `loadshedding_critical`.
+**Midday safety-net auto-trigger (added 2026-06-20, split by BUG-PWR-GEYSER05 2026-09-15 — see Issue 35):** The midday alert in `geyser_period_energy_snapshot` (15:00) auto-triggers a forced 60-minute run — via the existing manual-run mechanism (`input_select.geyser_manual_run_duration` = "60" + `input_boolean.geyser_manual_run_active` → on) — whenever the tank is not at temperature and the midday delta is below threshold. This is a backstop for the case where Branch 2b (forced minimum, above) doesn't end up running the geyser, or the tank cooled again from use after Branch 2b/solar-gated Branch 2 already ran it. Gated by: switch off, `load_control_geyser_enabled` on, `geyser_manual_run_active` off, orchestrator not `loadshedding_critical`. Severity/title depend on `geyser_midday_reached_temp_today` (whether the geyser reached temperature at any point during 11:00-15:00, not just at the 15:00 instant): `critical` "🔴 poor midday" only if it never reached temp all window (genuine shortfall — was the only case before 2026-09-15); `information` "midday reheat after good solar" if it did reach temp mid-window and simply got used again before 15:00 (a fast reach-temp already proves solar was adequate — see Issue 35's real incident for why conflating these two was a false-alarm bug).
 
 **Morning extension (added 2026-06-21, reworked 2026-07-06):** Incident — cold (11°C), heavily overcast winter day (`solar_weather_correlation` degraded), more than one person home all day — the morning run alone wasn't enough; tank cold again by 11am showers. `geyser_turn_off` Branch 1 checks, at the normal morning hard-off, whether the geyser is STILL ACTUALLY HEATING (`binary_sensor.geyser_at_temperature == 'off'`, i.e. power draw still ≥ 50W) AND any of: (a) the cold trigger — `sensor.season == 'winter'` AND `state_attr('weather.openweathermap','temperature') < input_number.geyser_cold_ambient_threshold_c` (14°C default) AND `sensor.solar_weather_correlation in ['poor','degraded']` AND **more than one** family member in a home AP zone (inline count over `sensor.{ryan,vicky,luke,tayla}_ap_location`, not the universal-quantifier `binary_sensor.all_family_home` — a single person home alone doesn't need the extra capacity); (b) `input_boolean.holiday_mode == 'on'`; (c) `input_boolean.geyser_morning_extend_override == 'on'` (manual, same-day equivalent of holiday_mode for this logic only — doesn't touch security escalation or bedtime scheduling). If so (and `input_boolean.geyser_morning_extend_enabled` is on), it skips the turn-off and sets `input_boolean.geyser_morning_extended_today`.
 
