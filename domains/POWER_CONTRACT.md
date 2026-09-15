@@ -3016,6 +3016,66 @@ and get no verification pass at all — if they suffer the same silent-write-dro
 undetected. Extending verification to their writes too, if this pattern recurs, is a candidate
 follow-up but wasn't part of this session's scope.
 
+### Issue 35 — ✅ FIXED 2026-09-15: BUG-PWR-GEYSER05 — "poor midday" critical alert fired despite good solar; geyser had already reached temperature and was reheating from normal hot-water use
+**Files:** `packages/power/geyser_automations.yaml` (`geyser_reached_temp_tracker`,
+`geyser_period_energy_snapshot`), `packages/power/power_helpers.yaml` (new
+`geyser_midday_reached_temp_today` helper).
+**Reported by:** user — "why was there a bad run at lunch today when was good solar."
+
+**Investigation (recorder DB, `home-assistant_v2.db`, 2026-09-15, season = spring):**
+`switch.geyser_heat_pump_switch` turned on at 12:00 (Branch 2, solar-gated — SOC 100%, sunny).
+`binary_sensor.geyser_at_temperature` → `on` at 13:08, a 68-minute heat-up — fast, proving solar
+was ample. Tank stayed hot and mostly idle until 14:53, when it dropped back to `off` (a normal
+reheat from hot-water use, not a solar problem — PV power stayed strong, 661W–2232W, through this
+whole window). At 15:00 the midday hard-off (`geyser_turn_off` Branch 2, which — unlike the
+morning window — has no "still heating → extend" exception) cut power 7 minutes into that reheat.
+`geyser_period_energy_snapshot`'s midday branch then computed `midday_delta` = 1.35 kWh against
+the 3.0 kWh `geyser_adequate_daily_energy_by_midday` threshold, saw `at_temp_now == False`, and
+fired a **critical** "🔴 poor midday, forcing 60-min run" alert blaming the solar window — even
+though the geyser had already reached full temperature earlier that same window. The forced
+60-min top-up itself re-reached temperature in 7 minutes at 15:12, confirming solar/energy was
+never the constraint.
+
+**Root cause:** `midday_delta` (net kWh since morning-end) and `at_temp_now` (state at the instant
+of the 15:00 check) can't distinguish "solar was inadequate all window" from "tank reached temp
+fine mid-window, then hot-water use dropped it again right before the fixed cutoff." Both produce
+the same low-delta/not-at-temp-now signature, but only the first is actually a solar problem — the
+second is expected daily cycling. The existing `reached_temp_sticky` flag
+(`input_boolean.geyser_reached_temp_today`) couldn't fix this either: it's day-wide (also set by a
+morning-only reach) and was already rejected for a similar reason as the *condition* itself back
+in the 2026-06-20 fix (see the "REAL-TIME check" comment at that call site) — using it here would
+just reintroduce the opposite failure mode (masking a genuinely cold tank because of an unrelated
+morning reach).
+
+**Fix:** added a window-scoped signal instead of reusing the day-wide one. New
+`input_boolean.geyser_midday_reached_temp_today` (`power_helpers.yaml`), set by
+`geyser_reached_temp_tracker` only when a reach-temp event happens inside the midday window itself
+(`condition: time`, `after: "11:00:00"`, `before: "15:00:00"`), reset at 00:01 alongside its
+day-wide sibling. `geyser_period_energy_snapshot`'s midday branch now branches on it:
+- **`midday_reached_temp` true** (this incident's case) → severity downgraded to `information`,
+  title/message rewritten to state plainly that solar was fine and this is a post-heat reheat from
+  usage ("Geyser — midday reheat after good solar, topping up"). The 60-min top-up still fires
+  (harmless, keeps hot water available for evening) — only the diagnosis changes, not the safety
+  behavior.
+- **`midday_reached_temp` false** (never got hot all window) → unchanged: `critical` "🔴 poor
+  midday" alert, same forced 60-min run. This is the genuine-shortfall case the 2026-06-20 fix was
+  built for and still needs the loud alert.
+Both branches share the same forced-run condition/action blocks via YAML anchors
+(`&safety_net_run_conditions` / `&safety_net_run_actions`) to avoid duplicating the manual-run
+trigger logic. Also added `heat_up_minutes` (reusing existing `input_number.
+geyser_last_heat_up_minutes`, already captured by `geyser_heat_up_duration_capture`) to both the
+logbook line and the reheat-case notification for at-a-glance context on how fast the midday
+run actually was.
+
+**Deployed:** `check_config` via Supervisor API returned `valid`. Reload Helpers
+(`input_boolean`, `input_number`) and Reload Automations done via Supervisor API — all returned
+`[]` (no errors). Live verification: `input_boolean.geyser_midday_reached_temp_today` exists
+(state `off`, correct — resets at midnight, today's midday window already closed before this
+fix landed); `automation.geyser_track_at_temperature_daily_reset` and `..._period_energy_
+snapshot_morning_midday` both reloaded and confirmed `on`. Next midday window this fires in
+(tomorrow, or any day the geyser reaches temperature between 11:00-15:00) will exercise the new
+branch live.
+
 ---
 
 ## 12. Error Signatures (Watchman-Confirmed)

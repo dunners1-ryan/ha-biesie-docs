@@ -5,6 +5,33 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-15 — Power: BUG-PWR-GEYSER05 — "poor midday" critical alert fired despite
+      good solar; geyser had already reached temperature and was reheating from normal
+      hot-water use.** User: "why was there a bad run at lunch today when was good solar."
+      Recorder DB investigation: geyser turned on 12:00 (solar-gated, SOC 100%, sunny),
+      reached temperature in a fast 68 min at 13:08 — proving solar was ample — then sat
+      hot/idle until 14:53, when normal lunchtime hot-water use dropped it back below
+      temperature. The 15:00 midday hard-off (no "still heating" extension, unlike the
+      morning window) cut power 7 minutes into that reheat. `geyser_period_energy_
+      snapshot`'s midday branch then read the resulting low net kWh delta + "not at temp
+      right now" as evidence of poor solar and fired a critical alert forcing a 60-min
+      run — misdiagnosed, since the geyser had already done its job that window; the
+      forced run itself re-reached temp in 7 min, confirming solar was never the issue.
+      Root cause: the check couldn't tell "solar was bad all window" apart from "tank got
+      hot fine, then got used right before the fixed cutoff" — both look identical as a
+      low-delta/not-at-temp snapshot. Fixed: new `input_boolean.geyser_midday_reached_
+      temp_today` (window-scoped, distinct from the existing day-wide sticky flag which
+      was already known to be the wrong signal here) tracks whether the geyser reached
+      temperature specifically during 11:00-15:00. When true, the midday-close check now
+      fires an `information`-severity "reheat after good solar, topping up" notice instead
+      of the critical "poor midday" one — same harmless 60-min top-up either way, just an
+      accurate diagnosis. Genuine poor-solar days (never reached temp all window) still get
+      the critical alert unchanged. Full detail: POWER_CONTRACT.md Issue 35.
+      **Deployed:** Supervisor API `check_config` → valid; Reload Helpers + Reload
+      Automations both applied cleanly; new helper entity and both automations confirmed
+      live. Files: `packages/power/geyser_automations.yaml`,
+      `packages/power/power_helpers.yaml`.
+
 - [x] **2026-09-15 — Lighting: BUG-L24 — garage light not turning off when the garage door
       closes, and turning back on again after the door is already closed.** User: "why is
       garage light not turning off when door closes and why turns on again if garage door
