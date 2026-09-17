@@ -5,6 +5,45 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-17 — Lighting/Alerts: BUG-L25 (weather sensors flapping, no hysteresis)
+      + BUG-A26 (repeat-reminder pushes had no image) fixed.** User, from a notification
+      screenshot showing 3 "Security Alert still active" pushes with no photo next to one
+      real classifier push that had one, plus a follow-up about lights flip-flopping:
+      "What is the point of these security threat alerts without images?" + "confirm why
+      boundary lighting and evening rout[ine] were flipping on/off this morning with the
+      bad light weather?" + "confirm why front security lights/back security lights
+      seemed to turn on?"
+      **BUG-L25:** `binary_sensor.security_visibility_poor`/`security_weather_low_light`
+      (security_core.yaml) had zero `delay_on`/`delay_off` — a raw re-read of `weather.
+      openweathermap`'s condition string on every ~10min poll (no `scan_interval`
+      override found), able to flip on/off every poll near a condition boundary on a
+      partly-cloudy morning. Propagated unsmoothed into `entrance_down_lights_daytime_
+      low_light` (zero hysteresis of its own — the visible flip-flop) and
+      `boundary_security_on`/`_off` (5min-off, but immediate-on). Ruled out `night_early`/
+      `civil_night` first — confirmed pure monotonic sun-elevation functions, not the
+      source. Fixed: added 10min `delay_on`/`delay_off` to both sensors at the source,
+      fixing every downstream consumer at once. Front/back lights specifically: likely
+      still on from genuine overnight critical threat events (real scores of 65%/100%),
+      not yet released because `security_lighting_reset` skips resetting while `security_
+      lighting_required` is on, and the same flapping weather was keeping that bouncing
+      back to "on."
+      **BUG-A26:** `security_alert_repeat_reminder` (alerts_security.yaml) never had an
+      `image:` field on its notify call — simple oversight from when it was created
+      (2026-07-10), unlike every other `notify_security_event` caller in the repo. Fixed:
+      attaches `input_text.security_last_motion_image` (global tracker, unconditionally
+      fresh since BUG-S65/S75), guarded against unknown/unavailable/empty. Also flagged,
+      not new: the Sept 15 lighting fixes (BUG-L23, `boundary_security_lights_enabled`)
+      may still not be live on the running instance — no confirmation a reload/restart
+      ever happened, and this session again has no HA API access to check or apply one.
+      Full detail: LIGHTING_CONTRACT.md BUG-L25, ALERTS_CONTRACT.md BUG-A26,
+      SECURITY_CONTRACT.md (cross-reference note after BUG-S79).
+      **Deployed:** YAML-only across 2 files (`security_core.yaml`, `alerts_security.
+      yaml`), parses clean. Needs `ha core check` + template reload + Reload Automations
+      — not yet done or live-verified this session. `docs/Testing/Alert_Test_Plan.md`
+      Test 6 flagged for the image addition; no existing test covers boundary/entrance
+      lighting stability during fluctuating weather — worth adding one.
+      Files: `packages/security/security_core.yaml`, `packages/alerts/alerts_security.yaml`.
+
 - [x] **2026-09-15 — Power: BUG-PWR-GEYSER05 — "poor midday" critical alert fired despite
       good solar; geyser had already reached temperature and was reheating from normal
       hot-water use.** User: "why was there a bad run at lunch today when was good solar."

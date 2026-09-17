@@ -7,7 +7,13 @@
 #
 # Scope: All 16 packages/alerts/*.yaml files
 #        Plus cross-domain aggregation in alerts_summary.yaml
-# Last updated: 2026-09-15 — BUG-A25: `binary_sensor.security_alert_active` no longer
+# Last updated: 2026-09-17 — BUG-A26: `security_alert_repeat_reminder`'s notify call
+# never carried an `image:` field, unlike every other notify_security_event caller in the
+# repo — now sources `input_text.security_last_motion_image` (guarded against
+# unknown/unavailable/empty). File Inventory line count corrected: alerts_security.yaml
+# 280→295.
+#
+# Previously — 2026-09-15 — BUG-A25: `binary_sensor.security_alert_active` no longer
 # treats daytime `elevated` threat_level as push-worthy while anyone's home (dog/leaf/wind
 # grounds motion was nagging every 5/15/30/60min despite the classifier's own family_
 # movement suppression covering the same case elsewhere). Same-day follow-up: the
@@ -200,7 +206,7 @@ fully correct. All domains route through the central notification script.
 | `alerts_system_health.yaml` | 452 | ✅ Active | Critical sensor watchman monitoring |
 | `alerts_presence.yaml` | 288 | ✅ Active | Unknown AP + occupancy anomaly — implemented 2026-04-16 |
 | `alerts_water.yaml` | 614 | ✅ Active | Water alert pipeline — implemented 2026-04-14 |
-| `alerts_security.yaml` | 280 | ✅ Active | Security alert pipeline — implemented 2026-04-14; `elevated` tier presence-gated + Camera field switched to `sensor.security_trigger_camera` 2026-09-15 (BUG-A25) |
+| `alerts_security.yaml` | 295 | ✅ Active | Security alert pipeline — implemented 2026-04-14; `elevated` tier presence-gated + Camera field switched to `sensor.security_trigger_camera` 2026-09-15 (BUG-A25); repeat reminder now attaches an image 2026-09-17 (BUG-A26) |
 | `alerts_garden.yaml` | 282 | ✅ Active | Garden/pond pump unscheduled alert — implemented 2026-04-29 |
 | `alerts_batteries.yaml` | 448 | ✅ Active | Dashboard tablet battery low/overcharge alert — implemented 2026-05-27 |
 | `alerts_device_batteries.yaml` | 507 | ✅ Active | All OTHER battery devices (door/gate sensors, doorbell, phones, watches, laptops) — label-onboarded (`battery_monitor`), excludes inverter/UPS/dash-tablets — implemented 2026-08-21; staleness tier added 2026-08-24 (BUG-A20); per-device sparse-reporter stale override added 2026-08-31 (BUG-A22) |
@@ -297,7 +303,7 @@ entity_id:
 | Stage | Entity | Status |
 |---|---|---|
 | Toggle | `input_boolean.security_alert_notify` | ✅ suppress pipeline escalations when cameras over-trigger |
-| Binary sensor | `binary_sensor.security_alert_active` | ✅ delay_on 5s, checks security_system_enabled + alert_notify — no delay_off, so it directly tracks `sensor.security_threat_level`'s own stability; see SECURITY_CONTRACT.md BUG-S78 (2026-09-07) for an incident where an undebounced upstream camera signal made this cycle ~1000+ times in 16h. **2026-09-15 (BUG-A25):** `warning`/`critical` still trigger unconditionally, but `elevated` only counts while `binary_sensor.anyone_connected_home` is off — previously any `elevated` reading (including the documented daytime/family-home catch-all in `security_threat_level`) was push-worthy regardless of presence. Also: the "Camera:" field in `alert.security_alert` + `security_alert_repeat_reminder` now reads `sensor.security_trigger_camera` instead of the unrelated global `input_text.security_last_motion_camera`, so it's always drawn from the same live instant as the "Path:" field (`sensor.security_movement_path`). |
+| Binary sensor | `binary_sensor.security_alert_active` | ✅ delay_on 5s, checks security_system_enabled + alert_notify — no delay_off, so it directly tracks `sensor.security_threat_level`'s own stability; see SECURITY_CONTRACT.md BUG-S78 (2026-09-07) for an incident where an undebounced upstream camera signal made this cycle ~1000+ times in 16h. **2026-09-15 (BUG-A25):** `warning`/`critical` still trigger unconditionally, but `elevated` only counts while `binary_sensor.anyone_connected_home` is off — previously any `elevated` reading (including the documented daytime/family-home catch-all in `security_threat_level`) was push-worthy regardless of presence. Also: the "Camera:" field in `alert.security_alert` + `security_alert_repeat_reminder` now reads `sensor.security_trigger_camera` instead of the unrelated global `input_text.security_last_motion_camera`, so it's always drawn from the same live instant as the "Path:" field (`sensor.security_movement_path`). **2026-09-17 (BUG-A26):** the repeat-reminder call now also attaches `input_text.security_last_motion_image` as `image:` — previously the only `notify_security_event` caller in the repo with no image field at all. |
 | Context sensor | `sensor.security_alert_context` | ✅ single "Security Event" devices entry |
 | Alert entity | `alert.security_alert` | ✅ skip_first true (security_automations handles immediate) |
 | In aggregator trigger | Yes | ✅ added 2026-04-14 |
@@ -1783,6 +1789,42 @@ matching the existing unknown/unavailable handling.
 
 ---
 
+### BUG-A26 — `security_alert_repeat_reminder` never attached an image, unlike every other `notify_security_event` caller in the repo
+
+**Severity:** Low
+**File:** `packages/alerts/alerts_security.yaml`
+**Status:** ✅ FIXED 2026-09-17
+
+**Reported by:** user, from a screenshot showing 3 consecutive "⏰ Security Alert still
+active" pushes with no photo (next to one real classifier-driven "INTRUDER" push that
+did carry one) — "What is the point of these security threat alerts without images?"
+
+**Root cause:** `security_alert_repeat_reminder`'s `script.notify_security_event` call
+passed `severity`/`title`/`message`/`source`/`actions`/`telegram_action` — no `image:`
+field at all, unlike every other caller of this script in the repo
+(`security_automations.yaml`'s router branches, all of which attach a zone-matched
+image). Not a severity- or time-based decision — the field was simply never added when
+this automation was created (2026-07-10, closing a different PROJECT_STATE TODO about
+`alert.security_alert`'s own broken `notifiers:`, BUG-A10). The reminder's actual job —
+nagging that an unresolved threat is still active every 5/15/30/60min, since the alert
+integration can't self-deliver — never needed an image to do that, so the gap went
+unnoticed until a user asked why these specific pushes looked different from the rest.
+
+**Fix:** added an `image:` field, sourced from `input_text.security_last_motion_image` —
+the GLOBAL "last motion anywhere" tracker, unconditionally kept fresh on every motion
+event since SECURITY_CONTRACT.md BUG-S65/S75. Not zone-matched the way the router's
+per-branch images are (this reminder already reads other globals the same way, e.g.
+`sensor.security_trigger_camera` per BUG-A25's follow-up above), but always recent.
+Guarded (`candidate if candidate not in ['unknown','unavailable',''] else ''`) so a
+genuinely-stale-tracker case degrades to no image via the script's own `{% if image %}`
+skip, rather than a broken URL.
+
+**Deployed:** YAML-only (1 automation, new `variables:` block + 1 field) — needs
+`ha core check` + `Reload Automations`. Not yet live-verified — next repeat-reminder
+firing should confirm an image renders.
+
+---
+
 ## Section 9: Summary of Pipeline Audit Results
 
 | Domain | Binary | Context | Alert entity | Aggregator | Result | Updated |
@@ -1795,7 +1837,7 @@ matching the existing unknown/unavailable handling.
 | Media | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A05; 2026-07-06 delivery fixed (BUG-A10); 2026-08-18 Cancel Alert added (BUG-A19) |
 | System Health | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-07-06 delivery fixed (BUG-A10); 2026-07-17 Watchman-cache staleness false positives fixed (BUG-A14); 2026-08-04 notification whitespace fixed (BUG-A16); 2026-08-18 Cancel Alert added (BUG-A19) |
 | Water | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A01; 2026-07-06 tank-low + borehole tiers delivery fixed (BUG-A10); 2026-08-18 Cancel Alert added to all 3 streams (BUG-A19) |
-| Security | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A02; repeat reminders base implementation shipped 2026-07-10 (see BUG-A10); 2026-08-18 Cancel Alert added, replacing the global-mute workaround (BUG-A19); 2026-09-15 `elevated` tier no longer push-worthy while anyone's home (BUG-A25) |
+| Security | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-14 BUG-A02; repeat reminders base implementation shipped 2026-07-10 (see BUG-A10); 2026-08-18 Cancel Alert added, replacing the global-mute workaround (BUG-A19); 2026-09-15 `elevated` tier no longer push-worthy while anyone's home (BUG-A25); 2026-09-17 repeat reminder now attaches an image (BUG-A26) |
 | Presence | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-16 B1; 2026-07-06 delivery fixed (BUG-A10); 2026-08-18 Cancel Alert added (BUG-A19) |
 | Garden | ✅ | ✅ | ✅ | ✅ (triggered) | PASS | 2026-04-29 new; 2026-07-06 delivery fixed (BUG-A10); 2026-07-07 action button restored (BUG-A12); 2026-08-18 Cancel Alert added alongside Turn Off Pump (BUG-A19) |
 | Dash Batteries | ✅ (x5) | ✅ | ✅ | ✅ (triggered) | PASS | 2026-05-27 new; 2026-07-06 delivery fixed (BUG-A10); 2026-08-18 Cancel Alert added (BUG-A19) |
@@ -1831,10 +1873,12 @@ matching the existing unknown/unavailable handling.
 | BUG-A21 | **Low** | ✅ Fixed 2026-08-24 | Battery dashboard showed raw vendor device names (`eWeLink SNZB-04P` ×10, `"Charles Leclerc "` for Luke's phone) instead of the `name_by_user` custom names already set on every device — `device_attr(e,'name')` doesn't fall back to `name_by_user` the way the frontend does | alerts_device_batteries.yaml |
 | BUG-A22 | **Low** | ✅ Fixed 2026-08-31, verified live | All 10 SNZB-04P Zigbee door/gate battery entities false-flagged STALE together for 50+ hours — a single 2026-08-29 ZHA network reload reset `last_reported` for all of them at once, and these sleepy end-devices report battery far less often than the global 24h threshold even normally; added a per-device sparse-reporter stale override (new label + `input_number.device_battery_stale_hours_sparse`, 96h) | alerts_device_batteries.yaml |
 | BUG-A23 | **Low** | ✅ Fixed 2026-08-31, verified live | "Ryan Macbook Pro" STALE alert was a dead duplicate `mobile_app` device registration (orphaned 2025-01-10 entry, never reconnected after the 2026-08-24 restart) — the live MacBook was really the unlabelled `AP-0223-1001` row. Deleted the dead device's config entry outright, renamed the live one | alerts_device_batteries.yaml (registry-only fix, no YAML change) |
+| BUG-A26 | **Low** | ✅ Fixed 2026-09-17 | `security_alert_repeat_reminder`'s notify call had no `image:` field at all — the only `notify_security_event` caller in the repo without one. Now attaches `input_text.security_last_motion_image`, guarded against unknown/unavailable/empty | alerts_security.yaml |
 | BUG-A25 | **Medium** | ✅ Fixed 2026-09-15 | `binary_sensor.security_alert_active` treated `elevated` threat_level as push-worthy with no presence check — ordinary daytime dog/leaf/wind grounds motion while anyone's home pushed + repeated every 5/15/30/60min via the separate repeat-reminder pipeline, even though the classifier's own RUNG 3 (family_movement) already suppresses the same scenario in the main router. Now only counts `elevated` while nobody's home; `warning`/`critical` unaffected. Same-day follow-up: "Camera:" field switched from the unrelated global `input_text.security_last_motion_camera` to `sensor.security_trigger_camera` (same live inputs as "Path:"), closing a BUG-S69/S76-class mismatch-potential in this separate pipeline | alerts_security.yaml |
 | BUG-A24 | **Medium** | ✅ Fixed 2026-09-11 | (1) No mobile push in the repo carried a `clickAction` — every alert opened the app to whatever screen it last had, never the relevant control page. Added `click_url`/`clickAction` to all 6 `notify_*_event` scripts (default per-domain dashboard view; `notify_system_event` callers override per-domain — see NOTIFICATIONS_CONTRACT.md "Alert Click-Through"). (2) While auditing dashboard navigation for this: found 7 distinct broken `navigation_path` values (9 occurrences) across the Home, Operations, and Debug dashboards — leftover from the debug views being split into their own `operations-debug` dashboard and an old `dashboard-home` id — e.g. "Network Debug"/"Presence Debug"/"Power History" buttons pointed at `/dashboard-operations/...-debug` (no such view; the real path is `/operations-debug/...`), two water-debug cards pointed at the nonexistent `/dashboard-home/...`. Fixed live via the `lovelace/config/save` WebSocket path (CODING_STANDARDS.md) — no restart needed, verified against both the live config and `.storage` afterward. Checked HA's admin/public dashboard settings while at it: all dashboards are `require_admin: false` with no per-view `visible:` restriction, so every click-through target is reachable by every household user (no public/internal mismatch found) | 6 `notify_*.yaml` scripts, 7 `alerts_*.yaml` files, `.storage/lovelace.dashboard_overview` + `lovelace.dashboard_operations` + `lovelace.operations_debug` |
 
 **Open: 0 issues**  
+**Fixed 2026-09-17: BUG-A26**
 **Fixed 2026-09-15: BUG-A25**
 **Fixed 2026-08-31: BUG-A22, BUG-A23**
 **Fixed 2026-08-24: BUG-A20 (restart-verified same day), BUG-A21**

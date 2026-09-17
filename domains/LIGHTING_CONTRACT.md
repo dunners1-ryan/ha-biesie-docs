@@ -8,7 +8,16 @@
 # This document is the ground-truth record of what the lighting system
 # actually does, its dependencies, known bugs, and design decisions.
 #
-# Last updated: 2026-09-15 — BUG-L24: garage_light was being turned on unconditionally by
+# Last updated: 2026-09-17 — BUG-L25: `security_visibility_poor`/`security_weather_low_
+# light` (security_core.yaml) had zero delay_on/delay_off — a raw, undebounced re-read of
+# weather.openweathermap's condition string on every ~10min poll, propagating unsmoothed
+# into entrance_down_lights_daytime_low_light (zero hysteresis of its own) and
+# boundary_security_on/off (5min-off, but immediate-on) — visible as both lights flip-
+# flopping on a partly-cloudy morning. Added 10min delay_on/delay_off to both sensors at
+# the source. Section 8's new security_visibility_poor/security_weather_low_light row
+# added.
+#
+# Previously — 2026-09-15 — BUG-L24: garage_light was being turned on unconditionally by
 # all three lighting_arrival_night.yaml scenarios (Quiet Mode/Someone Home/Nobody Home),
 # with no check on binary_sensor.garage_door_sensor — bypassing the door gate
 # lighting_garage.yaml enforces (Section 4, "Garage — door gating"). input_boolean.
@@ -969,6 +978,44 @@ entry event fires should confirm the light stays off.
 
 ---
 
+### BUG-L25 [LOW] — `security_visibility_poor`/`security_weather_low_light` had zero hysteresis, letting entrance/boundary lights flip-flop on a partly-cloudy morning
+
+**File:** `packages/security/security_core.yaml` (fix), `packages/lighting/lighting_boundary.yaml` (the two affected automations)
+**Status:** ✅ FIXED 2026-09-17
+
+**Reported by:** user, alongside a separate question about image-less security alerts —
+"confirm why boundary lighting and evening rout[ine] were flipping on/off this morning
+with the bad light weather?"
+
+**Root cause:** `binary_sensor.security_visibility_poor`/`security_weather_low_light`
+(security_core.yaml) are a direct, unsmoothed re-read of `weather.openweathermap`'s
+current condition string — `w in ['rainy','pouring','fog',...]` / `w in ['cloudy','fog']`
+— with no `delay_on`/`delay_off` at all. The openweathermap integration polls roughly
+every 10 minutes in this config (no `scan_interval` override found in
+`configuration.yaml`), and its reported condition string can flip between neighbouring
+values near a boundary (e.g. "clouds" vs. a non-matching intermediate string) on a
+genuinely partly-cloudy morning, changing every poll with nothing to smooth it. This
+propagates straight through to two lighting automations with no debounce of their own to
+compensate: `entrance_down_lights_daytime_low_light` (LIGHTING_CONTRACT.md Section 4 —
+zero hysteresis on either edge, the most visible symptom) and `boundary_security_on`/
+`_off` (5min-off hysteresis, but the two weather sensors are also direct immediate-on
+triggers per BUG-L21 — a flicker faster than 5min can still cycle it). Confirmed `night_
+early`/`civil_night` (context_night.yaml) are pure, monotonic sun-elevation functions —
+ruled out as a source of any morning flapping.
+
+**Fix:** added `delay_on: "00:10:00"` and `delay_off: "00:10:00"` to both sensors
+directly at the source (security_core.yaml) — comfortably longer than one poll cycle in
+both directions, symmetric since neither onset nor clearing needs to be safety-critically
+fast for comfort/security lighting. Fixes every downstream consumer at once
+(`security_lighting_required`, `security_lighting_allowed`, and both automations above)
+instead of patching each one separately.
+
+**Deployed:** YAML-only (2 template binary_sensor attributes) — needs `ha core check` +
+a template reload. Not yet live-verified against a real partly-cloudy morning — next one
+should confirm no visible flip-flopping on `entrance_down_lights`/boundary lights.
+
+---
+
 ## Section 8: Cross-Domain Dependencies
 
 | Entity | Provider | Consumed by |
@@ -985,6 +1032,7 @@ entry event fires should confirm the light stays off.
 | `binary_sensor.office_occupied` | presence_confidence.yaml | office lighting |
 | `binary_sensor.living_areas_occupied` | presence_confidence.yaml | morning wake trigger |
 | `binary_sensor.security_lighting_required` | security_core.yaml | boundary on/off |
+| `binary_sensor.security_visibility_poor` / `security_weather_low_light` | security_core.yaml | `boundary_security_on`'s defense-in-depth triggers (BUG-L21), `entrance_down_lights_daytime_low_light`'s on/off condition (BUG-L22), indirectly via `security_lighting_required`/`security_lighting_allowed`. **2026-09-17 (BUG-L24):** both gained 10min `delay_on`/`delay_off` at the source — previously a raw, undebounced re-read of `weather.openweathermap`'s condition string (no scan_interval override, ~10min poll), which could flip on/off every poll near a condition boundary (e.g. a partly-cloudy morning) and propagate unsmoothed straight through to `entrance_down_lights_daytime_low_light` (zero hysteresis of its own) and `boundary_security_on`/`_off` (5min-off hysteresis, but immediate-on). |
 | `binary_sensor.night_early` | context_night.yaml (`binary_sensor.night_early`, sun elevation < 2°) | **New 2026-09-07 (BUG-L22)** — boundary_security_on's front/back/carport/office gate, boundary_security_watchdog's expected-lights gate, entrance_down_lights_daytime_low_light's daytime check. Previously only consumed indirectly (as one OR-branch of security_lighting_required); now read directly by lighting for the first time. |
 | `binary_sensor.staff_on_site` | presence/presence_trust.yaml (maid OR gardener — see SYSTEM_CONTRACT.md for the staff_on_site/low_trust_present distinction) | **New 2026-09-07 (BUG-L22)** — entrance_down_lights_daytime_low_light (daytime rain + staff-on-site carve-out). First lighting-domain consumer of this entity; SYSTEM_CONTRACT.md's cross-domain interface row updated to match. |
 | `sensor.security_lighting_intent` | security_logic.yaml | security lighting engine |

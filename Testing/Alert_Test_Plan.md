@@ -401,6 +401,14 @@ Then manually trigger motion on a camera
 > camera` instead of `input_text.security_last_motion_camera` — confirm the reported
 > Camera name matches a currently-active camera consistent with the Path field, not a
 > stale/unrelated one. See ALERTS_CONTRACT.md BUG-A25.
+>
+> **⚠️ Also due for re-run — 2026-09-17 (BUG-A26):** the repeat reminder now attaches
+> `input_text.security_last_motion_image` as `image:` — confirm a "Security Alert still
+> active" push actually renders a photo (it never did before this fix). See
+> ALERTS_CONTRACT.md BUG-A26. Separately (BUG-L25, LIGHTING_CONTRACT.md): `security_
+> visibility_poor`/`security_weather_low_light` gained 10min delay_on/delay_off — no test
+> in this plan currently exercises boundary/entrance lighting stability during fluctuating
+> weather; worth adding one on the next partly-cloudy day.
 | Escalation reminder after 5 min if threat persists | ✅ | |
 | Alert clears after motion stops + delay_off (30s) | ✅ | |
 

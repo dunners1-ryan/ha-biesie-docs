@@ -298,7 +298,7 @@ Once `regionentrance` is primary:
 | `cameras_core.yaml` | Group definitions: security_perimeter_cameras, security_grounds_front_cameras, security_grounds_rear_cameras, security_inside_house_cameras |
 | `cameras_processing.yaml` | Debounce sensors (`camXX_motion_valid`), camera correlation binary sensors, per-camera last event timestamp sensors, trigger-based last_seen_seconds sensors (1-minute update), EZVIZ doorbell integration |
 | `security_helpers.yaml` | All input helpers: 4 input_boolean, 3 input_number, 4 input_datetime, 22 input_text (per-camera images + history × 10 cams, plus event tracking) |
-| `security_core.yaml` | Binary sensors for boundary_permissive_window, visibility/weather conditions, lighting state; Sensors for security_mode, trust_mode, lighting_intent |
+| `security_core.yaml` | Binary sensors for boundary_permissive_window, visibility/weather conditions, lighting state; Sensors for security_mode, trust_mode, lighting_intent. **2026-09-17 (see LIGHTING_CONTRACT.md BUG-L25):** `security_visibility_poor`/`security_weather_low_light` gained 10min `delay_on`/`delay_off` — previously an unsmoothed re-read of `weather.openweathermap`'s condition string, flapping on/off every ~10min poll near a condition boundary. |
 | `security_logic.yaml` | Core logic sensors: event classification, trigger camera selection, correlation engine, movement confidence/path, intruder level, threat score and threat level |
 | `security_zones.yaml` | Zone aggregation binary sensors: perimeter front/rear/combined, grounds, external, inside house |
 | `security_automations.yaml` | All automations: snapshot capture (×2 overlapping), movement path tracking, event lifecycle start/end, event router, visitor detection, arrival detection, grounds/rear/house motion, rear perimeter, gate open action, visitor-alert Cancel Alert pattern (BUG-S77, 2026-08-31) |
@@ -2614,6 +2614,14 @@ manually.
 **Not done:** did not audit whether Met.no's "Home" config entry (`weather.
 forecast_home`) is used or needed anywhere else in the house, or whether it should be
 removed entirely now that nothing references it — out of scope for this session.
+
+**See also (2026-09-17):** a related but distinct gap in these same two sensors — no
+`delay_on`/`delay_off` at all, so they re-render on every `weather.openweathermap` poll
+(~10min) with nothing to smooth a condition oscillating near a boundary. Fixed as
+LIGHTING_CONTRACT.md BUG-L25 (10min hysteresis added both ways) — filed under Lighting
+since the visible symptom (entrance/boundary lights flip-flopping) and both affected
+consumers live there, same convention as this file's BUG-S78 cross-reference to
+ALERTS_CONTRACT.md BUG-A25.
 
 ---
 
