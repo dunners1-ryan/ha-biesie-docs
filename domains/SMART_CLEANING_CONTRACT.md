@@ -739,11 +739,11 @@ No `initial:` on any field below, per CODING_STANDARDS Rule 5b.
 | In aggregator | Naming-convention pickup, `alerts_summary.yaml` | ✅ no changes needed to the aggregator itself |
 | Cancel Alert | `deebot_alert_snoozed` + 2 automations | ✅ |
 | Water/detergent estimator | 3 log buttons + EMA + deterministic detergent math | ✅ confirmed live, real values observed (344 m² since last refill as of 2026-08-31 — genuinely overdue, correctly shown red on dashboard) |
-| Water/dirty-water fill-level scaling (3c, 2026-09-17) | `input_select.vacuum_water_refill_level` / `_dirty_water_level` | ⚠️ **YAML-only, not deployed live this session** — `ha core check` + PyYAML parse both pass, but no HA API access this session to Reload Helpers/Automations or exercise a real press. Needs live verification next session. |
+| Water/dirty-water fill-level scaling (3c, 2026-09-17) | `input_select.vacuum_water_refill_level` / `_dirty_water_level` | ✅ deployed live 2026-09-17 (user reloaded Helpers/Templates/Automations + triggered the restore automation) — entities exist and read `"Ran Empty (Normal)"` / `"Completely Full (Normal)"` idle states correctly. **Not yet exercised with a real non-Normal press** — no live water refill or dirty-water empty logged yet with a 75/50/25% level selected, so the scaling math itself is unverified against a real event, only reviewed/validated as YAML. |
 | Manual clean tracker (3e) | `vacuum_log_manual_clean` + EMA | ✅ confirmed live 2026-09-02, first real baseline logged via `input_button.press` — seed values (300 m² / 7.0 d) are a pure guess, no prior data existed at all |
 | Pre-emptive log toggle (3f) | `vacuum_log_preemptive` + `vacuum_pre_emptive_toggle_auto_reset` | ✅ confirmed live 2026-09-03, reload + config-valid; narrowed 2026-09-17 (see above) — ⚠️ narrowing itself not yet deployed live |
-| Restart-survival persistence (3g) | `shell_command.vacuum_tracker_save` + `sensor.vacuum_tracker_saved_state` + `vacuum_tracker_restore_on_startup` | ✅ proven live with a real save→corrupt→restore cycle via `automation.trigger` (bypasses the actual startup trigger, same action sequence) as of 2026-09-03/06 — ⚠️ the 2026-09-17 13→16 field expansion is YAML-only, not yet re-verified with a real cycle this session |
-| Dust bin-empty / bag-replace trackers (3h, split 2026-09-17) | `vacuum_log_dust_bag_action` + 2× EMA | ⚠️ **YAML-only, not deployed live this session** — same constraint as the fill-level scaling row above. Original combined tracker (`vacuum_log_dust_bag_change`) was confirmed live 2026-09-06 before this split. |
+| Restart-survival persistence (3g) | `shell_command.vacuum_tracker_save` + `sensor.vacuum_tracker_saved_state` + `vacuum_tracker_restore_on_startup` | ✅ proven live with a real save→corrupt→restore cycle via `automation.trigger` as of 2026-09-03/06, AND the 2026-09-17 13→16 field expansion now confirmed live too — restore automation was manually triggered after the JSON corruption fix (see below) and pulled all 16 fields, including the 6 new dust-bag ones, into the live entities without error |
+| Dust bin-empty / bag-replace trackers (3h, split 2026-09-17) | `vacuum_log_dust_bag_action` + 2× EMA | ✅ **Bin-empty branch confirmed live 2026-09-17** — user picked "Emptied Bin" as a real first test (not "Replaced Bag" — confirmed by the user directly), landed on the first-press path as intended (see restore-automation row above for how the seed/snapshot reconciled afterward). Surfaced a real JSON-corruption bug in the process, fixed same session (see note below). **Bag-replace branch itself still unexercised** — no real "Replaced Bag" press yet, only its seed values restored from disk. |
 | Detergent low + Bought action | `vacuum_detergent_low_alert` + `vacuum_detergent_bought_from_notification` | ✅ |
 | Lifespan warning (V11) | Folded into `deebot_alert_active`/`_context` above | ✅ confirmed live, reads `normal` with real current lifespans (92-97%) — not exercised against an actual low reading yet |
 | Daily job summary (V4) | `vacuum_daily_snapshot_reset` + `vacuum_session_complete_summary` | ✅ confirmed live, midnight snapshot seeded manually for the first day (see 3d) — not yet exercised through a real full day+summary cycle end to end |
@@ -760,15 +760,43 @@ falls through and finds nothing, meaning the vacuum domain **does not yet
 appear in the global alert count** even though individual notifications
 work fine). Schedule a restart to close this.
 
-**2026-09-17 additions are YAML-only, NOT yet live** — this session had no
-HA API access, so nothing was reloaded/restart-triggered (same constraint
-noted in PROJECT_STATE.md's 2026-09-17 entries generally). Before treating
-any of Section 3c's fill-level scaling or 3h's dust-bag split as live:
-Reload Helpers, Reload Template Entities, Reload Automations (in that
-order), then manually trigger `automation.vacuum_tracker_restore_on_startup`
-once via Developer Tools → Services to pull the seeded split-tracker values
-out of `vacuum_tracker_state.json` into the live entities (otherwise they
-sit at `unknown` until the next real restart).
+**2026-09-17 additions were YAML-only when built this session** — no HA API
+access from the session itself, so nothing was reloaded/restart-triggered
+by Claude (same constraint noted in PROJECT_STATE.md's 2026-09-17 entries
+generally). The user then deployed it manually: Reload Helpers + Reload
+Automations, then tested live by picking "Emptied Bin" from the new
+dropdown BEFORE triggering `vacuum_tracker_restore_on_startup` — see the
+bin-empty tracker audit row above for what that press actually did.
+
+**Real bug found by this test**: `shell_command.vacuum_tracker_save` ran
+as part of that press (it's the last action in the dust-bag automation)
+while `input_number.vacuum_avg_days_per_dust_bag_replace` /
+`vacuum_avg_area_per_dust_bag_replace` — the OTHER branch's fields, not
+even the one that fired — apparently did not yet exist in the state
+machine at that exact moment (a Reload Helpers timing/ordering gap, not
+something wrong with the automation logic itself). `states()` against a
+truly nonexistent entity returns an empty string in Jinja2 (unlike
+`unknown`, which is a real state on an existing-but-unset entity), and the
+shell script templates that value into the JSON unquoted — the result was
+`"avg_days_per_dust_bag_replace": ,` with no value at all, invalid JSON.
+This would have broken `sensor.vacuum_tracker_saved_state` (and therefore
+the restore automation) on its next read. **Fixed same session** by
+rewriting `vacuum_tracker_state.json` back to valid seed data — no real
+EMA data was lost, since the corrupted fields never held a genuine new
+average to begin with. **Lesson for next time a helper set is added to
+this persistence pipeline**: trigger `vacuum_tracker_restore_on_startup`
+immediately after Reload Helpers, before pressing any log control that
+calls `shell_command.vacuum_tracker_save` — don't rely on press-order
+alone to avoid this class of race.
+
+**Deployment confirmed complete 2026-09-17**: Reload Helpers, Reload
+Template Entities, and Reload Automations all done; the fixed
+`vacuum_tracker_state.json` was pulled in via a manual trigger of
+`automation.vacuum_tracker_restore_on_startup`. All 16 entities now exist
+live with correct values (no more `unknown` dust-bag-replace fields). What
+remains is exercising the paths that haven't happened yet with real data,
+not deployment: a "Replaced Bag" press, and a water-refill/dirty-water
+press with something other than the "Normal" fill level.
 
 ---
 

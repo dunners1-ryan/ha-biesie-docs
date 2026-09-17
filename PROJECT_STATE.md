@@ -5,6 +5,43 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-17 (later still) — Security: BUG-S81 — OpenWeatherMap live-caught
+      reporting 95% cloud cover during confirmed sunshine (mirror image of BUG-S79);
+      added PV-output-vs-Solcast-forecast corroboration as a source-level veto.**
+      User, directly contradicting the previous answer in this same session: "it is
+      sunny outside."
+      **Live-confirmed:** `weather.openweathermap` = `cloudy`, `cloud_coverage: 95`.
+      Forced a fresh poll (`homeassistant.update_entity`) — identical reading, ruling
+      out a stale cache. `sensor.inverter_pv_power` = 4968W vs. `sensor.solcast_pv_
+      forecast_power_now` = 5361W (93% of forecast) — real production tracking Solcast's
+      own forecast closely, about as strong a "genuinely not much cloud" signal as this
+      system has internally. `weather.forecast_home` (Met.no) read `partlycloudy`/51.6%
+      at the same moment — closer but still imperfect, confirming neither single
+      provider should be sole ground truth (BUG-S79, 2026-09-09, found Met.no wrong in
+      the *opposite* direction — this is the same class of bug, mirrored).
+      **Fix:** new `binary_sensor.security_weather_corroborated_clear` (security_core.
+      yaml) — `inverter_pv_power / solcast_pv_forecast_power_now > 0.6`, gated on a
+      200W forecast floor to avoid noise near dawn/dusk. `security_visibility_poor`/
+      `security_weather_low_light` now also require this be off — a veto only, never
+      invents a "clear" claim on its own. First Power→Security cross-domain dependency
+      in this repo (SYSTEM_CONTRACT.md updated).
+      **Deployed and live-verified:** `template.reload` ×2 (first reload's new sensor
+      computed ~1.3s after its two dependents in the same batch — a reload-ordering
+      artifact, not a bug; second reload settled it). `security_weather_corroborated_
+      clear` confirmed `on` live, correctly detecting genuine sun. **Compounding
+      interaction, not independently re-confirmed to completion:** `security_weather_
+      low_light`'s underlying value flipped correctly, but BUG-L25's `delay_off:
+      "00:10:00"` (added the same day) means the entity won't report `off` for a full
+      10 minutes after that — expected ~13:02-13:03, cascading to `boundary_security_
+      off` releasing the lights ~5min after. Intentional/correct interaction of two
+      same-day fixes, not a defect — just means this instance takes ~15min total to
+      visibly resolve.
+      Full detail: SECURITY_CONTRACT.md BUG-S81 (+ Entity Reference doc-drift fix,
+      ISSUE 4's row still said "BROKEN" three years after the 2026-04-15 fix),
+      LIGHTING_CONTRACT.md cross-reference (also fixed a mislabelled BUG-L24→BUG-L25
+      reference from earlier this same session), SYSTEM_CONTRACT.md.
+      Files: `packages/security/security_core.yaml`.
+
 - [x] **2026-09-17 (later) — Security: BUG-S80 — `security_threat_level`'s catch-all
       "elevated" rule was the only rule missing the `trusted` (staff/guest/dogs_out)
       exclusion — staff on site could keep boundary lights on indefinitely; found and
@@ -89,17 +126,33 @@
       updated from 13 to 16 persisted fields (3 dust-bag fields removed, 6 added).
       `vacuum_tracker_state.json` updated by hand with the seeded values above so the
       first restore-on-startup run after deploy picks them up correctly.
-      **NOT YET LIVE THIS SESSION** — same constraint as the entry below: no HA API
-      access this session, so nothing was reloaded or restart-triggered. YAML validated
-      clean (`ha core check` + a manual PyYAML parse of the full file, both pass) but
-      needs, in order: Reload Helpers (new input_select/input_number/input_boolean/
-      input_datetime entities), Reload Template Entities (2 renamed estimate sensors),
-      Reload Automations (3 changed + 1 renamed), then a one-time manual trigger of
-      `automation.vacuum_tracker_restore_on_startup` (Developer Tools → Services) to pull
-      the seeded dust-bag-split values out of the JSON file into the live entities instead
-      of leaving them at `unknown` until the next real restart.
-      Full detail: SMART_CLEANING_CONTRACT.md Sections 3c/3h (needs updating same
-      session per Rule 7 — see doc-drift note if not yet done).
+      **Deployed live by the user same session, immediately after YAML was written**
+      (Claude had no HA API access to do it directly). Reloaded Helpers + Automations,
+      then tested by picking "Emptied Bin" from the new `vacuum_dust_bag_action`
+      dropdown for real — confirmed by the user directly ("First log for dust bag was
+      today when pressed it - was just empty not replace"). Landed on the intended
+      first-press path (guard still `unknown`, restore-on-startup not yet triggered at
+      that point) — snapshot set correctly, no bogus EMA computed.
+      **Real bug found by that test, fixed same session**: `shell_command.
+      vacuum_tracker_save` fired as the automation's last action while the OTHER
+      branch's fields (`avg_days_per_dust_bag_replace` / `avg_area_per_dust_bag_replace`)
+      apparently didn't exist in the state machine yet (Reload Helpers timing gap) —
+      `states()` on a truly nonexistent entity returns `''` in Jinja2 (not `unknown`),
+      and the shell script templates it unquoted, producing invalid JSON
+      (`"avg_days_per_dust_bag_replace": ,`) in the git-tracked
+      `vacuum_tracker_state.json`. Would have broken `sensor.vacuum_tracker_saved_state`
+      and the restore automation on next read. Fixed by rewriting the file back to valid
+      seed data — no real EMA data lost, the corrupted fields never held a genuine
+      average. Lesson recorded in SMART_CLEANING_CONTRACT.md: trigger
+      `vacuum_tracker_restore_on_startup` immediately after Reload Helpers, before
+      pressing any control that calls the save shell_command, to avoid this race with
+      any future helper additions to this persistence pipeline.
+      **Still outstanding**: Reload Template Entities not yet confirmed done; restore
+      automation not yet triggered (so `avg_days_per_dust_bag_replace` etc. still sit at
+      `unknown` live, even though the JSON file itself is now valid); bag-replace branch
+      and the water/dirty-water fill-level selectors still fully unexercised.
+      Full detail: SMART_CLEANING_CONTRACT.md Sections 3c/3h (updated same session,
+      Rule 7 satisfied).
       Files: `packages/integrations/vacuum.yaml`, `vacuum_tracker_save.sh`,
       `vacuum_tracker_state.json`.
 
@@ -4932,6 +4985,8 @@ binary_sensor.security_gate_loitering           ← added 2026-07-02 (S17), dela
 input_boolean.security_visitor_alerts_suppressed ← added 2026-08-31 (BUG-S77), scoped mute for the visitor router branch only
                                                   ← dashboard entry added 2026-09-02 (was built but never wired into any
                                                     dashboard — Operations → Security → "Camera System Control" card)
+binary_sensor.security_weather_corroborated_clear ← added 2026-09-17 (BUG-S81) — PV-output-vs-Solcast-forecast veto on
+                                                     security_visibility_poor/security_weather_low_light (security_core.yaml)
 ```
 
 ### Boundary Lighting (added 2026-09-15)

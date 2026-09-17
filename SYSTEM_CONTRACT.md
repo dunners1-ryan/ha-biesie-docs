@@ -116,7 +116,8 @@ Telegram mirror  →  notify.telegram_bot_5527
 | `sensor.security_mode` | security (core) | notify_security_events | ✅ |
 | `group.inverter_grid` | power | water, alerts_power | ✅ |
 | `sensor.inverter_battery_soc` | power | water (via battery SOC check) | ✅ |
-| `sensor.inverter_pv_power` | power | alerts_power | ✅ |
+| `sensor.inverter_pv_power` | power | alerts_power, security (added 2026-09-17, SECURITY_CONTRACT.md BUG-S81 — `binary_sensor.security_weather_corroborated_clear`, first Power→Security dependency in this repo) | ✅ |
+| `sensor.solcast_pv_forecast_power_now` | power (Solcast integration) | security (added 2026-09-17, BUG-S81 — same corroboration sensor, forecast-for-right-now denominator) | ✅ |
 | `sensor.inverter_power` | power | alerts_power | ✅ |
 | `sensor.inverter_1_battery` | power (slave direct) | alerts_power | ⚠️ bypasses published SOC |
 | `sensor.house_energy_resilience_hours` | power | alerts_power (devices list) | ✅ |

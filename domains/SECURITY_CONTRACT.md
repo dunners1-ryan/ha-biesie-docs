@@ -298,7 +298,7 @@ Once `regionentrance` is primary:
 | `cameras_core.yaml` | Group definitions: security_perimeter_cameras, security_grounds_front_cameras, security_grounds_rear_cameras, security_inside_house_cameras |
 | `cameras_processing.yaml` | Debounce sensors (`camXX_motion_valid`), camera correlation binary sensors, per-camera last event timestamp sensors, trigger-based last_seen_seconds sensors (1-minute update), EZVIZ doorbell integration |
 | `security_helpers.yaml` | All input helpers: 4 input_boolean, 3 input_number, 4 input_datetime, 22 input_text (per-camera images + history × 10 cams, plus event tracking) |
-| `security_core.yaml` | Binary sensors for boundary_permissive_window, visibility/weather conditions, lighting state; Sensors for security_mode, trust_mode, lighting_intent. **2026-09-17 (see LIGHTING_CONTRACT.md BUG-L25):** `security_visibility_poor`/`security_weather_low_light` gained 10min `delay_on`/`delay_off` — previously an unsmoothed re-read of `weather.openweathermap`'s condition string, flapping on/off every ~10min poll near a condition boundary. |
+| `security_core.yaml` | Binary sensors for boundary_permissive_window, visibility/weather conditions, lighting state; Sensors for security_mode, trust_mode, lighting_intent. **2026-09-17 (see LIGHTING_CONTRACT.md BUG-L25):** `security_visibility_poor`/`security_weather_low_light` gained 10min `delay_on`/`delay_off` — previously an unsmoothed re-read of `weather.openweathermap`'s condition string, flapping on/off every ~10min poll near a condition boundary. **Also 2026-09-17 (BUG-S81):** new `binary_sensor.security_weather_corroborated_clear` — PV-output-vs-Solcast-forecast veto on those same two sensors, added after OpenWeatherMap was live-caught reporting 95% cloud cover during confirmed sun. |
 | `security_logic.yaml` | Core logic sensors: event classification, trigger camera selection, correlation engine, movement confidence/path, intruder level, threat score and threat level |
 | `security_zones.yaml` | Zone aggregation binary sensors: perimeter front/rear/combined, grounds, external, inside house |
 | `security_automations.yaml` | All automations: snapshot capture (×2 overlapping), movement path tracking, event lifecycle start/end, event router, visitor detection, arrival detection, grounds/rear/house motion, rear perimeter, gate open action, visitor-alert Cancel Alert pattern (BUG-S77, 2026-08-31) |
@@ -495,10 +495,11 @@ No security-domain helpers were found to be UI-created. All are YAML-defined in
 | Entity | Purpose | Note |
 |--------|---------|------|
 | `binary_sensor.boundary_permissive_window` | True during maid/guest window | ✅ Fixed S1.3 2026-05-17 — now uses `low_trust_present OR guest_mode OR boundary_permissive_override` |
-| `binary_sensor.security_visibility_poor` | Weather poor visibility | |
-| `binary_sensor.security_weather_low_light` | Weather low light | |
+| `binary_sensor.security_visibility_poor` | Weather poor visibility | 10min delay_on/off (BUG-L25) + PV-corroboration veto (BUG-S81), both 2026-09-17 |
+| `binary_sensor.security_weather_low_light` | Weather low light | 10min delay_on/off (BUG-L25) + PV-corroboration veto (BUG-S81), both 2026-09-17 |
+| `binary_sensor.security_weather_corroborated_clear` | Actual PV output tracking Solcast's forecast closely (>60% of `solcast_pv_forecast_power_now`, above a 200W floor) — genuine sun regardless of what the weather API claims | **New 2026-09-17 (BUG-S81)** — veto-only input to the two rows above |
 | `binary_sensor.security_lighting_required` | Lighting should be on | |
-| `binary_sensor.security_lighting_allowed` | Lighting permitted (night/bad weather) | **BROKEN** — uses wrong entity IDs (see Issue #4) |
+| `binary_sensor.security_lighting_allowed` | Lighting permitted (night/bad weather) | ✅ Fixed 2026-04-15 (Issue #4, doc-drift corrected 2026-09-17 — this row still said "BROKEN" three years after the fix) |
 | `binary_sensor.security_lighting_suppressed` | Guest/entertaining mode active | |
 | `binary_sensor.security_low_trust_active` | Maid/gardener/contractor present | |
 
@@ -2623,6 +2624,12 @@ since the visible symptom (entrance/boundary lights flip-flopping) and both affe
 consumers live there, same convention as this file's BUG-S78 cross-reference to
 ALERTS_CONTRACT.md BUG-A25.
 
+**Second follow-up (2026-09-17, same day, filed in THIS contract as BUG-S81):** the
+mirror image of this very bug — OpenWeatherMap (the provider BUG-S79 switched TO)
+confirmed wrong in the opposite direction, reporting 95% cloud cover during genuine,
+PV-confirmed sunshine. Neither provider is reliable enough alone; see BUG-S81 below for
+the PV-corroboration fix.
+
 ---
 
 ### BUG-S80 — `sensor.security_threat_level`'s catch-all "elevated" rule was the only rule in the sensor that didn't exclude `trusted` (staff/guest/dogs_out) — staff on site could keep boundary lights on indefinitely
@@ -2672,6 +2679,53 @@ on_site` still `on`. `binary_sensor.security_lighting_required` was already `off
 `boundary_security_off`'s 5-minute-off hysteresis was the only remaining wait before the
 two lingering lights released on their own — confirmed structurally sound, not
 independently re-checked past that point in this session.
+
+---
+
+### BUG-S81 — Neither weather provider is reliable alone: OpenWeatherMap reported 95% cloud cover during genuine, confirmed sunshine — added PV-output corroboration as a source-level veto
+
+**Priority: MEDIUM | Status: ✅ FIXED 2026-09-17, live-verified (logic confirmed; full
+settle pending the 10min delay_off from BUG-L25, see below)**
+
+**Reported by:** user, directly contradicting a previous answer in the same session that
+called a "cloudy" reading genuine — "it is sunny outside."
+
+**Symptom, confirmed live:** `weather.openweathermap` = `cloudy`, `cloud_coverage: 95` —
+yet `sensor.inverter_pv_power` was producing 4968W. Forced a fresh poll
+(`homeassistant.update_entity`) to rule out a stale cache — returned the identical
+`cloudy`/95% reading, confirming this was OpenWeatherMap's actual current API response,
+not a stuck value. Cross-checked `sensor.solcast_pv_forecast_power_now` (Solcast's own
+forecast for right now): 5361W — real production was 93% of forecast, about as strong a
+"not much cloud is actually blocking the sun" signal as this system has internally.
+`weather.forecast_home` (Met.no) read `partlycloudy`/51.6% at the same moment — closer,
+but still not zero, underlining that neither provider should be trusted as sole ground
+truth. This is the mirror image of BUG-S79 (2026-09-09), which found Met.no wrong in the
+*opposite* direction (heavy cloud reported during genuine sun) — picking either single
+provider as authoritative just relocates the same failure mode, it doesn't remove it.
+
+**Fix:** added `binary_sensor.security_weather_corroborated_clear` (security_core.yaml) —
+`sensor.inverter_pv_power / sensor.solcast_pv_forecast_power_now > 0.6`, gated on the
+forecast being above a 200W floor (avoids meaningless ratios near dawn/dusk when both
+numbers are naturally tiny; night is already handled separately via `night_early`/
+`civil_night` elsewhere, this sensor doesn't need to reason about it). `security_
+visibility_poor`/`security_weather_low_light` both now also require this NOT be `on` —
+a veto only: it can suppress a false poor/low-light reading, it never invents a "definitely
+clear" claim of its own. First cross-domain dependency from Power → Security in this
+codebase (previously security→lighting was the only direction that mattered here); see
+`docs/SYSTEM_CONTRACT.md`.
+
+**Deployed and live-verified this session:** `template.reload` × 2 (first reload's
+corroboration sensor computed ~1.3s after the two sensors that reference it, a same-batch
+ordering artifact — a second reload settled it). `binary_sensor.security_weather_
+corroborated_clear` confirmed `on` live, correctly detecting genuine sun despite the API.
+**Not yet fully settled at time of writing:** `security_weather_low_light`'s underlying
+value flipped `false` correctly, but BUG-L25's `delay_off: "00:10:00"` (added the same
+day, for a different reason — see above) means the entity won't *report* `off` until 10
+minutes of sustained correction have passed — expected ~13:02-13:03, cascading to
+`boundary_security_off` releasing the lights ~5min after that. This interaction is
+correct, intentional behavior of the two fixes compounding, not a defect — just means
+this specific live instance takes ~15 minutes total to visibly resolve rather than being
+instant. Not independently re-confirmed past this point in the session.
 
 ---
 
