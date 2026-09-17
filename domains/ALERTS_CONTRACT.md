@@ -197,7 +197,7 @@ fully correct. All domains route through the central notification script.
 |---|---|---|---|
 | `alerts_helper.yaml` | 154 | ✅ Active | `active_alert_entities` sensor |
 | `alerts_summary.yaml` | 772 | ✅ Active | `alert_device_entities`, `global_alert_context`, all count sensors |
-| `alerts_doors.yaml` | 1408 | ✅ Active | Door/gate tiered severity, `alert.door_alert`, `automation.house_secured_check` (2026-08-23), laundry door+gate mute `input_boolean.laundry_door_alert_notify` (2026-09-02) |
+| `alerts_doors.yaml` | 1413 | ✅ Active | Door/gate tiered severity, `alert.door_alert`, `automation.house_secured_check` (2026-08-23), laundry door+gate mute `input_boolean.laundry_door_alert_notify` (2026-09-02), garage door critical restricted to nobody-home (2026-09-17) |
 | `alerts_network.yaml` | 1391 | ✅ Active | WAN/LAN/device down, degraded, restart |
 | `alerts_power.yaml` | 496 | ✅ Active | Grid offline, battery low, excess load, prepaid drift |
 | `alerts_temperature.yaml` | 1531 | ✅ Active | WAN/LAN/device/storage temps |

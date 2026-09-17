@@ -207,6 +207,14 @@ Result:
 Issues found:
 ```
 
+**⚠️ Due for re-run (2026-09-17):** `garage_door_sensor` no longer follows this test's
+generic main-gate escalation path — its home-branch (`boundary_lights_on AND all_home`)
+now caps at `warning` and can never reach `critical`; only the nobody-home branch
+escalates to `critical` (after `door_warning_escalation_minutes`). See
+`domains/ALERTS_CONTRACT.md` (Doors Domain change log, "Garage door critical restricted
+to nobody-home"). This test plan has no garage-door-specific case — main gate/front
+security gate behavior above is unaffected.
+
 ---
 
 ## 💧 TEST 3 — Water Alerts
