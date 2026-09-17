@@ -8,7 +8,14 @@
 # This document is the ground-truth record of what the lighting system
 # actually does, its dependencies, known bugs, and design decisions.
 #
-# Last updated: 2026-09-17 — BUG-L25: `security_visibility_poor`/`security_weather_low_
+# Last updated: 2026-09-17 (later) — BUG-S84 (filed in SECURITY_CONTRACT.md):
+# `security_weather_low_light` no longer treats plain "cloudy" as low-light — fog/mist
+# only now. `boundary_security_on`/`_off` push+logbook messages now include a computed
+# reason (night/weather condition/both) instead of a bare "activated"/"turned off."
+# Section 2 line count corrected 471→502 (also reflects a concurrent session's
+# unrelated not_from/not_to reload-safety guards, BUG-N18).
+#
+# Previously — 2026-09-17 — BUG-L25: `security_visibility_poor`/`security_weather_low_
 # light` (security_core.yaml) had zero delay_on/delay_off — a raw, undebounced re-read of
 # weather.openweathermap's condition string on every ~10min poll, propagating unsmoothed
 # into entrance_down_lights_daytime_low_light (zero hysteresis of its own) and
@@ -131,7 +138,7 @@ person.*                             ← HA mobile geo — UNRELIABLE for local 
 | `lighting_arrival_night.yaml` | 269 | Night arrival scenarios (3 modes; garage_light door-gated in all three, 2026-09-15, BUG-L24) |
 | `lighting_departure.yaml` | 91 | Departure light cleanup (day + night) |
 | `lighting_bedtime.yaml` | 217 | Kids + full bedtime routines |
-| `lighting_boundary.yaml` | 471 | Boundary/street security lighting + gate-open assist (2026-08-03) + watchdog (2026-09-06, BUG-L21) + daytime entrance-down-lights weather rule (2026-09-07, BUG-L22) + master enable toggle (2026-09-15, BUG-L23) |
+| `lighting_boundary.yaml` | 502 | Boundary/street security lighting + gate-open assist (2026-08-03) + watchdog (2026-09-06, BUG-L21) + daytime entrance-down-lights weather rule (2026-09-07, BUG-L22) + master enable toggle (2026-09-15, BUG-L23) + reason-in-notification (2026-09-17, BUG-S84) + reload-safety `not_from`/`not_to` guards on the entrance-down-lights automation (2026-09-17, BUG-N18, another concurrent session — see NOTIFICATIONS_CONTRACT.md) |
 | `lighting_security.yaml` | 161 | Security event lighting engine (2026-09-15, BUG-L23: AREA branch night-gated) |
 | `lighting_garage.yaml` | 215 | Garage presence-aware lighting (door-gated since 2026-08-03) |
 | `lighting_office_presence.yaml` | 130 | Office presence-aware lighting |
@@ -269,7 +276,7 @@ when turned on by evening_routine. See BUG-L01 and BUG-L02.
 
 | ID | Trigger | Action |
 |---|---|---|
-| `boundary_security_on` | security_lighting_required ON (10s stable) OR `security_visibility_poor`/`security_weather_low_light` ON (2026-09-06, BUG-L21, defense-in-depth) OR button | **Gated on `input_boolean.boundary_security_lights_enabled` = on (2026-09-15, BUG-L23 — dedicated master toggle, not `security_event_lights`).** When enabled: boundary_street + main_entrance always; + car_port/front/back/office_entrance **only if it's real night (`night_early`=on) AND someone home** (tightened 2026-09-07, BUG-L22 — previously fired for daytime weather alone too) |
+| `boundary_security_on` | security_lighting_required ON (10s stable) OR `security_visibility_poor`/`security_weather_low_light` ON (2026-09-06, BUG-L21, defense-in-depth) OR button | **Gated on `input_boolean.boundary_security_lights_enabled` = on (2026-09-15, BUG-L23 — dedicated master toggle, not `security_event_lights`).** When enabled: boundary_street + main_entrance always; + car_port/front/back/office_entrance **only if it's real night (`night_early`=on) AND someone home** (tightened 2026-09-07, BUG-L22 — previously fired for daytime weather alone too). **2026-09-17 (SECURITY_CONTRACT.md BUG-S84):** `security_weather_low_light` no longer counts plain `cloudy` as a trigger — fog/mist only now, see that entity's row in SECURITY_CONTRACT.md. Both the ON and OFF push/logbook messages now include a computed reason (night/weather condition/both) instead of a bare "activated"/"turned off." |
 | `entrance_down_lights_daytime_low_light` | `security_visibility_poor`/`security_weather_low_light`/`anyone_connected_home`/`staff_on_site` edges | Daytime-only (`night_early`=off) rule: ON when (poor OR low light) AND (anyone home OR staff on site); OFF when that's no longer true, still daytime-only. Added 2026-09-07 (BUG-L22) — deliberately NOT part of the security-domain boundary automations; leaves the light to the normal evening/morning/arrival/bedtime routines once night starts. |
 | `boundary_security_off` | security_lighting_required OFF (5min hysteresis) OR button | All boundary lights off (condition: threat_level=low). **2026-09-17 (see SECURITY_CONTRACT.md BUG-S80):** `sensor.security_threat_level` used to stick at `elevated` — blocking this condition indefinitely — for ordinary staff-on-site movement (a gardener/maid tripping a grounds camera); fixed at the source in `security_logic.yaml`, not here — staff-on-site activity now resolves to `low` like every other trusted-activity case already did. |
 | `lighting_gate_open_assist` | `binary_sensor.main_gate_sensor` off→on, **gated on `security_lighting_required` = on** (same window as the two above) | garage_light + front_house_security_light ON for 10 min, then OFF again — **only the ones that were off when the gate opened** (pre-state captured in `variables:`). Added 2026-08-03. **Verify + retry added 2026-08-05 (BUG-L19):** re-checks each switch 3s after the initial `turn_on` and retries once if it didn't confirm `on` — covers a Sonoff device mid-reconnect. |

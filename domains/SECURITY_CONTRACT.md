@@ -496,7 +496,7 @@ No security-domain helpers were found to be UI-created. All are YAML-defined in
 |--------|---------|------|
 | `binary_sensor.boundary_permissive_window` | True during maid/guest window | ✅ Fixed S1.3 2026-05-17 — now uses `low_trust_present OR guest_mode OR boundary_permissive_override` |
 | `binary_sensor.security_visibility_poor` | Weather poor visibility | 10min delay_on/off (BUG-L25) + PV-corroboration veto (BUG-S81), both 2026-09-17 |
-| `binary_sensor.security_weather_low_light` | Weather low light | 10min delay_on/off (BUG-L25) + PV-corroboration veto (BUG-S81), both 2026-09-17 |
+| `binary_sensor.security_weather_low_light` | Weather low light — `fog` only, not plain `cloudy` (narrowed 2026-09-17, BUG-S84 — was "somewhat overcast", now genuinely "poor visibility from fog/mist") | 10min delay_on/off (BUG-L25) + PV-corroboration veto (BUG-S81), both 2026-09-17 |
 | `binary_sensor.security_weather_corroborated_clear` | Actual PV output tracking Solcast's forecast closely (>60% of `solcast_pv_forecast_power_now`, above a 200W floor) — genuine sun regardless of what the weather API claims | **New 2026-09-17 (BUG-S81)** — veto-only input to the two rows above |
 | `binary_sensor.security_lighting_required` | Lighting should be on | |
 | `binary_sensor.security_lighting_allowed` | Lighting permitted (night/bad weather) | ✅ Fixed 2026-04-15 (Issue #4, doc-drift corrected 2026-09-17 — this row still said "BROKEN" three years after the fix) |
@@ -2826,6 +2826,49 @@ active oscillation (`elevated`/`warning`/`low` flipping every 15-30s in the seco
 around the reload) — settled to `low` at 18:22:48 with no further critical/warning
 transitions in the following ~30s, versus a flip every 1-2 minutes for the preceding 2.5
 hours. Not watched past that short window this session.
+
+---
+
+### BUG-S84 — `security_weather_low_light` treated plain "cloudy" as low-light on its own; boundary-lighting notifications gave no reason or weather context
+
+**Priority: LOW | Status: ✅ FIXED 2026-09-17, live-verified**
+
+**Reported by:** user, directive — "Shouldn't just be cloud cover but actually misty or
+rainy or truly dark conditions that turns on boundary lights - also need reason in alert
+showing weather."
+
+**Symptom / root cause 1 — plain cloud cover was enough:** `binary_sensor.security_
+weather_low_light` fired on `w in ['cloudy','fog']` — a report of ordinary daytime
+overcast, with no rain, no fog/mist, and no actual darkness, was on its own enough to
+light up the boundary via `security_lighting_required`. `security_visibility_poor`
+already covers genuine bad weather (rain/snow/storm/fog); real darkness is covered
+separately by `night_early` — "cloudy" alone added nothing but false positives once
+BUG-S81's PV corroboration handles the "API says cloudy but it's actually clear" case.
+
+**Fix:** dropped `'cloudy'` from `security_weather_low_light`'s condition, leaving
+`w in ['fog']` — HA's weather integration has no separate "misty" state, `fog` is used
+for both. This sensor is now genuinely "poor visibility from fog/mist," not "somewhat
+overcast."
+
+**Symptom / root cause 2 — no reason in the notification:** `boundary_security_on`/`_off`
+(`lighting_boundary.yaml`) sent a static "Boundary lighting activated."/"...turned off."
+with no indication of whether it was night, weather, or both, or what the weather
+actually was.
+
+**Fix:** both automations now compute a `reason` string (night_early / weather condition
+string / both / "manual" for the on side; "daylight, weather: X" for the off side, since
+`security_lighting_required` being off implies `night_early` is already off too) and
+include it in both the push notification and the logbook entry — e.g. "Boundary lighting
+activated — weather: fog." instead of a bare "activated."
+
+**Deployed and live-verified:** `template.reload` + `automation.reload`, re-queried.
+`security_weather_low_light`'s underlying value correctly flipped to not-qualifying with
+`weather.openweathermap`='cloudy' (not 'fog') post-reload — `binary_sensor.night_early`
+was independently `on` (genuine night) at check time, so `security_lighting_required`
+staying `on` is unrelated to and unaffected by this change; the narrower low-light logic
+itself was confirmed correct via the underlying sensor evaluation, not by observing a
+switch transition (see LIGHTING_CONTRACT.md for the reason-string cross-reference).
+Notification text change not yet observed against a real on/off firing this session.
 
 ---
 

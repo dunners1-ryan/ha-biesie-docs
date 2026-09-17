@@ -5,6 +5,31 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-17 (evening, later) — Security/Lighting: BUG-S84 — plain "cloudy" alone
+      was enough to trigger boundary lighting; notifications gave no reason or weather
+      context.** User, directive: "Shouldn't just be cloud cover but actually misty or
+      rainy or truly dark conditions that turns on boundary lights - also need reason in
+      alert showing weather."
+      **Fix 1:** `binary_sensor.security_weather_low_light` (security_core.yaml) dropped
+      `'cloudy'` from its condition, leaving `w in ['fog']` — HA has no separate "misty"
+      state, `fog` covers both. Rain/snow/storm already covered by `security_visibility_
+      poor`; real darkness covered separately by `night_early`. This sensor is now
+      genuinely "poor visibility from fog/mist," not "somewhat overcast."
+      **Fix 2:** `boundary_security_on`/`_off` (lighting_boundary.yaml) now compute a
+      reason string (night / weather condition / both / "manual") and include it in both
+      the push notification and logbook entry — e.g. "Boundary lighting activated —
+      weather: fog." instead of a bare "activated."
+      **Deployed and live-verified (partial):** `template.reload` + `automation.reload`.
+      `security_weather_low_light`'s underlying value correctly stopped qualifying with
+      `weather.openweathermap`='cloudy' post-reload — `night_early` was independently
+      `on` (genuine night) at check time so the boundary lights staying on was correct
+      and unrelated to this change; confirmed via the underlying sensor evaluation, not
+      by observing a switch transition. Notification reason text not yet observed
+      against a real on/off firing this session.
+      Full detail: SECURITY_CONTRACT.md BUG-S84, LIGHTING_CONTRACT.md cross-reference.
+      Files: `packages/security/security_core.yaml`, `packages/lighting/lighting_
+      boundary.yaml`.
+
 - [x] **2026-09-17 (evening) — Security: BUG-S83 — `security_threat_level` rules 2/5/6
       had no presence check at all, unlike rules 1/3/4 — evening family movement during
       rain scored real `warning`/`critical` repeatedly for 2.5+ hours.** User asked to
