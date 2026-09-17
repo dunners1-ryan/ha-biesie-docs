@@ -375,6 +375,7 @@ say so. Only this one table cell had never been updated.)*
 | Garage door split-out (2026-08-23) | `binary_sensor.garage_door_sensor` moved out of the shared Tier 2 loop into its own condition block — away/nobody-home unchanged, but the home-branch now requires `binary_sensor.security_lighting_required` (dusk/dark, NOT the generic night flag) AND `binary_sensor.all_family_home` both on, instead of just `night` | ✅ per user request — garage sits open most of the day regardless of who's home, old logic was too noisy |
 | House Secured Check (2026-08-23) | `automation.house_secured_check` — sweeps all 11 doors/gates (every tier, incl. garage), fires at bedtime (`input_datetime.house_secured_check_time`, default 21:30) and on everyone-leaving (`anyone_connected_home` on→off), suppressed by `low_trust_present` (covers maid/gardener) | ✅ new, silent when all-clear, warning at bedtime / critical on everyone-left |
 | Laundry door + gate mute (2026-09-02) | `binary_sensor.laundry_door_sensor` AND `binary_sensor.laundry_security_gate_sensor` split out of the shared Tier 2 loop into one gated block (same thresholds), both gated together on `input_boolean.laundry_door_alert_notify` — same pattern as `camera_alert_notify`, but auto-reset to `on` at 00:00:00 by `automation.laundry_door_alert_midnight_reset` so a mute can't outlive the day it was set. Excluded from `sensor.door_alert_context`'s severity rank and `devices` attribute while muted; still counted in the `duration` attribute (same as garage door — descriptive only, not an alert). Does NOT gate `house_secured_check` — that bedtime/everyone-left sweep still reports a genuinely open laundry door/gate regardless of this mute. Toggle added to the Operations → Security dashboard's "Door Control" card. | ✅ new, per user request |
+| Garage door critical restricted to nobody-home (2026-09-17) | Critical severity for `garage_door_sensor` moved from the home branch to the `nobody` branch (nobody-home, `door_warn_esc` min) — the home branch (`boundary_lights_on AND all_home`) is now capped at warning after `entry_esc` min and can never reach critical. `nobody` (`binary_sensor.security_nobody_home`) already excludes `binary_sensor.staff_on_site`, so garage-open critical alerts now fire only when truly nobody (no family, no staff) is on site — not while someone is home, and not while staff are on site with the family away. Applied in both the rank computation and the `devices` attribute display-severity block. | ✅ per user request |
 
 **PASS.** BUG-A06 fixed 2026-04-16. `sensor.doors_open_alert_severity` deleted.
 `sensor.door_alert_context` is now the unified single source with tiered logic across
@@ -860,16 +861,19 @@ Required a 3rd restart this session (`lovelace.dashboard_system.bak.20260710_212
 all 5 templates re-rendered and tokenized correctly against live state, `alert.critical_sensor_health`
 correctly excluded everywhere once `problem_device_water_pressure_pump` is flagged again.
 
-**Secondary observation, not fixed this session:** `input_boolean.problem_device_*`
-helpers reset to `off` (their `initial:` value) across the 2nd and 3rd restarts this
-session despite being manually toggled `on` shortly before each restart — `.storage/core.restore_state`
-showed all 22 helpers with the exact same `last_changed` timestamp clustered at each
-restart's startup moment (the signature of a fresh/reload-time reset, not an individual
-manual toggle persisting). Root cause not confirmed — recorder config has no
-`input_boolean` exclusion, so this isn't an obvious recorder-exclude issue. Flagged as a
-follow-up: if this keeps happening, the known-problem flags won't actually persist across
-restarts, which defeats the point of a long-lived hardware-fault flag. Needs its own
-investigation session.
+**✅ FIXED 2026-09-17** (root cause was exactly what this note suspected, confirmed live):
+all 24 `input_boolean.problem_device_*` / `*_marked_problem` helpers
+(`alerts_helper.yaml`) had `initial: false` — a textbook CODING_STANDARDS.md Rule 5b
+violation (a legacy-YAML helper holding live/mutable state, resetting to its `initial:`
+value on every HA Core restart, not just first creation). Confirmed live: a restart at
+2026-09-17 13:35:59 UTC (for the BUG-N18 `alert:` fix, see `NOTIFICATIONS_CONTRACT.md`)
+flipped `problem_device_water_pressure_pump` off at 13:35:23, ~36s before the uptime
+sensor settled — the user had it manually set `on` and noticed it revert with no
+corresponding action on their end. Fixed: `initial:` removed from all 24 helpers —
+`input_boolean.reload` applied live, confirmed the current value survived the reload
+unchanged. This also retroactively explains the original observation above (all 22
+helpers sharing one `last_changed` timestamp per restart) — it was this exact bug the
+whole time.
 
 ---
 

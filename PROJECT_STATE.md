@@ -5,6 +5,110 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-17 — Alerts/Notifications: repo-wide notification-storm root-caused and
+      fixed — concurrent Claude Code sessions' `template.reload` calls were the trigger.**
+      User reported a burst of duplicate notifications (pool pump, inverter, critical
+      sensor health, gas bottles) right after a reload, then a "Water Pressure Pump: Mark
+      As Known Problem" toggle appearing to flick off, then (in a follow-up) the exact
+      same domains repeating in a fault→resolved→fault pattern every few minutes. Full
+      live-API investigation (Supervisor REST access available this session): traced
+      recorder history to a synchronized burst of `scene:`/`group:`/`template:` entities
+      going `unavailable` then back within seconds — the signature of a full YAML/template
+      reload, not a bug in any one integration. `ListAgents` revealed 3 concurrent Claude
+      Code sessions active on this same live instance; `homeassistant-28` confirmed 5
+      `template.reload` calls with timestamps matching every observed burst exactly, while
+      fixing unrelated security/lighting sensors — `homeassistant-09` confirmed a one-time
+      user-triggered Reload Helpers/Template/Automations round explained the earliest
+      burst. Concurrent sessions doing live edit→reload cycles against the shared instance
+      turned out to be routine, expected, already-anticipated behavior here (see
+      `gitupdate.sh`'s own comment about "another concurrent session['s]... work").
+      **Two distinct bugs found and fixed:** (1) automations with unfiltered `trigger:
+      state` on derived/template sensors treating the reload-induced `unknown` transient
+      as a real change — 8 automations fixed with `not_from`/`not_to` guards
+      (`power_automations.yaml`, `lighting_boundary.yaml`, `lighting_security.yaml`,
+      `load_shedding_automations.yaml`, `prepaid_core.yaml`, `security_automations.yaml`),
+      plus 6 more `force_*_alert_retrigger_on_escalation` automations found on a closer
+      audit (`alerts_device_power.yaml`, `alerts_network.yaml`, `alerts_temperature.yaml`
+      ×4). (2) The actual source of the repeated fault→resolved→fault pattern: 13 `alert:`
+      entities still had their own live `notifiers: STD_Alerts` — a delivery path with NO
+      debounce option at all, completely bypassing every automation-level guard — this is
+      `NOTIFICATIONS_CONTRACT.md` BUG-N18, previously tracked as fixed in 2 of 9 files;
+      fixed the remaining 8 plus 5 more not previously tracked (13 total):
+      `alerts_system_health.yaml` (critical_sensor_health), `alerts_device_batteries.yaml`,
+      `gas_automations.yaml`, `alerts_batteries.yaml`, `alerts_device_power.yaml`,
+      `alerts_media.yaml`, `alerts_presence.yaml`, `alerts_garden.yaml`,
+      `alerts_doors.yaml`, `alerts_power.yaml`, `alerts_temperature.yaml` (×4),
+      `vacuum_consumables_automations.yaml`, `watercooler_automations.yaml`. Verified a
+      working `route_*_alert` replacement automation exists and is enabled for every one
+      before removing its `notifiers:` block — nothing went silent. **Deployed:** `ha core
+      check` valid; automations hot-reloaded live for the automation-level fixes; a full
+      HA Core restart (required — `alert:` entities can't hot-reload) applied and verified
+      live for the `notifiers:` removals, confirmed via a genuine uptime jump plus a
+      post-restart config check. New standing rules added to `CODING_STANDARDS.md`: Rule
+      3b (`not_from`/`not_to` on multi-value sensor triggers) and "`alert:` entities:
+      exactly ONE delivery channel, never two" + matching pre-commit checklist entries.
+      Full detail: `NOTIFICATIONS_CONTRACT.md` BUG-N18, `CODING_STANDARDS.md`.
+      Files: 14 automation files + 13 `alert:` blocks (listed above) +
+      `CODING_STANDARDS.md` + `NOTIFICATIONS_CONTRACT.md`.
+
+- [x] **2026-09-17 (latest) — Vacuum Consumables: new domain built from scratch
+      (utilities/ package, 3rd subsystem alongside Water Cooler/Gas Bottles).**
+      Full detail: UTILITIES_CONTRACT.md Section 9 (comprehensive — architecture,
+      stock model, order lifecycle, cost tracking design rationale, pricing/
+      compatibility investigation, alert pipeline). Summary: order/stock/cost
+      tracking for the Deebot T80S's 8 replaceable parts (main brush, side brush,
+      filter, mop roller, dust bags, detergent, dirty water box, drip tray) — a
+      dropdown-driven order/confirm-stock-in lifecycle, stock-decrement hooks on
+      the 3 existing lifespan-reset buttons plus 2 new/extended trackers (mop
+      roller, dust bag replace), bundle-vs-individual savings calculators, a
+      stock-based alert pipeline, and a Claude-maintained cost-history file
+      (`/log-vacuum-order` skill, mirrors `/log-water-invoice`). Real data
+      throughout, not placeholders — 5 individual Takealot part prices + 2
+      bundle prices confirmed live via screenshots, cross-checked against
+      Ecovacs' own US accessories page for T80S compatibility; 2 real detergent
+      orders seeded (R956 lifetime spend, R240 savings). Also corrected the
+      same-day dust-bag-replace tracker seed (SMART_CLEANING_CONTRACT.md 3h)
+      from a ×4-extrapolation guess to a manufacturer-stated 45-day figure once
+      that data became available mid-build.
+      **⚠️ NOT YET DEPLOYED LIVE** — same no-HA-API-access constraint as the
+      earlier vacuum.yaml work today. Needs Reload Helpers/Templates/Automations,
+      then `automation.vacuum_consumables_restore_on_startup` triggered manually
+      BEFORE any stock button is pressed (a live test earlier today of the same
+      shape — pressing a control before its restore automation ran — corrupted
+      `vacuum_tracker_state.json` with invalid JSON; same race applies here,
+      already designed around via a stock/history file split, but the deploy
+      ORDER still matters). Dashboard: paste-in card YAML given to the user
+      instead of a raw `.storage/lovelace` edit (same caution as the dust-bag
+      dropdown fix earlier today — an open dashboard's own autosave can clobber
+      a direct file edit).
+      Files: `packages/utilities/vacuum_consumables_{helpers,core,automations}.
+      yaml`, `vacuum_consumables_save.sh`, `vacuum_consumables_{stock,order_
+      history}.json`, `.claude/commands/log-vacuum-order.md`, 2 small edits to
+      `packages/integrations/vacuum.yaml`.
+
+- [x] **2026-09-17 (latest) — Alerts: garage door open alert critical severity
+      restricted to nobody-home.** User: garage door open alert should only be
+      critical when no one is home, not when someone is home or staff on site.
+      **Investigation:** `packages/alerts/alerts_doors.yaml`'s garage-door split-out
+      (BUG from 2026-08-23 redesign) had the severity backwards from what the user
+      wanted — the `nobody` (away) branch capped at `warning` (rank 2) at
+      `entry_esc` min with no critical tier at all, while the home branch
+      (`boundary_lights_on AND all_home`) escalated to `critical` (rank 3) after
+      `door_warn_esc` min. So a genuinely unattended open garage never went past
+      warning, while a family-home-at-dusk open garage could go critical.
+      `binary_sensor.security_nobody_home` (used as `nobody`) already excludes
+      `binary_sensor.staff_on_site` (`context_global.yaml`), so staff-on-site was
+      already correctly kept out of the "nobody" bucket — the bug was purely the
+      inverted severity assignment between the two branches.
+      **Fix:** swapped which branch reaches critical — `nobody` branch now escalates
+      warning → critical (`entry_esc` → `door_warn_esc` min, same thresholds as
+      before, just relocated); the home branch is now capped at `warning` only and
+      can never reach critical. Applied in both `sensor.door_alert_context`'s rank
+      computation and its `devices` attribute display-severity block (two parallel
+      copies of the garage-door logic in the same file).
+      Full detail: ALERTS_CONTRACT.md (Doors Domain change log).
+      Files: `packages/alerts/alerts_doors.yaml`.
+
 - [x] **2026-09-17 (~15min later) — Security: BUG-S82 — BUG-S81's own new corroboration
       sensor had no hysteresis, reintroducing the exact flapping bug it was meant to
       help fix, one layer downstream.** User: "Still not off?" — the boundary lights
@@ -131,7 +235,11 @@
       seeded from the old combined tracker's real learned average (22.58d/3724m² —
       historically almost certainly mostly "emptied the bin" presses); bag-replace seeded
       as a pure ×4 extrapolation (90d/14900m², flagged guess, no real data existed for it
-      before today).
+      before today). **CORRECTED later the same session**: once the Takealot/Ecovacs
+      listing's own stated guidance became available ("Dust Bags: Replace when full,
+      typically every 1-2 months," part of the Vacuum Consumables build — see the entry
+      below), re-seeded to **45d / ~8550m²** — a manufacturer reference now, not a guess,
+      though the area half is still an extrapolation off that days figure.
       **Water/dirty-water level tracking (3c):** the old binary `vacuum_log_preemptive`
       skip-entirely gate discarded a partial-fill press from the average instead of using
       it. Replaced (for these two trackers only — manual-clean and the two dust-bag
@@ -5850,6 +5958,39 @@ alert.gas_alert                                       ← confirmed live 2026-09
 # (removed 2026-09-06) — they hold live/automation-written state that must
 # survive a restart. Don't add one back without reading Rule 5b first.
 # Full design + pipeline: docs/domains/UTILITIES_CONTRACT.md Section 8
+```
+
+### Vacuum Consumables Entities (added 2026-09-17)
+```
+input_select.vacuum_consumable_order_item           ← what to order — bare names, NOT price-embedded (prices
+                                                        drift); "Select Item…" idle/reset value
+input_number.vacuum_stock_*                          ← 8 stock counters (main_brush/side_brush/filter/mop_roller/
+                                                        dust_bag/detergent/dirty_water_box/drip_tray) — SPARE units
+                                                        only, not what's currently installed/in the machine
+input_number.vacuum_price_*                           ← reference prices, real Takealot data confirmed 2026-09-17,
+                                                        editable (specials change) — see UTILITIES_CONTRACT.md
+                                                        Section 9g for the full pricing/compatibility writeup
+sensor.vacuum_mop_roller_estimate                     ← NEW manual-log EMA tracker, no device sensor exists for
+                                                        this part (unlike main/side brush/filter, which have a
+                                                        live device-reported lifespan %)
+sensor.vacuum_bundle_savings_buddy_kit                ← HIGH confidence — bundle contents exactly quantity-matched
+                                                        against individual listings
+sensor.vacuum_bundle_savings_t80_set                  ← LOW confidence — 3rd-party seller doesn't enumerate exact
+                                                        bundle contents, visually inferred from the product photo
+sensor.vacuum_consumables_order_history               ← Claude-maintained via /log-vacuum-order (mirrors
+                                                        watercooler_invoice_history), feeds month/year cost sensors
+sensor.vacuum_consumables_saved_stock                 ← HA-automation-maintained, DIFFERENT file from the one
+                                                        above (vacuum_consumables_stock.json, not _order_history.
+                                                        json) — see UTILITIES_CONTRACT.md Section 9c for why they're
+                                                        deliberately split, and never hand-edit the stock file
+alert.vacuum_consumables_alert                        ← NOT yet restarted as of 2026-09-17 build — needs a full HA
+                                                        restart to activate, same disclaimer as every other domain
+# ⚠️ CODING_STANDARDS.md Rule 5b: all 8 stock counters + the mop-roller EMA +
+# order-in-progress/alert-snoozed booleans have NO `initial:` — first-ever seed
+# values come from vacuum_consumables_stock.json via automation.vacuum_
+# consumables_restore_on_startup, not a YAML default. Don't add one back
+# without reading Rule 5b first.
+# Full design + pipeline: docs/domains/UTILITIES_CONTRACT.md Section 9
 ```
 
 ---

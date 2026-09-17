@@ -54,6 +54,7 @@ a sensor exists just because an estimate sensor reads a number.
 | The actual cleaning schedule (start times) | Ecovacs app's own Schedule screen — HA has zero visibility into it, see Section 6 |
 | Global alert aggregation/dashboard | `packages/alerts/alerts_summary.yaml` — this domain only feeds it via naming convention |
 | Security camera false-trigger interaction | Untested — see Section 8 |
+| Replacement-parts order/stock/cost tracking (main brush, side brush, filter, mop roller, dust bags, detergent bottle stock, dirty water box, drip tray) | `packages/utilities/vacuum_consumables_*.yaml` — see `docs/domains/UTILITIES_CONTRACT.md` Section 9. This domain still owns WHEN a part needs attention (lifespan %, usage EMAs below); Utilities owns the economics layer on top |
 
 ---
 
@@ -492,19 +493,23 @@ a repeat of the same option still produces a state-change trigger next
 time — without that reset, picking "Emptied Bin" twice in a row would only
 fire the automation the first time.
 
-**Seed values — bin-empty carries forward real data, bag-replace is a pure
-guess.** When this was one combined tracker (2026-09-06 – 2026-09-17), it
-learned `avg_days_per_dust_bag_change` = 22.58d / `avg_area` = 3724m² from
-real presses. Splitting it retroactively can't recover which of those
-presses were "really" an empty vs. a replace — but in practice the simpler,
-more frequent action (emptying the bin) almost certainly dominated those
-presses, so **bin-empty inherited that real average as its seed**
-(`vacuum_dust_bin_empty_logged_once` seeded "on"). **Bag-replace starts
-from zero real data** — seeded as a pure ×4 extrapolation off the inherited
-bin-empty numbers (90d / 14900m², assumption: roughly 4 bin-empties per
-full bag swap) — flag this explicitly as a guess, same caveat as every
-other from-scratch tracker seed in this file, until real "Replaced Bag"
-presses replace it (`vacuum_dust_bag_replace_logged_once` seeded "off").
+**Seed values — bin-empty carries forward real data, bag-replace uses a
+manufacturer reference (revised same day).** When this was one combined
+tracker (2026-09-06 – 2026-09-17), it learned `avg_days_per_dust_bag_change`
+= 22.58d / `avg_area` = 3724m² from real presses. Splitting it retroactively
+can't recover which of those presses were "really" an empty vs. a replace —
+but in practice the simpler, more frequent action (emptying the bin) almost
+certainly dominated those presses, so **bin-empty inherited that real
+average as its seed** (`vacuum_dust_bin_empty_logged_once` seeded "on").
+**Bag-replace starts from zero real data** — originally seeded as a pure ×4
+extrapolation off the inherited bin-empty numbers (90d/14900m²), then
+RE-SEEDED later the same day to **45d / ~8550m²** once the Takealot/Ecovacs
+listing's own stated guidance became available ("Dust Bags: Replace when
+full, typically every 1-2 months," see UTILITIES_CONTRACT.md Section 9) —
+a manufacturer reference now, not a pure guess, though the area half is
+still extrapolated (~190 m²/day × 45d) and flagged accordingly until real
+"Replaced Bag" presses replace it (`vacuum_dust_bag_replace_logged_once`
+seeded "off").
 
 **Wired into the existing restart-survival persistence (3g)**, not a
 separate mechanism — `vacuum_tracker_save.sh` now takes 16 positional args
@@ -660,8 +665,8 @@ No `initial:` on any field below, per CODING_STANDARDS Rule 5b.
 | `input_number.vacuum_area_at_last_dust_bag_replace` | input_number | none | Same, "Replaced Bag" |
 | `input_number.vacuum_avg_area_per_dust_bin_empty` | input_number | `3724` m² (inherited real average — not a fresh guess) | EMA, refines per press |
 | `input_number.vacuum_avg_days_per_dust_bin_empty` | input_number | `22.58` d (inherited real average) | EMA, refines per press |
-| `input_number.vacuum_avg_area_per_dust_bag_replace` | input_number | `14900` m² (pure ×4 extrapolation guess) | EMA, refines per press |
-| `input_number.vacuum_avg_days_per_dust_bag_replace` | input_number | `90` d (pure ×4 extrapolation guess) | EMA, refines per press |
+| `input_number.vacuum_avg_area_per_dust_bag_replace` | input_number | `8550` m² (extrapolated off the 45d manufacturer figure, area half still a guess) | EMA, refines per press |
+| `input_number.vacuum_avg_days_per_dust_bag_replace` | input_number | `45` d (Takealot/Ecovacs manufacturer guidance, "every 1-2 months") | EMA, refines per press |
 
 ### Helper — Pre-emptive Log Toggle (added 2026-09-03; narrowed 2026-09-17)
 

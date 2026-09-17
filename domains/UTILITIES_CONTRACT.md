@@ -630,6 +630,295 @@ supplier has not been tried.
 
 ---
 
+## Section 9: Vacuum Consumables
+
+### 9a. Overview
+
+Order/stock/cost tracking for the Deebot T80S's 8 replaceable parts: main
+brush, side brush, filter, mop roller, dust bags, cleaning solution
+(detergent), dirty water box, drip tray. Third subsystem in `utilities/`,
+added 2026-09-17 in the same session as the vacuum's dust-bag-tracker split
+and water/dirty-water fill-level selectors (`packages/integrations/
+vacuum.yaml`, see SMART_CLEANING_CONTRACT.md) — related but distinct: THAT
+work tracks WHEN a part needs attention (usage-based estimates, device-
+reported lifespan %); THIS subsystem is the economics layer on top — how
+many spares exist, what to order, from whom, for how much, whether that's
+a good price, and whether the current spend is trending up or down.
+
+User's own framing for the split: "Design the order and cost tracking for
+robo vacuum similar to water bottle but track all replaceable pieces of
+machine." Followed by explicit requirements: component dropdown for
+ordering (individual or bundle, with bundle-vs-individual savings %
+computed automatically), a stock-in confirmation step, replacement-logging
+via the existing reset buttons where they already exist, stock-based
+alerts ("eg none left"), and 30/60/90/Lifetime cost graphs "similar to
+gas/water," plus a vendor field specifically to track savings on specials.
+
+### 9b. File Inventory
+
+| File | Purpose |
+|---|---|
+| `packages/utilities/vacuum_consumables_helpers.yaml` | input_select (order item, chart range), input_number (price references, order qty/price/normal-price, 8 stock counters, mop-roller EMA), input_text (order vendor), input_datetime (mop-roller clock, order timestamps), input_boolean (EMA guard, order-in-progress, alert notify/snoozed), input_button (Place Order, Confirm Stock In, Log Mop Roller Replaced) |
+| `packages/utilities/vacuum_consumables_core.yaml` | 2 `command_line:` sensors (order-history file, stock file) + all template sensors (mop-roller estimate, order status, 2 bundle-savings calculators, month/year cost, alert context, low-stock binary sensor) |
+| `packages/utilities/vacuum_consumables_automations.yaml` | Place Order / Confirm Stock In / restore-on-startup / Log Mop Roller Replaced / 3 stock-decrement hooks on the existing device reset buttons / alert routing trio / `alert:` block / `shell_command:` |
+| `packages/utilities/vacuum_consumables_save.sh` | Whole-file overwrite of the stock JSON — same proven pattern as `packages/integrations/vacuum_tracker_save.sh` |
+| `packages/utilities/vacuum_consumables_stock.json` | HA-automation-maintained, live stock counts + mop-roller EMA — overwritten on every stock-changing action, never hand-edited |
+| `packages/utilities/vacuum_consumables_order_history.json` | Claude-maintained financial record (records + monthly_breakdown) via `/log-vacuum-order` — same role as `watercooler_invoice_history.json` |
+
+Two small edits to `packages/integrations/vacuum.yaml` wire the existing
+dust-bag-replace and new-detergent-bottle automations into this
+subsystem's stock counters (see 9c) — cross-package entity references,
+which HA doesn't restrict.
+
+Dashboard: paste-in card YAML handed to the user 2026-09-17 (this session
+had no live dashboard API access — same constraint documented in
+CODING_STANDARDS.md's ".storage/lovelace" section — raw-editing the
+storage file directly risks the UI's own autosave clobbering it while
+open). Not yet confirmed live in the browser.
+
+### 9c. Why TWO separate JSON files, not one
+
+`vacuum_consumables_order_history.json` (Claude-maintained, rich financial
+records) and `vacuum_consumables_stock.json` (HA-automation-maintained,
+live stock counts) are deliberately separate files, not one file with a
+`current_stock` key inside the history file (the first draft of this
+design). Reason: `shell_command.vacuum_consumables_save` can only safely
+do a WHOLE-FILE overwrite via a bash heredoc (same proven technique
+`vacuum_tracker_save.sh` already uses) — there's no confirmed `jq` or
+Python available inside the live HA container to do an in-place patch of
+one key while preserving the rest of a larger file. Splitting them means
+both halves use the one pattern that's actually proven safe here, and a
+stock-save can never accidentally clobber financial history (or vice
+versa) even if something goes wrong.
+
+**Real bug this design choice avoided rediscovering the hard way**: during
+this same build, a live test (user picked "Emptied Bin" on the new dust-
+bag dropdown before the restore-on-startup automation had run) caused
+`shell_command.vacuum_tracker_save` to write invalid JSON into
+`vacuum_tracker_state.json` — a brand-new `input_number` didn't exist yet
+in the state machine at the moment the shell_command fired, so `states()`
+returned an empty string instead of a number, landing in the JSON
+unquoted. Fixed same session (see SMART_CLEANING_CONTRACT.md Section 3h's
+audit row and PROJECT_STATE.md's 2026-09-17 entry). The lesson applies
+here too: **always trigger the restore-on-startup automation immediately
+after Reload Helpers, before pressing any control that calls
+`shell_command.vacuum_consumables_save`**, to avoid feeding not-yet-seeded
+`unknown`/empty values into the stock file on first deploy.
+
+### 9d. Stock Model
+
+Anonymous per-component spare-unit pools, same model as
+`watercooler_bottles_in_stock` — NOT counting whatever's currently
+installed on the machine (main brush/side brush/filter/mop roller) or the
+current bottle's fill % (detergent, already tracked separately by
+`sensor.vacuum_detergent_level`). Units are **individual parts, not
+packs** — buying a Side Brush 2-Pack adds 2 to `vacuum_stock_side_brush`,
+a Filter 3-Pack adds 3, a Dust Bag 3-Pack adds 3 — see 9e's composition
+map for exact bundle contents.
+
+**Real seed 2026-09-17** (user-confirmed): `detergent` = 4 (2 bottles
+delivered same day + 2 from an earlier order, both R239/bottle from
+Takealot) — all other 7 components = 0 spare ("all other items are what
+is on machine so no stock left," per the user's own words — whatever's
+currently installed is the only unit, no backups purchased yet).
+
+**Which components have a "days until needed" estimate, and which don't:**
+
+| Component | Wear/usage signal | Source |
+|---|---|---|
+| Main Brush | Device-reported lifespan % | `sensor.deebot_t80s_biesie_main_brush_lifespan` (ecovacs integration, V11) |
+| Side Brush | Device-reported lifespan % | `sensor.deebot_t80s_biesie_side_brush_lifespan` |
+| Filter | Device-reported lifespan % | `sensor.deebot_t80s_biesie_filter_lifespan` |
+| Mop Roller | NEW manual-log EMA (no device sensor exists for this at all) | `sensor.vacuum_mop_roller_estimate` |
+| Dust Bag | Existing manual-log EMA (built same session, see SMART_CLEANING_CONTRACT.md 3h) | `sensor.vacuum_dust_bag_replace_estimate` |
+| Detergent | Existing refills-remaining % | `sensor.vacuum_detergent_level` |
+| Dirty Water Box | **None** — no device sensor, no manufacturer interval given, no usage pattern established | Stock/order/cost tracking only |
+| Drip Tray | **None** — same as above | Stock/order/cost tracking only |
+
+Deliberately did NOT build a duplicate time-based estimator for main
+brush/side brush/filter — they already have a live, device-reported wear
+signal (more accurate than any elapsed-time guess), so this subsystem
+just reads it rather than re-deriving it. The manufacturer's stated
+replacement windows (filter 2-3mo, side brush 3-6mo, main brush 6-12mo,
+roller 1-3mo, dust bags 1-2mo — from the Takealot/Ecovacs listings
+themselves) were used as REFERENCE/seed data only where a real new
+tracker needed a starting point (mop roller's EMA, and a same-day
+correction to the dust-bag-replace tracker's earlier ×4-extrapolation
+guess — see SMART_CLEANING_CONTRACT.md Section 3h and PROJECT_STATE.md's
+2026-09-17 correction note).
+
+### 9e. Order → Stock Lifecycle
+
+Two-step split, deliberately mirroring Water Cooler's Place Order/Confirm
+Delivery separation (NOT Gas Bottles' single ad-hoc completion button) —
+because unlike a gas refill (one instantaneous event), an online order has
+a real gap between placing it and it arriving, worth tracking separately:
+
+1. **Place Order** (`input_button.vacuum_consumable_place_order`) —
+   records which item + qty, timestamps it, sets `input_boolean.
+   vacuum_consumable_order_in_progress` on. Does NOT touch stock.
+2. **Confirm Stock In** (`input_button.vacuum_consumable_confirm_stock_in`)
+   — the real stock movement, adds the ordered quantities to the matching
+   counter(s) per this composition map:
+
+   | Order item | Adds to stock |
+   |---|---|
+   | Main Brush | +qty `main_brush` |
+   | Side Brush 2-Pack | +2×qty `side_brush` |
+   | Filter 3-Pack | +3×qty `filter` |
+   | Mop Roller | +qty `mop_roller` |
+   | Dust Bag 3-Pack | +3×qty `dust_bag` |
+   | Detergent 1L Bottle | +qty `detergent` |
+   | Dirty Water Box | +qty `dirty_water_box` |
+   | Drip Tray | +qty `drip_tray` |
+   | Buddy Kit (Bundle) | +qty `main_brush`, +qty `mop_roller`, +2×qty `side_brush`, +3×qty `filter` — quantities CONFIRMED exact against the individual listings |
+   | T80 Compatible Set (Bundle) | +qty `main_brush`, +2×qty `mop_roller`, +3×qty `filter`, +6×qty `dust_bag`, +2×qty `side_brush` — **FLAGGED APPROXIMATE**, see 9g |
+
+   Closes `order_in_progress`, resets the order-item select/qty/price/
+   vendor fields to idle, saves to disk, logs (with a nudge to also tell
+   Claude via `/log-vacuum-order` for the financial record — see 9c/9f).
+
+**Replacement logging is separate from ordering** — pressing Confirm Stock
+In moves a part from "ordered" to "spare on hand"; a THIRD, independent
+action records when a spare actually gets installed (moving it from
+"spare" to "in use," decrementing stock by 1):
+
+- Main Brush / Side Brush / Filter: reuses the EXISTING device reset
+  buttons (`button.deebot_t80s_biesie_reset_*_lifespan`, V11) — a new
+  automation listens on each button's press and decrements the matching
+  stock counter, without touching or duplicating the integration's own
+  lifespan-reset behavior.
+- Mop Roller: new `input_button.vacuum_log_mop_roller_replaced` (no
+  device button exists for this part) — same manual-log-plus-EMA pattern
+  as the vacuum's dust bin/bag trackers, plus a stock decrement.
+- Dust Bag: the EXISTING `automation.vacuum_log_dust_bag_action`'s
+  "Replaced Bag" branch (`packages/integrations/vacuum.yaml`) was
+  extended to also decrement `vacuum_stock_dust_bag`.
+- Detergent: the EXISTING `automation.vacuum_log_detergent_new_bottle`
+  was extended to also decrement `vacuum_stock_detergent` — opening a new
+  spare bottle consumes one.
+- Dirty Water Box / Drip Tray: no replacement-logging button built yet —
+  no real usage pattern or manufacturer interval exists to log against.
+  Stock still moves via Confirm Stock In; a "Log Replaced" button can be
+  added once there's a real reason to.
+
+All stock-changing actions call `shell_command.vacuum_consumables_save`
+to persist to disk (see 9c).
+
+### 9f. Cost Tracking — file-based, not event-based (unlike Gas Bottles)
+
+Deliberately mirrors Water Cooler's file-based invoice-history pattern
+(Section 5), NOT Gas Bottles' event-triggered self-referencing sensor
+(Section 8e) — even though the dashboard-button-driven shape looks more
+like Gas at first glance. Reason: this session needed to seed TWO real
+historical purchases (2026-09-17's confirmed order + an earlier one)
+directly, with no live HA API access to fire a custom event — a file
+Claude can write via Bash/Edit was the only mechanism available. It also
+naturally supports the richer fields the user explicitly asked for
+(vendor, RRP-vs-paid savings %) that a compact event-payload would be
+more awkward to carry.
+
+`sensor.vacuum_consumables_order_history` (`command_line:`, reads
+`vacuum_consumables_order_history.json`) surfaces `summary.
+monthly_breakdown`; `sensor.vacuum_consumables_month_actual_cost`/
+`_year_actual_cost` filter it by the live calendar month/year — genuinely
+live, not stale between `/log-vacuum-order` edits.
+
+**Real seed data (2026-09-17, user-confirmed)**: 2 orders of 2× Detergent
+1L Bottle each, both R239/bottle (RRP R299, ~20% off), both from Takealot
+— R956 lifetime spend, R240 lifetime savings. One order's exact date is
+unconfirmed (seeded as 2026-09-01, a placeholder — see the record's own
+`notes` field); the other (delivered same day this was built) is exact.
+
+**Dashboard price/vendor fields are informational only, not wired to this
+file** — `input_number.vacuum_order_price`/`_normal_price` and
+`input_text.vacuum_order_vendor` are shown on the dashboard and included
+in Confirm Stock In's logbook entry, but do NOT get written into
+`vacuum_consumables_order_history.json` automatically (no jq/Python
+confirmed available in-container to append a JSON array entry from a
+shell_command, and this file is Claude's domain per 9c). The Confirm
+Stock In logbook message explicitly nudges the user to also tell Claude
+for the financial record to actually land in the Trends charts — same
+"paste it into a session" workflow already validated twice (Water Cooler,
+Gas Bottles), not a gap, a deliberate consistency choice.
+
+### 9g. Pricing & Compatibility — real data, confirmed 2026-09-17
+
+**Confirmed compatible with T80S** (cross-checked against Ecovacs' own US
+accessories page, `ecovacs.com/us/shop/accessories`, which independently
+lists T80S OMNI for each category): Main Brush, Side Brush, Filter, Mop/
+Ozmo Roller, and Buddy-Kit-style bundles. All 5 individual Takealot
+listings the user found are explicitly labeled "X11 Pro/T80S Pro" —
+genuinely correct, not a guess.
+
+| Item | Price | Was | Vendor |
+|---|---|---|---|
+| Main Brush | R359 | R399 | Takealot |
+| Side Brush 2-Pack | R299 | — | Takealot |
+| Filter 3-Pack | R189 | R199 | Takealot |
+| Mop/Ozmo Roller | R259 | R299 ("Best Price") | Takealot |
+| Dust Bag 3-Pack | R399 | — | Takealot |
+| Buddy Kit (1 main brush, 1 roller, 2 side brush, 3 filter) | R799 | R999 | Takealot, sold by ClickPayGet (VAT registered, next-day) |
+| T80 Compatible Set (approx. contents, see below) | R1,688 | — | Takealot, sold by Aura Collective (global 3rd-party, 14-16 day shipping) |
+| Detergent 1L Bottle | R239 | R299 | Takealot |
+
+**T80 Compatible Set's exact contents are NOT confirmed** — the listing's
+own text doesn't enumerate quantities, only "main brush, mop roller,
+filter, dust bag and side brush." The product photo visually suggests ~1
+main brush, ~2 mop rollers, ~4 filter/mop-pads, ~6 dust bags, and side
+brush(es) — used as the stock-in composition (9e) and the savings
+estimate (`sensor.vacuum_bundle_savings_t80_set`), both explicitly flagged
+LOW CONFIDENCE in their own attributes/comments. Confirm actual contents
+before ordering this one. The Buddy Kit's contents, by contrast, ARE
+exactly quantity-matched against the individual listings (2 side brushes
+= the 2-pack, 3 filters = the 3-pack) — `sensor.
+vacuum_bundle_savings_buddy_kit`'s 27.8%-savings figure is trustworthy.
+
+**The local ecovacs.co.za store's listings are a DIFFERENT compatibility
+family, NOT used as price references here** — their dust bag (R399),
+Buddy Kit (R799, coincidentally same price as Takealot's), and mop roller
+(R199) pages each list X8 PRO OMNI/T30C/T50S PRO OMNI as compatible
+models, NOT T80S. Ecovacs US's own accessories page independently groups
+T80S OMNI into the SAME dust-bag/buddy-kit compatibility family as those
+models, which strongly suggests these are the same physical parts with an
+incomplete regional listing on the SA site — but this is **not
+independently confirmed** (no SKU-level cross-check was possible), so
+these were flagged to the user as "use at your own risk, confirm with
+Ecovacs SA support" rather than silently treated as safe. None of their
+prices were used as reference constants — the Takealot X11 Pro/T80S Pro-
+labeled listings were used exclusively, since those carry an explicit,
+unambiguous compatibility claim.
+
+**Manufacturer-stated replacement intervals** (from the Takealot/Ecovacs
+listing descriptions, used as seed data where noted in 9d): Filters
+2-3 months, Side Brushes 3-6 months, Main Brush 6-12 months, Roller Mop
+1-3 months, Dust Bags "replace when full, typically every 1-2 months."
+
+### 9h. Alert Pipeline
+
+Exact structural copy of Water Cooler's/Gas Bottles' (Section 6/8g):
+`binary_sensor.vacuum_consumables_low` → `sensor.vacuum_consumables_
+alert_context` → `route_vacuum_consumables_alert` (`script.
+notify_system_event`, Cancel Alert both mobile + Telegram) →
+`sensor.alert_device_entities` (naming-convention pickup). `binary_sensor.
+vacuum_consumables_low` fires when ANY of the 8 components' stock is at/
+under `input_number.vacuum_consumables_low_stock_threshold` (default 0 —
+"eg none left," per the user's own example), gated by `input_boolean.
+vacuum_consumables_alert_notify`. Escalates to `critical` only for a
+component that is BOTH out of stock AND currently due for replacement
+(device lifespan % below the existing V11 threshold, or this subsystem's
+own estimate at/under 0 days) — "warning" for stock-out alone. Dirty
+water box/drip tray (no wear signal) can only ever contribute a warning
+line, never critical. `sensor.vacuum_consumables_alert_context` was built
+with the required `duration` attribute from the start (ALERTS_CONTRACT.md
+Section 3) — both Water Cooler and Gas Bottles independently missed this
+on their first build (Section 6/8g's own session-log corrections);
+avoided here by writing it down as a known gotcha for this package before
+building the third subsystem. `alert.vacuum_consumables_alert` requires a
+full HA restart to activate (same disclaimer as every other domain).
+
+---
+
 ## Session Log
 
 - **2026-08-31** — Domain created from scratch. Full stock/order/delivery/
@@ -978,3 +1267,51 @@ supplier has not been tried.
   of this entry** — the session that found this had no credentialed API
   access to call `input_number.set_value` itself; needs a manual set to 2
   via Developer Tools → States or the dashboard card.
+
+- **2026-09-17 — Vacuum Consumables domain created from scratch (Section 9),
+  third subsystem in `utilities/`.** User: "Lets design the order and cost
+  tracking for robo vacuum similar to water bottle but track all
+  replaceable pieces of machine — roller mop/main brush, side brush, dust
+  bag, filter, cleaning solution, robot dirty water box & drip tray,"
+  followed by real Takealot/ecovacs.co.za/ecovacs.com pricing links and
+  explicit requirements (bundle-vs-individual savings %, vendor field,
+  stock-based alerts, 30/60/90/Lifetime cost graphs). Full stock/order/
+  replacement-logging/cost-tracking build (`vacuum_consumables_helpers.
+  yaml`, `_core.yaml`, `_automations.yaml`, `_save.sh`, `_stock.json`,
+  `_order_history.json`), new `/log-vacuum-order` skill, 2 hook edits into
+  `packages/integrations/vacuum.yaml`'s existing dust-bag-replace/new-
+  detergent-bottle automations. Real current state seeded, not
+  placeholders: detergent stock = 4 (2 orders, both R239/bottle from
+  Takealot, R956 lifetime spend / R240 lifetime savings), all other 7
+  components = 0 spare stock (whatever's installed is the only unit).
+  Dust-bag-replace tracker's seed corrected same session from an earlier
+  ×4-extrapolation guess (90d) to 45d, once the Takealot/Ecovacs listings'
+  own stated replacement guidance became available — see
+  SMART_CLEANING_CONTRACT.md Section 3h.
+  **Real bug found and fixed mid-build**: a live user test (picking
+  "Emptied Bin" on the vacuum's new dust-bag dropdown before its restore-
+  on-startup automation had run) caused `shell_command.vacuum_tracker_save`
+  to write invalid JSON into `vacuum_tracker_state.json` — confirmed the
+  two-file split (9c) between Claude-maintained history and HA-automation-
+  maintained stock was the right call before that mechanism was even built
+  for THIS domain, not just a design preference.
+  **Compatibility investigation, not just pricing**: confirmed via
+  Ecovacs' own US accessories page that all 5 individual Takealot listings
+  (labeled "X11 Pro/T80S Pro") are genuinely T80S-compatible; separately
+  flagged that ecovacs.co.za's local SA listings (dust bag, Buddy Kit, mop
+  roller) list a DIFFERENT compatible-models set (X8/T30C/T50S, not T80S)
+  — likely the same physical parts with an incomplete regional listing,
+  but NOT independently confirmed, so not used as price references and
+  explicitly flagged to the user as "confirm with Ecovacs SA before
+  ordering" rather than silently assumed safe.
+  **⚠️ Not yet deployed live** — this session had no HA API access (same
+  constraint as the vacuum.yaml dust-bag-split/fill-level work earlier the
+  same day). Needs Reload Helpers + Reload Template Entities + Reload
+  Automations, then a manual trigger of `automation.vacuum_consumables_
+  restore_on_startup` before any stock-changing button is pressed for
+  real (see 9c's real-bug note for why that order matters). `alert.
+  vacuum_consumables_alert` additionally needs a full HA restart, same
+  disclaimer as every other domain. Dashboard not yet added — paste-in
+  card YAML was handed to the user instead of a raw `.storage/lovelace`
+  edit, matching the caution learned earlier the same session when a
+  similar edit for the dust-bag dropdown needed the same treatment.

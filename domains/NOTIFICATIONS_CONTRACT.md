@@ -487,8 +487,8 @@ fires at `hours: /3` (hitting midnight after restart) before Telegram service is
 2. ~~**`presence_notifications.yaml`** — 4 per-person automations, should route through `script.notify_presence_event`~~ — done, exactly that (BUG-N05)
 3. ~~**`alerts_device_power.yaml`** — resolve dual delivery before migrating to script~~ — done (BUG-A04)
 
-Current highest-priority open item in this domain is BUG-N18 (Section 10) — 8 files still
-carry a redundant `notifiers: [STD_Alerts]` double-delivery.
+BUG-N18 (Section 10) — redundant `notifiers: [STD_Alerts]` double-delivery across 13 files —
+✅ fully fixed 2026-09-17.
 4. **`water_reporting.yaml`** — weekly summary, lower urgency
 5. Remaining files — low priority
 
@@ -795,18 +795,30 @@ race and kept the `1` suffix after the rest of the entity set landed clean; rena
 updated to the final clean `mobile_app_iphone13promax_vicky` and live-tested — delivery
 confirmed with no errors. Section 3A per-person onboarding note updated to match.
 
-### BUG-N18 [MEDIUM] `alert:` entities with `notifiers: STD_Alerts` double-deliver alongside their `route_*` workaround automations — BUG-N16 follow-on, water + network fixed, 8 others open
+### BUG-N18 [MEDIUM] `alert:` entities with `notifiers: STD_Alerts` double-deliver alongside their `route_*` workaround automations — BUG-N16 follow-on — ✅ FULLY FIXED 2026-09-17
 
-**Files:** `alerts/alerts_water.yaml` (✅ fixed 2026-08-18); `alerts/alerts_network.yaml`
-(✅ **fixed same day, 2026-08-18** — doc-drift correction 2026-08-21: this entry still
-listed it as open. Confirmed live: `notifiers: [STD_Alerts]` is commented out in
-`alerts_network.yaml`, with an inline comment explicitly citing this same BUG-N18 and
-listing the 8 files still outstanding — the fix just never made it back into this
-contract entry); `alerts/alerts_temperature.yaml`, `alerts/alerts_doors.yaml`,
-`alerts/alerts_presence.yaml`, `alerts/alerts_device_power.yaml`, `alerts/alerts_power.yaml`,
-`alerts/alerts_media.yaml`, `alerts/alerts_batteries.yaml`, `alerts/alerts_garden.yaml`
-(still open — all 8 re-verified live 2026-08-21, each still has an active, uncommented
-`notifiers: [STD_Alerts]` block)
+**Files, all ✅ fixed:** `alerts/alerts_water.yaml` (2026-08-18); `alerts/alerts_network.yaml`
+(2026-08-18); `alerts/alerts_temperature.yaml` (wan/lan/device/storage temp — 4 alert blocks),
+`alerts/alerts_doors.yaml`, `alerts/alerts_presence.yaml`, `alerts/alerts_device_power.yaml`,
+`alerts/alerts_power.yaml`, `alerts/alerts_media.yaml`, `alerts/alerts_batteries.yaml`,
+`alerts/alerts_garden.yaml` (all 8, 2026-09-17). Also found and fixed the same session, **not
+part of the original 9-file tracking list** — the true scope was 13 files, not 9:
+`alerts/alerts_system_health.yaml` (`critical_sensor_health`), `alerts/alerts_device_batteries.yaml`
+(`device_battery_alert`), `utilities/gas_automations.yaml` (`gas_alert`),
+`utilities/vacuum_consumables_automations.yaml`, `utilities/watercooler_automations.yaml`.
+**Found via:** a live, evidenced notification-storm incident (see `PROJECT_STATE.md` 2026-09-17)
+— concurrent Claude Code sessions' `template.reload` calls against the shared live instance
+repeatedly tore down and rebuilt every template entity, which the `alert:` component's own
+`notifiers:` path (having no debounce option at all, unlike the guarded `route_*` automations)
+read as a genuine off→on cycle every time — firing `done_message` then the fault message again,
+visible as "Critical Sensors Restored" / "Gas alert cleared" / etc. immediately followed by the
+fault re-firing. **Verified before removing each `notifiers:` block:** confirmed a working
+`route_*_alert` (or equivalent) automation exists, is enabled, and calls `script.notify_*_event`
+directly — so nothing went silent. Config-checked and confirmed live post-restart. New standing
+rule added: `CODING_STANDARDS.md` → Template Safety Rules → "`alert:` entities: exactly ONE
+delivery channel, never two" + Rule 3b (`not_from`/`not_to` on multi-value sensor triggers, the
+companion automation-level fix applied the same session — see that file for the 14 automations
+fixed alongside these 13 `alert:` blocks).
 **Description:** While `notify.STD_Alerts` was dead (2026-06-28 → 2026-08-09), every domain
 built a `route_*` automation calling `script.notify_*_event` directly as the real delivery path,
 leaving the original `alert:` entity's own `notifiers: [STD_Alerts]` in place (harmless at the

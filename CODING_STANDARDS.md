@@ -255,6 +255,72 @@ trigger:
     to: "on"
 ```
 
+### Rule 3b — Same principle for multi-value (non-binary) sensor triggers: `not_from`/`not_to`
+
+Rule 3's `from:`/`to:` pair only works for a real binary on/off entity. A
+trigger watching a **derived/template sensor that holds more than two
+values** (a severity sensor: `normal`/`warning`/`critical`; an orchestrator
+state; a context sensor) has no clean "off" to anchor `from:` on — so it's
+easy to leave it with no reload guard at all. Confirmed live, session-wide,
+2026-09-17 (see `NOTIFICATIONS_CONTRACT.md` BUG-N18 and the reload-storm incident
+in `PROJECT_STATE.md`): a concurrent session's `template.reload` tears down
+and rebuilds every template entity in the config — each one passes through
+`unknown` before recomputing — and an unguarded trigger on one of these
+treats that as a real transition, firing duplicate notifications and
+spurious actions (pool pump control, inverter mode switching, security
+lighting) that had nothing to do with anything actually changing.
+
+```yaml
+# ✅ CORRECT — ignores the reload-induced unknown/unavailable transient,
+# still fires on every real severity change
+trigger:
+  - trigger: state
+    entity_id: sensor.device_power_alert_severity
+    not_from: ["unknown", "unavailable"]
+    not_to: ["unknown", "unavailable"]
+    to: "critical"
+
+# ❌ WRONG — fires on unknown → critical during a reload rebuild, not just
+# a genuine escalation
+trigger:
+  - trigger: state
+    entity_id: sensor.device_power_alert_severity
+    to: "critical"
+```
+
+Applies to **any** bare `trigger: state` with no `to:`/`from:` at all, too
+(not just severity escalation triggers) — a trigger on `sensor.
+energy_orchestrator_state`, `group.inverter_grid`, or similar with nothing
+filtering it will re-run its automation's full logic on every reload, not
+just on a real change. Add the same `not_from`/`not_to` guard.
+
+### Rule — `alert:` entities: exactly ONE delivery channel, never two
+
+An `alert:` entity's own `notifiers:` field and a custom `route_*_alert`
+automation (triggered off the same `binary_sensor.*_alert_active`, calling
+`script.notify_*_event`) are **two independent delivery paths that can both
+be live at once** — nothing in HA stops that, and nothing warns you. This
+repo's actual notification architecture (`NOTIFICATIONS_CONTRACT.md` §7)
+runs delivery through the custom automations, with `notifiers:` meant to be
+dead/removed — but it silently keeps working if never explicitly removed,
+so an alert built by copying an older file (before that migration) or added
+without checking will double-notify. It gets worse under `notifiers:` than
+a plain duplicate: the `alert:` component has **no debounce option at
+all** — no `not_from`, no `for:` — so it re-fires its own done_message and
+fault message on the exact reload-induced transient Rule 3b guards against,
+completely bypassing any guard on the automation. Confirmed live 2026-09-17
+across 13 files (`NOTIFICATIONS_CONTRACT.md` BUG-N18) — this was the actual source
+of the repeating "fault → resolved → fault" notification pairs during that
+incident, not the automations themselves.
+
+- When adding a new `alert:` entity: build the `route_*_alert` automation
+  (with Rule 3b guards) as the **only** delivery path — do not set
+  `notifiers:` on the alert block at all. Keep the `alert:` entity for
+  dashboard state / acknowledge / repeat-timer display only.
+- When copying an existing `alert:` block as a template for a new one,
+  explicitly check whether the source still has a live `notifiers:` —
+  several did, undetected, until this audit.
+
 ### Rule 4 — Add stability windows for flapping sensors
 
 ```yaml
@@ -761,9 +827,13 @@ Before saving and applying any change:
 - [ ] No `{% if %}` / `{% for %}` blocks used to conditionally emit YAML keys — use `choose:` branches instead
 - [ ] `notify.send_message` calls have NO nested `data.data` — Telegram extras (`inline_keyboard`, `disable_notification`) are at top level of `data:`
 - [ ] No `initial:` on a new helper that an automation writes to or that represents live/mutable state (Rule 5b) — settings/thresholds/references are still fine to keep it
+- [ ] Any trigger on a multi-value/derived sensor (severity, context, orchestrator state — anything without a clean binary `from:`/`to:` pair) has `not_from`/`not_to: ["unknown", "unavailable"]` (Rule 3b) — including bare `trigger: state` with no `to:`/`from:` at all
+- [ ] New or copied `alert:` entity has exactly ONE delivery channel — either `notifiers:` OR a `route_*_alert` automation calling `script.notify_*_event`, never both (Rule — alert delivery channels)
 
 ---
 
+*Last updated: 2026-09-17*  
+*Updated by: Added Rule 3b (`not_from`/`not_to: ["unknown","unavailable"]` on multi-value/derived-sensor triggers — a `template.reload` rebuilds every template entity through `unknown`, and an unguarded trigger treats that as real) + a new rule requiring exactly one delivery channel per `alert:` entity (never both `notifiers:` and a `route_*_alert` automation) + matching pre-commit checklist entries. Root-caused a repo-wide notification storm from concurrent sessions' `template.reload` calls — 14 automations and 13 `alert:` blocks fixed same session. See `NOTIFICATIONS_CONTRACT.md` BUG-N18 and `PROJECT_STATE.md`.*
 *Last updated: 2026-09-06*  
 *Updated by: Added Rule 5b (`initial:` on a legacy-YAML input_* helper resets it on every restart, not just first creation — confirmed live in two independent domain fixes the same day, Water Cooler and Gas Bottles) + matching pre-commit checklist entry.*
 *Last updated: 2026-08-21*  
