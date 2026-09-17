@@ -5,6 +5,36 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-17 (~15min later) — Security: BUG-S82 — BUG-S81's own new corroboration
+      sensor had no hysteresis, reintroducing the exact flapping bug it was meant to
+      help fix, one layer downstream.** User: "Still not off?" — the boundary lights
+      still hadn't released as expected.
+      **Live history showed:** `binary_sensor.security_weather_corroborated_clear`
+      flipped on/off every 15-90 seconds continuously for 16+ minutes straight.
+      `sensor.inverter_pv_power` jitters ±1-2% second to second even under a steady sky
+      (confirmed live: 5071→5069→5067→5064→5063→5064→5068W across a few seconds, no
+      cloud involved) — comparing that raw value directly against a fixed 0.6 threshold
+      with zero smoothing meant every sub-minute dip flipped the veto off, which flipped
+      `security_weather_low_light`'s underlying value back to true, which **cancelled**
+      BUG-L25's 10min delay_off countdown before it could ever complete. Same missing-
+      hysteresis defect class as BUG-L25 itself (same file, earlier the same day) —
+      reintroduced by the very fix built to help with weather-sensor reliability.
+      **Fix:** added `delay_on`/`delay_off: "00:02:00"` to `security_weather_
+      corroborated_clear` — short enough to stay responsive, long enough to absorb the
+      observed jitter.
+      **Deployed and live-verified:** by the time the fix landed, real conditions had
+      also genuinely changed again (`inverter_pv_power` 1440W vs. `solcast_pv_forecast_
+      power_now` 4634W, ratio 0.31 — legitimately more overcast than 15min earlier), so
+      `security_weather_corroborated_clear` correctly read `off` post-fix and
+      `security_weather_low_light` correctly stayed `on` — a real condition, not a bug.
+      Also corrected: BUG-S81's own entry above wrongly called the earlier non-release
+      "correct, intentional behavior" — it wasn't, this was the actual cause. **Not yet
+      observed this session:** a full settle-and-release cycle completing cleanly
+      end-to-end during an undisturbed clear stretch — the sky kept changing before
+      either fix got a clean window to prove out fully.
+      Full detail: SECURITY_CONTRACT.md BUG-S82, LIGHTING_CONTRACT.md cross-reference.
+      Files: `packages/security/security_core.yaml`.
+
 - [x] **2026-09-17 (later still) — Security: BUG-S81 — OpenWeatherMap live-caught
       reporting 95% cloud cover during confirmed sunshine (mirror image of BUG-S79);
       added PV-output-vs-Solcast-forecast corroboration as a source-level veto.**
@@ -33,9 +63,8 @@
       low_light`'s underlying value flipped correctly, but BUG-L25's `delay_off:
       "00:10:00"` (added the same day) means the entity won't report `off` for a full
       10 minutes after that — expected ~13:02-13:03, cascading to `boundary_security_
-      off` releasing the lights ~5min after. Intentional/correct interaction of two
-      same-day fixes, not a defect — just means this instance takes ~15min total to
-      visibly resolve.
+      off` releasing the lights ~5min after. **Correction — this turned out to be
+      wrong, see BUG-S82 immediately below, filed ~15min later same session.**
       Full detail: SECURITY_CONTRACT.md BUG-S81 (+ Entity Reference doc-drift fix,
       ISSUE 4's row still said "BROKEN" three years after the 2026-04-15 fix),
       LIGHTING_CONTRACT.md cross-reference (also fixed a mislabelled BUG-L24→BUG-L25

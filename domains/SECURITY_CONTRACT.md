@@ -298,7 +298,7 @@ Once `regionentrance` is primary:
 | `cameras_core.yaml` | Group definitions: security_perimeter_cameras, security_grounds_front_cameras, security_grounds_rear_cameras, security_inside_house_cameras |
 | `cameras_processing.yaml` | Debounce sensors (`camXX_motion_valid`), camera correlation binary sensors, per-camera last event timestamp sensors, trigger-based last_seen_seconds sensors (1-minute update), EZVIZ doorbell integration |
 | `security_helpers.yaml` | All input helpers: 4 input_boolean, 3 input_number, 4 input_datetime, 22 input_text (per-camera images + history × 10 cams, plus event tracking) |
-| `security_core.yaml` | Binary sensors for boundary_permissive_window, visibility/weather conditions, lighting state; Sensors for security_mode, trust_mode, lighting_intent. **2026-09-17 (see LIGHTING_CONTRACT.md BUG-L25):** `security_visibility_poor`/`security_weather_low_light` gained 10min `delay_on`/`delay_off` — previously an unsmoothed re-read of `weather.openweathermap`'s condition string, flapping on/off every ~10min poll near a condition boundary. **Also 2026-09-17 (BUG-S81):** new `binary_sensor.security_weather_corroborated_clear` — PV-output-vs-Solcast-forecast veto on those same two sensors, added after OpenWeatherMap was live-caught reporting 95% cloud cover during confirmed sun. |
+| `security_core.yaml` | Binary sensors for boundary_permissive_window, visibility/weather conditions, lighting state; Sensors for security_mode, trust_mode, lighting_intent. **2026-09-17 (see LIGHTING_CONTRACT.md BUG-L25):** `security_visibility_poor`/`security_weather_low_light` gained 10min `delay_on`/`delay_off` — previously an unsmoothed re-read of `weather.openweathermap`'s condition string, flapping on/off every ~10min poll near a condition boundary. **Also 2026-09-17 (BUG-S81):** new `binary_sensor.security_weather_corroborated_clear` — PV-output-vs-Solcast-forecast veto on those same two sensors, added after OpenWeatherMap was live-caught reporting 95% cloud cover during confirmed sun. **Same-session follow-up (BUG-S82):** that new sensor gained its own 2min `delay_on`/`delay_off` after raw PV-power jitter made it flap every 15-90s, reintroducing the exact flapping defect BUG-L25 fixed elsewhere, one layer downstream. |
 | `security_logic.yaml` | Core logic sensors: event classification, trigger camera selection, correlation engine, movement confidence/path, intruder level, threat score and threat level |
 | `security_zones.yaml` | Zone aggregation binary sensors: perimeter front/rear/combined, grounds, external, inside house |
 | `security_automations.yaml` | All automations: snapshot capture (×2 overlapping), movement path tracking, event lifecycle start/end, event router, visitor detection, arrival detection, grounds/rear/house motion, rear perimeter, gate open action, visitor-alert Cancel Alert pattern (BUG-S77, 2026-08-31) |
@@ -2722,10 +2722,55 @@ corroborated_clear` confirmed `on` live, correctly detecting genuine sun despite
 value flipped `false` correctly, but BUG-L25's `delay_off: "00:10:00"` (added the same
 day, for a different reason — see above) means the entity won't *report* `off` until 10
 minutes of sustained correction have passed — expected ~13:02-13:03, cascading to
-`boundary_security_off` releasing the lights ~5min after that. This interaction is
-correct, intentional behavior of the two fixes compounding, not a defect — just means
-this specific live instance takes ~15 minutes total to visibly resolve rather than being
-instant. Not independently re-confirmed past this point in the session.
+`boundary_security_off` releasing the lights ~5min after that.
+
+**Correction, same session, ~15min later:** the paragraph above was wrong to call the
+wait "correct, intentional behavior" — it never actually settled within that window, and
+the real cause was a genuine bug in this fix, not just the two delays compounding. See
+BUG-S82 below.
+
+---
+
+### BUG-S82 — BUG-S81's own corroboration sensor had no hysteresis, reintroducing the exact flapping-sensor bug class it was built to help fix, one layer downstream
+
+**Priority: MEDIUM | Status: ✅ FIXED 2026-09-17, same session as BUG-S81, live-verified**
+
+**Reported by:** user — "Still not off?", following up ~15 minutes after BUG-S81 was
+deployed and expected to settle.
+
+**Symptom, confirmed via live history:** `binary_sensor.security_weather_corroborated_
+clear` (new in BUG-S81) flipped on/off **continuously every 15-90 seconds for over 16
+minutes straight** (12:52-13:08). `sensor.inverter_pv_power` — the raw signal it's built
+on — jitters ±1-2% second to second even under a genuinely steady sky (confirmed live:
+5071→5069→5067→5064→5063→5064→5068W across a few seconds, no cloud involved), and it was
+being compared directly against a fixed 0.6 ratio threshold with zero smoothing. Every
+sub-minute dip below the threshold flipped the corroboration sensor off, which flipped
+`security_weather_low_light`'s underlying value back to `true`, which **cancelled**
+BUG-L25's 10-minute delay_off countdown on that sensor before it could ever complete — so
+the boundary lights never actually released during the ~16-minute window where the sky
+genuinely was clear enough to have earned it.
+
+**Root cause:** built the BUG-S81 corroboration sensor with no `delay_on`/`delay_off` of
+its own — the exact same missing-hysteresis defect class as BUG-L25 (this same file,
+earlier the same day), reintroduced one layer downstream by the very fix meant to help
+with weather-sensor reliability. A raw, high-frequency physical measurement (inverter
+power) needs the same debounce discipline as a polled API value; this session didn't
+apply it on the first pass.
+
+**Fix:** added `delay_on: "00:02:00"` / `delay_off: "00:02:00"` to `binary_sensor.
+security_weather_corroborated_clear`. 2 minutes absorbs the sub-minute PV jitter observed
+live, while staying meaningfully faster than the 10-minute sensors it feeds — a genuine,
+sustained sky change (real cloud arriving or clearing) still comes through in a couple of
+minutes, not held hostage to noise.
+
+**Deployed and live-verified:** `template.reload`, re-queried — by the time this landed,
+real conditions had also genuinely changed again (`inverter_pv_power` 1440W vs.
+`solcast_pv_forecast_power_now` 4634W, ratio 0.31 — legitimately more overcast than 15
+minutes earlier), so `security_weather_corroborated_clear` correctly read `off` and
+`security_weather_low_light` correctly stayed `on` — a real condition, not the bug. Full
+settle-and-release behavior (a genuine clear stretch actually completing the 10min+5min
+chain end to end) not yet observed this session — the sky kept changing before either
+fix got a clean, undisturbed window to prove out fully.
 
 ---
 
