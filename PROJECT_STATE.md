@@ -5,6 +5,42 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-17 (evening) — Security: BUG-S83 — `security_threat_level` rules 2/5/6
+      had no presence check at all, unlike rules 1/3/4 — evening family movement during
+      rain scored real `warning`/`critical` repeatedly for 2.5+ hours.** User asked to
+      confirm a boundary-lighting question (on/off/on before dusk — genuine fluctuating
+      cloud cover, confirmed benign via BUG-S81/S82's PV corroboration agreeing) which
+      surfaced a second, more serious live finding in the same investigation.
+      **Live-confirmed:** `sensor.security_threat_level` oscillating `low→elevated/
+      warning/critical` every 1-2min continuously since ~17:45 local, including repeated
+      genuine `critical` readings. `sensor.security_movement_path`=`carport`, `sensor.
+      security_trigger_camera`=`cam15_passage`, `anyone_connected_home`=`on`, and
+      `sensor.security_event_classification`=`family_movement` — the classifier
+      correctly, silently called this ordinary evening activity; `security_threat_level`
+      is a separate scoring engine with no equivalent exclusion. User confirmed it was
+      raining (explains trigger volume via the same rain-sensitive NVR cameras as
+      BUG-S78, not the underlying gap itself).
+      **Root cause:** same missing-`nobody`-exclusion defect class as BUG-S80 (found
+      earlier the same session), on three much higher-severity rules this time —
+      grounds/perimeter motion at night with family confirmed home scored real
+      `critical`/`warning` purely from confidence and time of day. Very likely explains
+      both the evening's erratic front/car-port/office light cycling
+      (`security_lighting_engine` reacting to critical→full/warning→area) and a stream
+      of real pushes — BUG-A25 only ever suppressed the `elevated` tier for anyone-home,
+      never touched warning/critical.
+      **Fix:** added `and nobody` to rules 2, 5, 6, matching 1/3/4 and mirroring rule 3's
+      own existing comment ("with family home, confirmed_human = likely arriving
+      visitor"). Rule 1b (legitimate inside-stay-mode-at-night-fully-in-bed case)
+      untouched.
+      **Deployed and live-verified:** `template.reload`, re-queried during an active
+      oscillation (flipping every 15-30s in the seconds around the reload) — settled to
+      `low` with no further critical/warning transitions in the following ~30s, versus a
+      flip every 1-2min for the preceding 2.5 hours. Not watched past that short window.
+      Full detail: SECURITY_CONTRACT.md BUG-S83, ALERTS_CONTRACT.md BUG-A25 entry
+      corrected (its "rules 1-6 already require nobody-home or night" claim was wrong
+      for 2/5/6 specifically).
+      Files: `packages/security/security_logic.yaml`.
+
 - [x] **2026-09-17 — Alerts/Notifications: repo-wide notification-storm root-caused and
       fixed — concurrent Claude Code sessions' `template.reload` calls were the trigger.**
       User reported a burst of duplicate notifications (pool pump, inverter, critical

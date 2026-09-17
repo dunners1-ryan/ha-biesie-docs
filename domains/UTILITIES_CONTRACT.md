@@ -830,6 +830,29 @@ live, not stale between `/log-vacuum-order` edits.
 unconfirmed (seeded as 2026-09-01, a placeholder — see the record's own
 `notes` field); the other (delivered same day this was built) is exact.
 
+**30/60/90/Lifetime chart cards (added later the same session, on request
+— "same details as gas")**: two `custom:html-template-card` inline-SVG bar
+charts on the Vacuum view's Cost & Usage section ("Monthly Spend",
+"Monthly Spend vs Savings"), reusing Gas Bottles' exact proven layout
+(`preserveAspectRatio="xMinYMid meet"`, dynamic axis_max rounded to a
+clean number, 4-slot minimum width floor, per-bar value labels, y-axis
+gridline+labels, hover `<title>` tooltips — all fixes gas_core.yaml's own
+session log already found the hard way, reused rather than rediscovered).
+One real difference from Gas's month-count selector: `input_select.
+vacuum_consumables_chart_range`'s options are DAY-based (30/60/90/
+Lifetime, per the user's original request), not month-count based like
+`gas_chart_range`'s 3/6/12 — so `sensor.vacuum_consumables_order_history`
+had to start exposing the raw `records` list (not just the pre-aggregated
+`monthly_breakdown`) so the chart can filter by a true rolling day cutoff
+(`now() - timedelta(days=N)`) before bucketing into monthly bars for
+display. `json_attributes_path` changed from `$.summary` to `$` (root) to
+expose both `records` and `summary` — the month/year cost sensors were
+updated to read `state_attr(...,'summary').monthly_breakdown` accordingly.
+**Not yet visually confirmed in a browser** — built directly into
+`.storage/lovelace.dashboard_operations` (raw file edit, same restart-
+required caveat as every other dashboard change this session), YAML/JSON
+validated and brace-balance-checked but not live-rendered.
+
 **Dashboard price/vendor fields are informational only, not wired to this
 file** — `input_number.vacuum_order_price`/`_normal_price` and
 `input_text.vacuum_order_vendor` are shown on the dashboard and included

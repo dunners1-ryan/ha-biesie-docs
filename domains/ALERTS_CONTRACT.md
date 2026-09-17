@@ -1756,9 +1756,12 @@ was fixed anyway.
 
 **Fix:** `binary_sensor.security_alert_active` now only counts `elevated` as alert-worthy
 when `binary_sensor.anyone_connected_home` is `off` — mirroring the classifier's own
-family_movement suppression. `warning`/`critical` are untouched (those tiers already
-require nobody-home or night in `security_threat_level`'s own rules 1-6, so they stay
-genuinely alert-worthy regardless of presence). The `elevated` state itself is unaffected
+family_movement suppression. `warning`/`critical` were left untouched here on the
+assumption those tiers already required nobody-home or night in `security_threat_level`'s
+own rules 1-6 — **this assumption was wrong for rules 2/5/6 specifically** (they only
+required night, not nobody-home) and caused a real evening false-alert storm two days
+later; see SECURITY_CONTRACT.md BUG-S83 for the fix, applied at the scoring source rather
+than here. The `elevated` state itself is unaffected
 on the dashboard (`sensor.security_threat_level` still shows it) — this only stops the push
 + repeat-reminder delivery while someone's home.
 

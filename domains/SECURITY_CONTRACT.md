@@ -2774,6 +2774,61 @@ fix got a clean, undisturbed window to prove out fully.
 
 ---
 
+### BUG-S83 — `sensor.security_threat_level` rules 2/5/6 had no presence check at all — ordinary evening family movement during rain scored real `warning`/`critical`, unlike rules 1/3/4 and the classifier's own family_movement exclusion
+
+**Priority: HIGH | Status: ✅ FIXED 2026-09-17, live-verified**
+
+**Reported by:** user — asked to confirm "what happened this afternoon/evening with
+boundary as seem to come on too early and then off and on," then, once shown a second,
+more serious finding in the same investigation: "yes add fix but is raining now hence
+current flipping" (correctly identifying rain as the likely trigger volume, not the root
+cause of the missing exclusion itself).
+
+**Symptom, confirmed live:** while investigating the boundary-lighting question (see
+BUG-S81/S82 above for the weather side of that afternoon), found `sensor.security_
+threat_level` oscillating `low → elevated/warning/critical` every 1-2 minutes
+continuously for 2.5+ hours that evening, including repeated genuine `critical` readings
+as recently as the moment of investigation. Cross-checked what was actually happening:
+`sensor.security_movement_path` = `carport`, `sensor.security_trigger_camera` =
+`cam15_passage`, `binary_sensor.anyone_connected_home` = `on`, and `sensor.security_
+event_classification` = **`family_movement`** — the classifier correctly, silently
+recognized this as ordinary evening activity. But `security_threat_level` is a
+completely separate, parallel scoring engine with no equivalent exclusion.
+
+**Root cause:** of the six critical/warning rules, 1/3/4 all require `nobody` (nobody
+home) before escalating — 2, 5, and 6 never did:
+```jinja
+{# 2. Grounds at night + confirmed human (AcuSense) OR both-zone high confidence #}
+{% elif grounds and night and (confirmed_human or conf == 'high') and not trusted %}
+  critical
+```
+Same missing-exclusion defect class as BUG-S80 (found earlier the same session), just on
+three much higher-severity rules this time — grounds/perimeter motion at night, with the
+whole family confirmed home, scored real `critical`/`warning` purely from confidence and
+time of day. Rain (confirmed by the user) explains the volume — the same rain-sensitive
+NVR cameras behind BUG-S78 — but not the underlying gap: even without rain, any
+sufficiently confident grounds/perimeter reading at night with family home would have
+hit this same path. Consequence: `security_lighting_engine` reacting to `critical`→
+`full`/`warning`→`area` very likely explains the erratic front/car-port/office light
+cycling that evening, and since BUG-A25 only ever suppressed the `elevated` tier for
+anyone-home, `warning`/`critical` readings here would have generated real, repeated
+pushes + repeat-reminders throughout.
+
+**Fix:** added `and nobody` to rules 2, 5, and 6, matching 1/3/4 and mirroring the
+classifier's own RUNG 3 `family_movement` philosophy (comment already on rule 3 makes
+the reasoning explicit: *"With family home: perimeter confirmed_human = likely arriving
+visitor, falls to warning"* — same logic now applied consistently to grounds too). Rule
+1b (the legitimate inside-stay-mode-at-night-fully-in-bed case) is untouched — this only
+affects grounds/perimeter rules, not inside.
+
+**Deployed and live-verified:** `template.reload`, immediately re-queried during an
+active oscillation (`elevated`/`warning`/`low` flipping every 15-30s in the seconds
+around the reload) — settled to `low` at 18:22:48 with no further critical/warning
+transitions in the following ~30s, versus a flip every 1-2 minutes for the preceding 2.5
+hours. Not watched past that short window this session.
+
+---
+
 ### S18 — Notification severity/sound classification overhaul (2026-07-06)
 
 **Priority: MEDIUM | Status: ✅ APPLIED 2026-07-06**
