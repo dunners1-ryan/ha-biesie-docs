@@ -5,6 +5,104 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-17 (later) — Security: BUG-S80 — `security_threat_level`'s catch-all
+      "elevated" rule was the only rule missing the `trusted` (staff/guest/dogs_out)
+      exclusion — staff on site could keep boundary lights on indefinitely; found and
+      fixed live via direct HA API access this session.** Follow-up to the same day's
+      earlier "why are boundary lights still on?" thread. This session discovered it
+      actually has working `SUPERVISOR_TOKEN`/HA REST API access — a genuine SSH-direct
+      session, not a github-clone sandbox (the "no credentialed API access" notes
+      elsewhere in this log, e.g. the 2026-09-14 watercooler entry, were from a
+      different kind of session; don't assume this access persists into a future
+      session without re-verifying).
+      **Live-queried:** weather genuinely clear (`partlycloudy`) and BUG-L25's hysteresis
+      confirmed working (`security_visibility_poor`/`_weather_low_light`/`_lighting_
+      required`/`_lighting_allowed` all `off`) — yet `main_entrance_light`/`front_house_
+      security_light` stayed on. `sensor.security_threat_level` = `elevated` (score 45,
+      cam07_front_kitchen, side_entry zone) while `binary_sensor.staff_on_site` = `on`,
+      and `sensor.security_event_classification` correctly read `service_person`
+      (silent) for the same event — two sibling sensors disagreeing.
+      **Root cause:** `security_logic.yaml`'s threat_level rules 1-6 all exclude
+      `trusted`; the catch-all (`elif grounds or perim: elevated` — the same bucket
+      behind BUG-A25's dog/leaf-motion pushes) never did. `boundary_security_off`
+      (lighting_boundary.yaml) refuses to release any boundary light while
+      `threat_level != "low"`, so ordinary staff movement blocked the release
+      indefinitely, independent of weather.
+      **Fix:** added `and not trusted` to the catch-all, matching every other rule in
+      the sensor. **Deployed AND live-verified this session** (not just YAML-parsed):
+      reloaded via `template.reload` over the Supervisor-proxied REST API, re-queried —
+      `threat_level` flipped `elevated`→`low` immediately with `staff_on_site` still
+      `on`. `security_lighting_required` was already `off`; the remaining wait was
+      purely `boundary_security_off`'s own 5-minute hysteresis, confirmed structurally
+      sound but not re-polled past that point.
+      **Also confirmed live, not a bug:** the user's separate "boundary sensor offline
+      last night" question — `switch.garage_light` and `switch.boundary_street_light`
+      went `unavailable` at identical timestamps 5 times overnight (shared Sonoff/
+      eWeLink integration dropout, not garage-specific), matching the already-documented
+      BUG-L21 pattern exactly. Confirmed via logbook that one light's "off" transition
+      this session was a manual toggle (`context_service: turn_off`, user-attributed),
+      not an automation or the fix.
+      Full detail: SECURITY_CONTRACT.md BUG-S80, cross-references in
+      LIGHTING_CONTRACT.md (`boundary_security_off` row) and ALERTS_CONTRACT.md
+      (BUG-A25 entry). `docs/Testing/Alert_Test_Plan.md` flagged for a staff-on-site
+      case.
+      Files: `packages/security/security_logic.yaml`.
+
+- [x] **2026-09-17 — Smart Cleaning (Vacuum): dust bag tracker split into two, water/
+      dirty-water pre-emptive logging replaced with a fill-level selector.** User: "read
+      appliances (robo vaccum) - with the button for log dust bag change need to split
+      into 2 logs one for empty of dustbin bag and the other for replace of the bag - can
+      we do it within same button so choose which am selecting?" — followed mid-session
+      by "tighten up 'pre-emptive' log for dirty water emptying and water refill... add
+      efficient way to select pre-emptive and level in 1/4 so can track averages better"
+      + "main assumption if just press buttons is was full or empty."
+      **Dust bag split (3h):** `input_button.vacuum_log_dust_bag_change` (single combined
+      tracker, added 2026-09-06) replaced with `input_select.vacuum_dust_bag_action`
+      ("Select Action…" / "Emptied Bin" / "Replaced Bag") — picking an option fires
+      `automation.vacuum_log_dust_bag_action` immediately, which branches per option into
+      two fully separate EMA trackers (own avg-days/avg-area/logged-once/snapshot fields
+      each) and resets the select back to the placeholder as its last step. Bin-empty
+      seeded from the old combined tracker's real learned average (22.58d/3724m² —
+      historically almost certainly mostly "emptied the bin" presses); bag-replace seeded
+      as a pure ×4 extrapolation (90d/14900m², flagged guess, no real data existed for it
+      before today).
+      **Water/dirty-water level tracking (3c):** the old binary `vacuum_log_preemptive`
+      skip-entirely gate discarded a partial-fill press from the average instead of using
+      it. Replaced (for these two trackers only — manual-clean and the two dust-bag
+      trackers still use the old boolean toggle, no natural fill fraction for either) with
+      `input_select.vacuum_water_refill_level` / `vacuum_dirty_water_level`, each with
+      four fill-fraction options (100/75/50/25%) plus "Skip (No Average)". Set BEFORE
+      pressing the log button; the automation scales the observed interval/area by the
+      fraction to an implied full-cycle equivalent and feeds THAT into the EMA, rather
+      than excluding the press outright. Two separate selects (not one shared one)
+      deliberately — a shared selector would reintroduce the exact double-press race
+      `vacuum_log_preemptive`'s auto-reset automation exists to avoid.
+      **Rule 5b applied going forward:** none of the 8 new EMA/snapshot/guard fields
+      carry `initial:` (per CODING_STANDARDS Rule 5b — confirmed live 2026-09-06 in Water
+      Cooler/Gas Bottles that `initial:` on legacy-YAML mutable state silently reverts it
+      every restart, likely the real explanation for this file's own still-open "something
+      resets the trackers" mystery, Section 7 of the contract). The three new selects DO
+      keep `initial:` — safe under Rule 5b's documented exception, since their idle value
+      already equals what each log automation resets them back to after every use.
+      **Persistence (3g):** `vacuum_tracker_save.sh` / `shell_command.vacuum_tracker_save`
+      / `sensor.vacuum_tracker_saved_state` / `vacuum_tracker_restore_on_startup` all
+      updated from 13 to 16 persisted fields (3 dust-bag fields removed, 6 added).
+      `vacuum_tracker_state.json` updated by hand with the seeded values above so the
+      first restore-on-startup run after deploy picks them up correctly.
+      **NOT YET LIVE THIS SESSION** — same constraint as the entry below: no HA API
+      access this session, so nothing was reloaded or restart-triggered. YAML validated
+      clean (`ha core check` + a manual PyYAML parse of the full file, both pass) but
+      needs, in order: Reload Helpers (new input_select/input_number/input_boolean/
+      input_datetime entities), Reload Template Entities (2 renamed estimate sensors),
+      Reload Automations (3 changed + 1 renamed), then a one-time manual trigger of
+      `automation.vacuum_tracker_restore_on_startup` (Developer Tools → Services) to pull
+      the seeded dust-bag-split values out of the JSON file into the live entities instead
+      of leaving them at `unknown` until the next real restart.
+      Full detail: SMART_CLEANING_CONTRACT.md Sections 3c/3h (needs updating same
+      session per Rule 7 — see doc-drift note if not yet done).
+      Files: `packages/integrations/vacuum.yaml`, `vacuum_tracker_save.sh`,
+      `vacuum_tracker_state.json`.
+
 - [x] **2026-09-17 — Lighting/Alerts: BUG-L25 (weather sensors flapping, no hysteresis)
       + BUG-A26 (repeat-reminder pushes had no image) fixed.** User, from a notification
       screenshot showing 3 "Security Alert still active" pushes with no photo next to one
@@ -5617,8 +5715,16 @@ input_button.vacuum_log_dirty_water_empty
 input_button.vacuum_log_detergent_new_bottle
 input_button.vacuum_log_manual_clean                ← added 2026-09-02, manual roller/debris clean tracker (Section 3e)
 sensor.vacuum_manual_clean_estimate
-input_button.vacuum_log_dust_bag_change             ← added 2026-09-06, dust bag change tracker (Section 3h)
-sensor.vacuum_dust_bag_change_estimate
+# input_button.vacuum_log_dust_bag_change REMOVED 2026-09-17 — replaced by
+# input_select.vacuum_dust_bag_action (split into two separate trackers, Section 3h):
+input_select.vacuum_dust_bag_action                 ← "Select Action…"/"Emptied Bin"/"Replaced Bag"
+sensor.vacuum_dust_bin_empty_estimate                ← was sensor.vacuum_dust_bag_change_estimate
+sensor.vacuum_dust_bag_replace_estimate              ← new, no prior equivalent
+# Water/dirty-water pre-emptive logging (added 2026-09-17, Section 3c) — replaces
+# vacuum_log_preemptive for JUST these two trackers (still used by manual-clean + the
+# two dust-bag trackers above):
+input_select.vacuum_water_refill_level               ← set BEFORE pressing the refill button
+input_select.vacuum_dirty_water_level                ← set BEFORE pressing the dirty-empty button
 # Full entity registry + pipeline: docs/domains/SMART_CLEANING_CONTRACT.md
 ```
 

@@ -408,7 +408,12 @@ Then manually trigger motion on a camera
 > ALERTS_CONTRACT.md BUG-A26. Separately (BUG-L25, LIGHTING_CONTRACT.md): `security_
 > visibility_poor`/`security_weather_low_light` gained 10min delay_on/delay_off — no test
 > in this plan currently exercises boundary/entrance lighting stability during fluctuating
-> weather; worth adding one on the next partly-cloudy day.
+> weather; worth adding one on the next partly-cloudy day. Also (SECURITY_CONTRACT.md
+> BUG-S80, live-verified this session): `sensor.security_threat_level` no longer sticks at
+> `elevated` for staff-on-site grounds/perimeter motion — add a case with a scheduled
+> gardener/maid window active and confirm `threat_level` reads `low` (not `elevated`) for
+> their ordinary movement, and that `boundary_security_off` releases lights normally
+> instead of waiting for them to leave.
 | Escalation reminder after 5 min if threat persists | ✅ | |
 | Alert clears after motion stops + delay_off (30s) | ✅ | |
 

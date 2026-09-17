@@ -2625,6 +2625,56 @@ ALERTS_CONTRACT.md BUG-A25.
 
 ---
 
+### BUG-S80 — `sensor.security_threat_level`'s catch-all "elevated" rule was the only rule in the sensor that didn't exclude `trusted` (staff/guest/dogs_out) — staff on site could keep boundary lights on indefinitely
+
+**Priority: MEDIUM | Status: ✅ FIXED 2026-09-17, live-verified**
+
+**Reported by:** user — follow-up to a "why are boundary lights still on?" question,
+answered live via direct HA API access this session (`SUPERVISOR_TOKEN`, confirmed
+working — SSH-direct session, not a github-clone sandbox; see PROJECT_STATE.md session
+log for the access-method correction).
+
+**Symptom, confirmed live:** `weather.openweathermap` = `partlycloudy` (genuinely clear),
+`binary_sensor.security_visibility_poor`/`security_weather_low_light`/`security_
+lighting_required`/`security_lighting_allowed` all correctly `off` post-reload (BUG-L25
+working) — yet `switch.main_entrance_light`/`front_house_security_light` stayed on.
+`sensor.security_threat_level` read `elevated` (score 45), driven by `cam07_front_
+kitchen` motion (`side_entry` zone). `binary_sensor.staff_on_site` was confirmed `on` at
+the same instant, and `sensor.security_event_classification` correctly read
+`service_person` (silent, no push) for the identical event — two sibling sensors in the
+same pipeline disagreeing about whether staff's ordinary movement is noteworthy.
+
+**Root cause:** `security_logic.yaml`'s `sensor.security_threat_level` computes
+`trusted = staff or guest or dogs_out` once, then every rung (1 through 6) explicitly
+excludes it (`and not trusted`) — except the final catch-all:
+```jinja
+{# Any remaining perimeter or grounds activity — daytime / low confidence / family home #}
+{% elif grounds or perim %}
+  elevated
+```
+This is the same bucket behind BUG-A25 (dog/leaf motion nagging while home) — that fix
+stopped the *push* for `elevated` while anyone's home, but never touched the underlying
+`security_threat_level` value itself, and never considered `staff_on_site` specifically
+(a different, narrower condition than `anyone_connected_home`). Downstream, `boundary_
+security_off` (lighting_boundary.yaml, LIGHTING_CONTRACT.md) refuses to release **any**
+boundary light while `threat_level != "low"` — so ordinary gardener/maid movement on
+cam07 kept the property lit indefinitely, for as long as staff remained on site,
+regardless of weather having genuinely cleared.
+
+**Fix:** added `and not trusted` to the catch-all, matching every other rule in this same
+sensor: `{% elif (grounds or perim) and not trusted %}`. Trusted activity that doesn't
+match any earlier rung now correctly falls through to `{% else %} low {% endif %}`.
+
+**Deployed and live-verified this session** (real advantage of confirmed HA API access):
+reloaded via `template.reload` (Supervisor-proxied REST API), then re-queried live —
+`sensor.security_threat_level` flipped from `elevated` to `low` immediately with `staff_
+on_site` still `on`. `binary_sensor.security_lighting_required` was already `off`;
+`boundary_security_off`'s 5-minute-off hysteresis was the only remaining wait before the
+two lingering lights released on their own — confirmed structurally sound, not
+independently re-checked past that point in this session.
+
+---
+
 ### S18 — Notification severity/sound classification overhaul (2026-07-06)
 
 **Priority: MEDIUM | Status: ✅ APPLIED 2026-07-06**

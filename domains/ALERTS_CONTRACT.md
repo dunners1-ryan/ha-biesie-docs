@@ -1735,7 +1735,9 @@ security_alert_active`'s own trigger condition treated `sensor.security_threat_l
 `['elevated', 'warning', 'critical']` as alert-worthy with no presence check of its own.
 `security_threat_level`'s (`security_logic.yaml`) own catch-all rule is explicit that this
 is by design for its own tier: *"Any remaining perimeter or grounds activity — daytime /
-low confidence / family home → elevated"* — i.e. ordinary daytime dog/leaf/wind motion on
+low confidence / family home → elevated"* (as of 2026-09-17, SECURITY_CONTRACT.md BUG-S80:
+this rule also excludes `trusted`/staff-on-site now — it didn't when this entry was
+written) — i.e. ordinary daytime dog/leaf/wind motion on
 the NVR grounds cameras (cam09/cam12 — same false-positive-prone hardware as BUG-S65/S78,
 see SECURITY_CONTRACT.md) gets `elevated` rather than being dropped, matching RUNG 7b's own
 "don't silently drop genuine low-confidence signal" philosophy — but this pipeline had no

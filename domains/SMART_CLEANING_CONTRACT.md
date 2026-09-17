@@ -61,8 +61,8 @@ a sensor exists just because an estimate sensor reads a number.
 
 | File | Lines (2026-08-31, re-verified via `wc -l` same day after V4/V10/V11 additions) | Purpose |
 |---|---|---|
-| `packages/integrations/vacuum.yaml` | 1410 (re-verified 2026-09-06) | Mat-removal reminder, fault-alert pipeline (now also covers low consumable lifespan, V11), water/dirty-water/detergent consumption estimator, daily job-outcome summary (V4), manual machine clean tracker (3e), pre-emptive log toggle (3f), disk-backed restart-survival persistence (3g), dust bag change tracker (3h) |
-| `packages/integrations/vacuum_tracker_save.sh` | 47 (re-verified 2026-09-06) | Writes the 13 restart-critical tracker fields to disk — called via `shell_command.vacuum_tracker_save` |
+| `packages/integrations/vacuum.yaml` | 1696 (re-verified 2026-09-17) | Mat-removal reminder, fault-alert pipeline (now also covers low consumable lifespan, V11), water/dirty-water/detergent consumption estimator with per-tracker fill-level scaling (3c, 2026-09-17), daily job-outcome summary (V4), manual machine clean tracker (3e), pre-emptive log toggle (3f, narrowed 2026-09-17), disk-backed restart-survival persistence (3g), dust bin-empty + bag-replace trackers (3h, split 2026-09-17) |
+| `packages/integrations/vacuum_tracker_save.sh` | 58 (re-verified 2026-09-17) | Writes the 16 restart-critical tracker fields to disk — called via `shell_command.vacuum_tracker_save` |
 | `packages/integrations/vacuum_tracker_state.json` | — (data, not code) | The persisted snapshot itself — git-tracked, rides the daily backup, no header/comments (pure JSON) |
 
 No separate `packages/vacuum/` directory exists — kept in `integrations/`
@@ -166,31 +166,43 @@ three consumables is under threshold.
 - Candidate 1: `alert.deebot` (does not exist)
 - Candidate 2: `alert.deebot_alert` ✅ (exists, once live — see Known Issues)
 
-### 3c. Water/Dirty-Water/Detergent Estimator (added 2026-08-31)
+### 3c. Water/Dirty-Water/Detergent Estimator (added 2026-08-31; fill-level
+scaling added 2026-09-17)
 
 No sensor exists anywhere in this integration for clean-water level,
 dirty-water level, or detergent level — confirmed against the full 31-entity
 registry. This entire sub-pipeline is manual-log-driven:
 
 ```
-User physically refills clean water / empties dirty water / opens new
-detergent bottle
+User sets a fill-level select to match reality (only if NOT a normal full
+cycle — see below), THEN physically refills clean water / empties dirty
+water / opens new detergent bottle
         ↓ (presses corresponding dashboard button)
 input_button.vacuum_log_water_refill
 input_button.vacuum_log_dirty_water_empty
 input_button.vacuum_log_detergent_new_bottle
         ↓
 automation.vacuum_log_water_refill / _dirty_water_empty / _detergent_new_bottle
+  - reads input_select.vacuum_water_refill_level / _dirty_water_level
+    (see below) → level_fraction
   - snapshots sensor.deebot_t80s_biesie_total_area_cleaned into
     input_number.vacuum_area_at_last_water_refill / _dirty_empty
+    (unconditional — always reflects the real physical action)
   - snapshots now() into input_datetime.vacuum_last_water_refill_time / _dirty_empty_time
+    (unconditional, same reasoning)
   - EMA-updates input_number.vacuum_avg_area_per_water_refill / _dirty_empty
-    and vacuum_avg_days_per_water_refill / _dirty_empty
+    and vacuum_avg_days_per_water_refill / _dirty_empty, using the RAW
+    observed interval/area DIVIDED by level_fraction (an implied full-cycle
+    equivalent), not the raw observation itself — skipped entirely if the
+    level select reads "Skip (No Average)"
     (new = old × 0.6 + latest × 0.4 — same smoothing weight used elsewhere
     in this repo for trend capture)
+  - resets its own level select back to the "Normal" option as its last
+    step, so the next press defaults to a full cycle unless re-set
   - detergent: increments input_number.vacuum_detergent_refills_since_bottle
     (water refill only — 1 refill = 1 detergent dose, per the user's own
-    stated mix ratio) or resets it to 0 (new bottle)
+    stated mix ratio, unaffected by the refill's fill-level — see Must NOT)
+    or resets it to 0 (new bottle)
         ↓
 sensor.vacuum_water_refill_estimate / _dirty_water_estimate
   (days until next needed = avg_days_per_X − days_since_last_X, floored at 0)
@@ -208,6 +220,34 @@ automation.vacuum_detergent_bought_from_notification
 input_button.press: vacuum_log_detergent_new_bottle
   (reuses the same reset logic rather than duplicating it)
 ```
+
+**Fill-level scaling (added 2026-09-17) — replaces the old
+`vacuum_log_preemptive` skip-entirely gate for these two trackers
+specifically.** User feedback: pressing the log button always implicitly
+assumed the tank ran genuinely empty (refill) or genuinely full
+(dirty-water empty) — a pre-emptive top-up/empty was either counted as a
+full cycle (biasing the average short) or excluded outright via the old
+toggle (losing the data point entirely). Now:
+
+- `input_select.vacuum_water_refill_level`: `"Ran Empty (Normal)"` (1.0,
+  the default/reset value) / `"1/4 Left (75% Used)"` (0.75) / `"1/2 Left
+  (50% Used)"` (0.5) / `"3/4 Left (25% Used)"` (0.25) / `"Skip (No
+  Average)"`.
+- `input_select.vacuum_dirty_water_level`: `"Completely Full (Normal)"`
+  (1.0) / `"3/4 Full (75% Used)"` (0.75) / `"1/2 Full (50% Used)"` (0.5) /
+  `"1/4 Full (25% Used)"` (0.25) / `"Skip (No Average)"`.
+
+Set the relevant select BEFORE pressing the log button; the automation
+divides the raw observed interval/area by that fraction to get an implied
+full-cycle equivalent, then feeds THAT into the EMA — a 3/4-full pre-emptive
+refill still teaches the average something, scaled up to what a full cycle
+would have looked like, instead of being thrown away. **Two separate
+selects, not one shared select** — deliberately mirrors why
+`vacuum_log_preemptive` (3f) uses a time-based auto-reset instead of
+per-press self-consumption: a single shared selector would reintroduce the
+exact race pressing refill then dirty-empty together (seconds apart) could
+hit, since each of these two selects is read and reset entirely within its
+own automation run, with no cross-button window to race against.
 
 **Seed values are guesses, not measurements** — 190 m²/refill, 95 m²/dirty-
 empty, 1.0/0.5 days — taken from the single real day of data available when
@@ -295,23 +335,30 @@ after building this so the baseline snapshot is exact rather than
 approximate. Only needs one more press to replace the seed with a real
 interval — expect this one to stabilize faster than 3c's estimates did.
 
-### 3f. Pre-emptive Log Toggle (added 2026-09-03)
+### 3f. Pre-emptive Log Toggle (added 2026-09-03; narrowed 2026-09-17)
 
 Built after a real incident (see Section 7 — restart/reload wiped all
 three trackers' learned averages back to seed): `input_boolean.
 vacuum_log_preemptive`, off by default. Flip on before pressing a log
-button for a non-representative early action — the water tank was only
-half full, the dirty tank only half empty, the roller wasn't actually
-overdue — and the snapshot (last-done time + area) still updates normally,
-but the interval/area EMA step is skipped for that press on **all three**
-trackers (water, dirty-water, manual-clean — extended to all three for
-consistency, not just the two the triggering request named).
+button for a non-representative early action — the roller wasn't actually
+overdue, the dust bag action wasn't a genuine full cycle — and the
+snapshot (last-done time + area) still updates normally, but the
+interval/area EMA step is skipped for that press.
+
+**NARROWED 2026-09-17**: originally covered all four trackers that existed
+at the time (water refill, dirty-water empty, manual-clean, dust-bag).
+Water refill and dirty-water empty now use their own dedicated fill-level
+selectors instead (Section 3c) — a genuinely better mechanism for those
+two, since a partial fill still teaches the EMA something once scaled,
+rather than being discarded outright. This toggle still covers the three
+trackers that have no natural "how full" fraction to select: manual-clean
+and the two dust-bag trackers (bin-empty/bag-replace, Section 3h).
 
 ```
 User flips input_boolean.vacuum_log_preemptive ON
         ↓
-Presses whichever log button(s) apply (refill / dirty-empty / manual-clean —
-any number, any order, within the window below)
+Presses whichever log button/select apply (manual-clean / either dust-bag
+action — any number, any order, within the window below)
         ↓
 Each automation's EMA branch additionally requires
   input_boolean.vacuum_log_preemptive == off
@@ -322,10 +369,13 @@ automation.vacuum_pre_emptive_toggle_auto_reset → turns it back off
 
 **Deliberately NOT a per-button auto-consume** — an early design (each
 log automation turning the toggle off itself after using it) was caught
-before shipping: pressing refill then dirty-empty together, seconds apart
+before shipping: pressing two of these log actions together, seconds apart
 (the actual 2026-09-03 scenario), would let the first automation silently
 disarm protection for the second. A single timeout-based reset automation
-avoids that race entirely and needs no per-press bookkeeping.
+avoids that race entirely and needs no per-press bookkeeping. This is the
+same race the 2026-09-17 water/dirty-water level selectors sidestep a
+different way — see Section 3c's note on why those two got separate
+selects instead of one shared one.
 
 ### 3g. Restart-Survival — Disk-Backed Tracker Persistence (added 2026-09-03)
 
@@ -359,22 +409,27 @@ automation.vacuum_tracker_restore_on_startup
         ↓ (15s delay, then force-refresh + 3s settle)
 homeassistant.update_entity → sensor.vacuum_tracker_saved_state
                                (command_line sensor: `cat` the JSON file,
-                                json_attributes exposes each of the 10 fields
-                                — 13 as of 3h's dust-bag addition)
+                                json_attributes exposes each of the 16 fields
+                                — was 13 before 3h's 2026-09-17 dust-bag split)
         ↓ (condition: sensor not unknown/unavailable — guards a first-ever
            startup with no file yet)
-input_number.set_value × 7  +  choose:-gated input_boolean.turn_on/off × 3
-(9 set_value + 4 choose: blocks as of 3h — see automation source for the
- current exact count, not repeated here to avoid a second number to drift)
+input_number.set_value × 9  +  choose:-gated input_boolean.turn_on/off × 5
+(current as of the 2026-09-17 dust-bag split — see automation source for
+ the exact count, not repeated here every time to avoid a second number
+ to drift)
 ```
 
-**Only 10 of the tracker's fields are persisted** — the 6 EMA averages,
-the 3 `_logged_once` guards, and the detergent counter. Deliberately
-excludes the 4 `last_*_time` / 3 `area_at_last_*` snapshot fields: those
-self-correct on the very next real log press regardless of what a restart
-does to them, unlike the averages which take several presses to
-re-converge — not worth the extra shell_command complexity to cover them
-too.
+**Only 16 of the trackers' fields are persisted** (was 10, then 13 after
+3h's original 2026-09-06 addition) — the EMA averages, the `_logged_once`
+guards, and the detergent counter. Deliberately excludes the `last_*_time`
+/ `area_at_last_*` snapshot fields: those self-correct on the very next
+real log press regardless of what a restart does to them, unlike the
+averages which take several presses to re-converge — not worth the extra
+shell_command complexity to cover them too. The three 2026-09-17 fill-level
+`input_select` entities (Section 3c/3h) are likewise NOT persisted —
+unlike the EMA fields, their correct idle value already equals what gets
+restored on a fresh entity anyway (see CODING_STANDARDS Rule 5b's
+"per-transaction toggle" exception), so there's nothing worth saving.
 
 **Verified with a real corrupt→restore cycle, not just deployed**: set
 `avg_days_per_water_refill` to a distinctive 2.71, saved it via the real
@@ -387,54 +442,81 @@ needing an actual restart) — value returned to 2.71, confirmed via a
 background wait-loop. Test value cleaned up and the file re-saved with
 genuine current state afterward.
 
-### 3h. Dust Bag Change Tracker (added 2026-09-06)
+### 3h. Dust Bin Empty + Dust Bag Replace Trackers (added 2026-09-06 as one
+combined tracker; split into two 2026-09-17)
 
 Same manual-log-plus-EMA pattern as 3e — no sensor exists for the
 self-empty station's dust bag fullness, so this is manual-log-driven too.
-User request: "New tracker same as water refill... add new button for
-emptying/changing the dust bag in machine and like others track when was
-done and how long to next one."
+Originally one combined "dust bag change" tracker/button. User: "with the
+button for log dust bag change need to split into 2 logs one for empty of
+dustbin bag and the other for replace of the bag - can we do it within
+same button so choose which am selecting?" — split into two fully separate
+trackers behind a single dropdown control, per that request.
 
 ```
-User empties/changes the self-empty station's dust bag
-        ↓ (presses dashboard button)
-input_button.vacuum_log_dust_bag_change
+User picks an option from the dropdown
         ↓
-automation.vacuum_log_dust_bag_change
-  - snapshots sensor.deebot_t80s_biesie_total_area_cleaned into
-    input_number.vacuum_area_at_last_dust_bag_change
-  - snapshots now() into input_datetime.vacuum_last_dust_bag_change_time
-  - EMA-updates input_number.vacuum_avg_area_per_dust_bag_change /
-    vacuum_avg_days_per_dust_bag_change (same 0.6/0.4 weight as 3c/3e),
-    guarded by input_boolean.vacuum_dust_bag_change_logged_once so the
-    first press doesn't compute a bogus interval against the placeholder
-    initial datetime
-  - also gated by input_boolean.vacuum_log_preemptive (3f) — wired into
-    the same toggle as the other three trackers, not a separate one
+input_select.vacuum_dust_bag_action: "Emptied Bin" | "Replaced Bag"
+        ↓ (state trigger, fires immediately on selection)
+automation.vacuum_log_dust_bag_action
+  choose: branches on trigger.to_state.state
+    "Emptied Bin" branch:
+      - snapshots sensor.deebot_t80s_biesie_total_area_cleaned into
+        input_number.vacuum_area_at_last_dust_bin_empty
+      - snapshots now() into input_datetime.vacuum_last_dust_bin_empty_time
+      - EMA-updates vacuum_avg_area_per_dust_bin_empty /
+        vacuum_avg_days_per_dust_bin_empty (0.6/0.4 weight, same as 3c/3e),
+        guarded by vacuum_dust_bin_empty_logged_once
+    "Replaced Bag" branch: identical shape, its own _dust_bag_replace_*
+      fields and vacuum_dust_bag_replace_logged_once guard
+    (both branches) also gated by input_boolean.vacuum_log_preemptive (3f)
+        ↓ (either branch)
+  resets input_select.vacuum_dust_bag_action back to "Select Action…" —
+  so picking the SAME option twice in a row still re-triggers next time
         ↓
-sensor.vacuum_dust_bag_change_estimate
-  (days until next needed = avg_days_per_dust_bag_change − days_since_last,
+sensor.vacuum_dust_bin_empty_estimate
+  (days until next needed = avg_days_per_dust_bin_empty − days_since_last,
    floored at 0)
+sensor.vacuum_dust_bag_replace_estimate
+  (same shape, dust_bag_replace fields)
 ```
 
-**Seed values are a pure guess**, same situation 3e was in on 2026-09-02 —
-genuinely zero prior data. `vacuum_avg_area_per_dust_bag_change` = 5000 m²
-and `vacuum_avg_days_per_dust_bag_change` = 30 days are a rough
-extrapolation off `avg_area_per_water_refill` (~190 m²/day) assuming a
-station bag lasts roughly a month of daily whole-house cleans — not
-derived from any real dust-bag data. First real log was 2026-09-06 (the
-user's stated baseline), pressed via `input_button.press` over the API
-immediately after building this so the baseline snapshot is exact.
+**Why a dropdown instead of two buttons or a shared toggle**: the user
+explicitly wanted "the same button" rather than two separate ones
+cluttering the dashboard. An `input_select` genuinely achieves that — one
+widget, and picking either option fires the automation immediately (no
+separate "confirm" press needed, unlike the water/dirty-water level
+selects in 3c which are set before a *different* button press). The select
+resets itself back to the placeholder as its last action specifically so
+a repeat of the same option still produces a state-change trigger next
+time — without that reset, picking "Emptied Bin" twice in a row would only
+fire the automation the first time.
+
+**Seed values — bin-empty carries forward real data, bag-replace is a pure
+guess.** When this was one combined tracker (2026-09-06 – 2026-09-17), it
+learned `avg_days_per_dust_bag_change` = 22.58d / `avg_area` = 3724m² from
+real presses. Splitting it retroactively can't recover which of those
+presses were "really" an empty vs. a replace — but in practice the simpler,
+more frequent action (emptying the bin) almost certainly dominated those
+presses, so **bin-empty inherited that real average as its seed**
+(`vacuum_dust_bin_empty_logged_once` seeded "on"). **Bag-replace starts
+from zero real data** — seeded as a pure ×4 extrapolation off the inherited
+bin-empty numbers (90d / 14900m², assumption: roughly 4 bin-empties per
+full bag swap) — flag this explicitly as a guess, same caveat as every
+other from-scratch tracker seed in this file, until real "Replaced Bag"
+presses replace it (`vacuum_dust_bag_replace_logged_once` seeded "off").
 
 **Wired into the existing restart-survival persistence (3g)**, not a
-separate mechanism — `vacuum_tracker_save.sh` now takes 13 positional
-args (was 10), `shell_command.vacuum_tracker_save` templates 3 more
-`states(...)` values, `sensor.vacuum_tracker_saved_state`'s
-`json_attributes` exposes 3 more fields, and
-`automation.vacuum_tracker_restore_on_startup` restores them the same way
-as the other trackers. Confirmed live: pressing the log button wrote the
-correct `dust_bag_change_logged_once: "on"` into
-`vacuum_tracker_state.json` within the same automation run.
+separate mechanism — `vacuum_tracker_save.sh` now takes 16 positional args
+(was 13, before that 10), `shell_command.vacuum_tracker_save` templates 6
+`states(...)` values for these two trackers (was 3 for the one combined
+tracker), `sensor.vacuum_tracker_saved_state`'s `json_attributes` exposes
+the same 6 fields, and `automation.vacuum_tracker_restore_on_startup`
+restores them the same way as the other trackers.
+`vacuum_tracker_state.json` was hand-updated with the seed values above
+(not yet re-verified against a real live restore-and-confirm cycle this
+session — see PROJECT_STATE.md 2026-09-17 entry, no HA API access this
+session to trigger it).
 
 ---
 
@@ -515,6 +597,12 @@ no camera entity of any kind.
 
 ### Helpers — Water/Detergent Tracking
 
+No `initial:` on any EMA/snapshot/guard field below (per CODING_STANDARDS
+Rule 5b, applied 2026-09-17 to any newly-added field in this file — the
+pre-existing water/dirty-water/detergent fields below still carry
+`initial:` from before the rule existed and have not been retrofitted,
+see Section 7).
+
 | Entity | Type | Default | Purpose |
 |---|---|---|---|
 | `input_datetime.vacuum_last_water_refill_time` | input_datetime | `2026-08-31 00:00:00` | Snapshot at last log press |
@@ -525,14 +613,25 @@ no camera entity of any kind.
 | `input_boolean.vacuum_detergent_low_notified` | input_boolean | `false` | One-shot gate for the low-detergent alert; reset on new-bottle log |
 | `input_number.vacuum_area_at_last_water_refill` | input_number | `0` m² | Snapshot of `sensor.deebot_t80s_biesie_total_area_cleaned` at last refill |
 | `input_number.vacuum_area_at_last_dirty_empty` | input_number | `0` m² | Same, dirty water |
-| `input_number.vacuum_avg_area_per_water_refill` | input_number | `190` m² (seed) | EMA, refines per press |
-| `input_number.vacuum_avg_area_per_dirty_empty` | input_number | `95` m² (seed) | EMA, refines per press |
-| `input_number.vacuum_avg_days_per_water_refill` | input_number | `1.0` d (seed) | EMA, refines per press |
-| `input_number.vacuum_avg_days_per_dirty_empty` | input_number | `0.5` d (seed) | EMA, refines per press |
-| `input_number.vacuum_detergent_refills_since_bottle` | input_number | `0` | Deterministic counter, not an EMA |
+| `input_number.vacuum_avg_area_per_water_refill` | input_number | `190` m² (seed) | EMA, refines per press — 2026-09-17: refined value now an implied full-cycle equivalent, not the raw observation, when a fill-level < 100% was selected |
+| `input_number.vacuum_avg_area_per_dirty_empty` | input_number | `95` m² (seed) | EMA, refines per press — same 2026-09-17 note |
+| `input_number.vacuum_avg_days_per_water_refill` | input_number | `1.0` d (seed) | EMA, refines per press — same 2026-09-17 note |
+| `input_number.vacuum_avg_days_per_dirty_empty` | input_number | `0.5` d (seed) | EMA, refines per press — same 2026-09-17 note |
+| `input_number.vacuum_detergent_refills_since_bottle` | input_number | `0` | Deterministic counter, not an EMA — always +1 per refill press regardless of fill-level, see Must NOT |
 | `input_button.vacuum_log_water_refill` | input_button | — | Manual log trigger |
 | `input_button.vacuum_log_dirty_water_empty` | input_button | — | Manual log trigger |
 | `input_button.vacuum_log_detergent_new_bottle` | input_button | — | Manual log trigger (also fired programmatically by the "Detergent Bought" notification action) |
+
+### Helpers — Water/Dirty-Water Fill-Level Selectors (added 2026-09-17)
+
+`initial:` is safe on both — per-transaction selectors whose idle value
+equals what each log automation resets them back to after every use (see
+CODING_STANDARDS Rule 5b's documented exception).
+
+| Entity | Type | Default | Purpose |
+|---|---|---|---|
+| `input_select.vacuum_water_refill_level` | input_select | `"Ran Empty (Normal)"` | Set BEFORE pressing the refill button — how full the tank still was; scales the EMA instead of assuming every press is a full cycle. See Section 3c |
+| `input_select.vacuum_dirty_water_level` | input_select | `"Completely Full (Normal)"` | Same, before the dirty-empty button |
 
 ### Helpers — Manual Machine Clean Tracking (added 2026-09-02)
 
@@ -545,22 +644,30 @@ no camera entity of any kind.
 | `input_number.vacuum_avg_days_per_manual_clean` | input_number | `7.0` d (pure guess) | EMA, refines per press |
 | `input_button.vacuum_log_manual_clean` | input_button | — | Manual log trigger |
 
-### Helpers — Dust Bag Change Tracking (added 2026-09-06)
+### Helpers — Dust Bin Empty / Dust Bag Replace Tracking (added 2026-09-06
+as one combined tracker; split into two 2026-09-17 — see Section 3h)
+
+No `initial:` on any field below, per CODING_STANDARDS Rule 5b.
 
 | Entity | Type | Default | Purpose |
 |---|---|---|---|
-| `input_datetime.vacuum_last_dust_bag_change_time` | input_datetime | `2026-09-06 00:00:00`, live value overwritten same day by the real first log | Snapshot at last log press |
-| `input_boolean.vacuum_dust_bag_change_logged_once` | input_boolean | `false` | First-press EMA guard, same pattern as 3e's guard |
-| `input_number.vacuum_area_at_last_dust_bag_change` | input_number | `0` m² | Snapshot of `sensor.deebot_t80s_biesie_total_area_cleaned` at last log |
-| `input_number.vacuum_avg_area_per_dust_bag_change` | input_number | `5000` m² (pure guess — zero prior data, extrapolated off 3c's water-refill area/day) | EMA, refines per press |
-| `input_number.vacuum_avg_days_per_dust_bag_change` | input_number | `30` d (pure guess) | EMA, refines per press |
-| `input_button.vacuum_log_dust_bag_change` | input_button | — | Manual log trigger |
+| `input_select.vacuum_dust_bag_action` | input_select | `"Select Action…"` | The single control — picking "Emptied Bin"/"Replaced Bag" fires the log automation immediately. `initial:` safe (idle value = reset value, Rule 5b exception) |
+| `input_datetime.vacuum_last_dust_bin_empty_time` | input_datetime | none (unknown until first press or restore) | Snapshot at last "Emptied Bin" |
+| `input_datetime.vacuum_last_dust_bag_replace_time` | input_datetime | none | Snapshot at last "Replaced Bag" |
+| `input_boolean.vacuum_dust_bin_empty_logged_once` | input_boolean | none | First-press EMA guard — restored "on" from disk (real inherited history) |
+| `input_boolean.vacuum_dust_bag_replace_logged_once` | input_boolean | none | Same — restored "off" (no real replace data existed at split time) |
+| `input_number.vacuum_area_at_last_dust_bin_empty` | input_number | none | Snapshot of `sensor.deebot_t80s_biesie_total_area_cleaned` at last "Emptied Bin" |
+| `input_number.vacuum_area_at_last_dust_bag_replace` | input_number | none | Same, "Replaced Bag" |
+| `input_number.vacuum_avg_area_per_dust_bin_empty` | input_number | `3724` m² (inherited real average — not a fresh guess) | EMA, refines per press |
+| `input_number.vacuum_avg_days_per_dust_bin_empty` | input_number | `22.58` d (inherited real average) | EMA, refines per press |
+| `input_number.vacuum_avg_area_per_dust_bag_replace` | input_number | `14900` m² (pure ×4 extrapolation guess) | EMA, refines per press |
+| `input_number.vacuum_avg_days_per_dust_bag_replace` | input_number | `90` d (pure ×4 extrapolation guess) | EMA, refines per press |
 
-### Helper — Pre-emptive Log Toggle (added 2026-09-03)
+### Helper — Pre-emptive Log Toggle (added 2026-09-03; narrowed 2026-09-17)
 
 | Entity | Type | Default | Purpose |
 |---|---|---|---|
-| `input_boolean.vacuum_log_preemptive` | input_boolean | `false` | Flip on before a non-representative early log press (all 4 EMA trackers as of 2026-09-06's dust-bag addition); auto-resets 5 min after switching on via `automation.vacuum_pre_emptive_toggle_auto_reset` |
+| `input_boolean.vacuum_log_preemptive` | input_boolean | `false` | Flip on before a non-representative early log press — manual-clean + the two dust-bag trackers only as of 2026-09-17 (water refill/dirty-water empty moved to their own fill-level selectors above); auto-resets 5 min after switching on via `automation.vacuum_pre_emptive_toggle_auto_reset` |
 
 ### Helpers — Job-Outcome Summary (V4)
 
@@ -581,7 +688,8 @@ no camera entity of any kind.
 | `sensor.vacuum_dirty_water_estimate` | days (≥0) | `area_mopped_since_empty`, `avg_area_per_empty`, `last_empty` attributes |
 | `sensor.vacuum_detergent_level` | 0-100% | `refills_remaining`, `estimated_purchase_by`, `bottle_started` attributes |
 | `sensor.vacuum_manual_clean_estimate` | days (≥0) | `area_cleaned_since_manual_clean`, `avg_area_per_manual_clean`, `last_manual_clean` attributes |
-| `sensor.vacuum_dust_bag_change_estimate` | days (≥0) | `area_cleaned_since_dust_bag_change`, `avg_area_per_dust_bag_change`, `last_dust_bag_change` attributes |
+| `sensor.vacuum_dust_bin_empty_estimate` | days (≥0) | `area_cleaned_since_dust_bin_empty`, `avg_area_per_dust_bin_empty`, `last_dust_bin_empty` attributes — was `sensor.vacuum_dust_bag_change_estimate` before the 2026-09-17 split |
+| `sensor.vacuum_dust_bag_replace_estimate` | days (≥0) | `area_cleaned_since_dust_bag_replace`, `avg_area_per_dust_bag_replace`, `last_dust_bag_replace` attributes — new 2026-09-17 |
 
 ### Alert Entities
 
@@ -598,24 +706,24 @@ no camera entity of any kind.
 | `route_deebot_alert` | Deebot: Route Alert | `binary_sensor.deebot_alert_active` → on, for 20s/30min/1h | Real delivery — `script.notify_system_event` w/ Cancel Alert action |
 | `deebot_alert_cancel_from_notification` | Deebot Alert: Cancel From Notification | Mobile action `CANCEL_DEEBOT_ALERT` or Telegram `/cancel_deebot_alert` | Sets `deebot_alert_snoozed` on, confirms |
 | `deebot_alert_snooze_reset` | Deebot Alert: Snooze Reset | `binary_sensor.deebot_alert_active` → off | Clears `deebot_alert_snoozed` |
-| `vacuum_log_water_refill` | Vacuum – Log Water Refill | `input_button.vacuum_log_water_refill` pressed | Snapshot + EMA update (skipped if `vacuum_log_preemptive` on) + detergent counter +1 (always) |
-| `vacuum_log_dirty_water_empty` | Vacuum – Log Dirty Water Empty | `input_button.vacuum_log_dirty_water_empty` pressed | Snapshot + EMA update (skipped if `vacuum_log_preemptive` on) |
+| `vacuum_log_water_refill` | Vacuum – Log Water Refill | `input_button.vacuum_log_water_refill` pressed | Reads `input_select.vacuum_water_refill_level` (2026-09-17), scales EMA by fill fraction instead of skip-on-preemptive + detergent counter +1 (always) |
+| `vacuum_log_dirty_water_empty` | Vacuum – Log Dirty Water Empty | `input_button.vacuum_log_dirty_water_empty` pressed | Reads `input_select.vacuum_dirty_water_level` (2026-09-17), scales EMA by fill fraction instead of skip-on-preemptive |
 | `vacuum_log_manual_clean` | Vacuum – Log Manual Clean | `input_button.vacuum_log_manual_clean` pressed | Snapshot + EMA update (skipped if `vacuum_log_preemptive` on) (added 2026-09-02) |
-| `vacuum_pre_emptive_toggle_auto_reset` | Vacuum – Pre-emptive Toggle Auto Reset | `input_boolean.vacuum_log_preemptive` → on, for 5 min | Turns it back off (added 2026-09-03) |
+| `vacuum_pre_emptive_toggle_auto_reset` | Vacuum – Pre-emptive Toggle Auto Reset | `input_boolean.vacuum_log_preemptive` → on, for 5 min | Turns it back off (added 2026-09-03; toggle narrowed 2026-09-17 to manual-clean + 2 dust-bag trackers only) |
 | `vacuum_log_detergent_new_bottle` | Vacuum – Log New Detergent Bottle | `input_button.vacuum_log_detergent_new_bottle` pressed | Reset counter to 0, snapshot time |
 | `vacuum_detergent_low_alert` | Vacuum – Detergent Low Alert | `sensor.vacuum_detergent_level` below 15%, one-shot | `script.notify_system_event` w/ Detergent Bought action |
 | `vacuum_detergent_bought_from_notification` | Vacuum Detergent Alert: Bought From Notification | Mobile action `DETERGENT_BOUGHT` or Telegram `/detergent_bought` | Presses `vacuum_log_detergent_new_bottle` (reuses logic) |
 | `vacuum_daily_snapshot_reset` | Vacuum – Daily Snapshot Reset | Time, `00:01:00` daily | Snapshots lifetime totals, resets `vacuum_job_summary_sent_today` |
 | `vacuum_session_complete_summary` | Vacuum – Session Complete Summary | `vacuum.deebot_t80s_biesie` → docked, for 10 min | `script.notify_system_event` (information) — today's area/duration/job-count delta |
-| `vacuum_log_dust_bag_change` | Vacuum – Log Dust Bag Change | `input_button.vacuum_log_dust_bag_change` pressed | Snapshot + EMA update (skipped if `vacuum_log_preemptive` on) (added 2026-09-06) |
-| `vacuum_tracker_restore_on_startup` | Vacuum – Tracker Restore on Startup | `homeassistant`, `event: start` | Restores the 13 persisted fields from disk (3g/3h) — 15s + 3s delay for the command_line sensor to settle first |
+| `vacuum_log_dust_bag_action` | Vacuum – Log Dust Bag Action | `input_select.vacuum_dust_bag_action` → "Emptied Bin"/"Replaced Bag" | `choose:` branches into 2 separate snapshot+EMA trackers (skipped per-branch if `vacuum_log_preemptive` on), resets select to placeholder (renamed from `vacuum_log_dust_bag_change` 2026-09-17, was `input_button` triggered) |
+| `vacuum_tracker_restore_on_startup` | Vacuum – Tracker Restore on Startup | `homeassistant`, `event: start` | Restores the 16 persisted fields from disk (3g/3h, was 13) — 15s + 3s delay for the command_line sensor to settle first |
 
 ### Helper — Restart-Survival Persistence (added 2026-09-03)
 
 | Entity | Type | Purpose |
 |---|---|---|
 | `shell_command.vacuum_tracker_save` | shell_command | Templated `states(...)` values as positional args to `vacuum_tracker_save.sh` |
-| `sensor.vacuum_tracker_saved_state` | command_line sensor | `cat`s the saved JSON, exposes each of the 13 fields as an attribute via `json_attributes` (was 10 before the 2026-09-06 dust-bag tracker was wired in — see 3h) |
+| `sensor.vacuum_tracker_saved_state` | command_line sensor | `cat`s the saved JSON, exposes each of the 16 fields as an attribute via `json_attributes` (10 → 13 on the 2026-09-06 dust-bag addition → 16 on the 2026-09-17 dust-bag split — see 3h) |
 
 ---
 
@@ -631,24 +739,36 @@ no camera entity of any kind.
 | In aggregator | Naming-convention pickup, `alerts_summary.yaml` | ✅ no changes needed to the aggregator itself |
 | Cancel Alert | `deebot_alert_snoozed` + 2 automations | ✅ |
 | Water/detergent estimator | 3 log buttons + EMA + deterministic detergent math | ✅ confirmed live, real values observed (344 m² since last refill as of 2026-08-31 — genuinely overdue, correctly shown red on dashboard) |
+| Water/dirty-water fill-level scaling (3c, 2026-09-17) | `input_select.vacuum_water_refill_level` / `_dirty_water_level` | ⚠️ **YAML-only, not deployed live this session** — `ha core check` + PyYAML parse both pass, but no HA API access this session to Reload Helpers/Automations or exercise a real press. Needs live verification next session. |
 | Manual clean tracker (3e) | `vacuum_log_manual_clean` + EMA | ✅ confirmed live 2026-09-02, first real baseline logged via `input_button.press` — seed values (300 m² / 7.0 d) are a pure guess, no prior data existed at all |
-| Pre-emptive log toggle (3f) | `vacuum_log_preemptive` + `vacuum_pre_emptive_toggle_auto_reset` | ✅ confirmed live 2026-09-03, reload + config-valid. Not yet exercised against a real qualifying event (built the same session as a real pre-emptive top-up, but that event landed safely by a different mechanism — a coincidental guard-flag reset, see Section 7 — before this toggle existed to actually protect it) |
-| Restart-survival persistence (3g) | `shell_command.vacuum_tracker_save` + `sensor.vacuum_tracker_saved_state` + `vacuum_tracker_restore_on_startup` | ✅ proven live with a real save→corrupt→restore cycle via `automation.trigger` (bypasses the actual startup trigger, same action sequence) — not yet exercised against a genuine HA restart specifically, only the simulated equivalent |
-| Dust bag change tracker (3h) | `vacuum_log_dust_bag_change` + EMA | ✅ confirmed live 2026-09-06, first real baseline logged via `input_button.press` — seed values (5000 m² / 30 d) are a pure guess, no prior data existed at all. Wired into 3g's restart-survival persistence and confirmed the disk file picks up its fields correctly |
+| Pre-emptive log toggle (3f) | `vacuum_log_preemptive` + `vacuum_pre_emptive_toggle_auto_reset` | ✅ confirmed live 2026-09-03, reload + config-valid; narrowed 2026-09-17 (see above) — ⚠️ narrowing itself not yet deployed live |
+| Restart-survival persistence (3g) | `shell_command.vacuum_tracker_save` + `sensor.vacuum_tracker_saved_state` + `vacuum_tracker_restore_on_startup` | ✅ proven live with a real save→corrupt→restore cycle via `automation.trigger` (bypasses the actual startup trigger, same action sequence) as of 2026-09-03/06 — ⚠️ the 2026-09-17 13→16 field expansion is YAML-only, not yet re-verified with a real cycle this session |
+| Dust bin-empty / bag-replace trackers (3h, split 2026-09-17) | `vacuum_log_dust_bag_action` + 2× EMA | ⚠️ **YAML-only, not deployed live this session** — same constraint as the fill-level scaling row above. Original combined tracker (`vacuum_log_dust_bag_change`) was confirmed live 2026-09-06 before this split. |
 | Detergent low + Bought action | `vacuum_detergent_low_alert` + `vacuum_detergent_bought_from_notification` | ✅ |
 | Lifespan warning (V11) | Folded into `deebot_alert_active`/`_context` above | ✅ confirmed live, reads `normal` with real current lifespans (92-97%) — not exercised against an actual low reading yet |
 | Daily job summary (V4) | `vacuum_daily_snapshot_reset` + `vacuum_session_complete_summary` | ✅ confirmed live, midnight snapshot seeded manually for the first day (see 3d) — not yet exercised through a real full day+summary cycle end to end |
 | Dashboard | Operations → Vacuum view + Home summary card | ✅ — see Section 6 for the layout lesson |
 
-**PASS, with one known gap**: `alert.deebot_alert` needs a restart to
-activate. Not urgent — functionally the alert pipeline works without it;
-only the entity's own visibility in Settings → Alerts / the aggregator's
-`alert.` candidate-2 resolution is affected until then, and candidate-2
-resolution only matters once the entity exists (see Aggregator Name
-Resolution — until the restart, `alert.deebot_alert` doesn't exist so the
-aggregator's resolver falls through and finds nothing, meaning the vacuum
-domain **does not yet appear in the global alert count** even though
-individual notifications work fine). Schedule a restart to close this.
+**PASS on everything built through 2026-09-06, with one known gap**:
+`alert.deebot_alert` needs a restart to activate. Not urgent —
+functionally the alert pipeline works without it; only the entity's own
+visibility in Settings → Alerts / the aggregator's `alert.` candidate-2
+resolution is affected until then, and candidate-2 resolution only matters
+once the entity exists (see Aggregator Name Resolution — until the
+restart, `alert.deebot_alert` doesn't exist so the aggregator's resolver
+falls through and finds nothing, meaning the vacuum domain **does not yet
+appear in the global alert count** even though individual notifications
+work fine). Schedule a restart to close this.
+
+**2026-09-17 additions are YAML-only, NOT yet live** — this session had no
+HA API access, so nothing was reloaded/restart-triggered (same constraint
+noted in PROJECT_STATE.md's 2026-09-17 entries generally). Before treating
+any of Section 3c's fill-level scaling or 3h's dust-bag split as live:
+Reload Helpers, Reload Template Entities, Reload Automations (in that
+order), then manually trigger `automation.vacuum_tracker_restore_on_startup`
+once via Developer Tools → Services to pull the seeded split-tracker values
+out of `vacuum_tracker_state.json` into the live entities (otherwise they
+sit at `unknown` until the next real restart).
 
 ---
 
@@ -660,6 +780,9 @@ individual notifications work fine). Schedule a restart to close this.
 - **Do not build room-selection or "run this scenario" automations against `vacuum.clean_area` or `vacuum.send_command` without testing first** — both exist but are unverified against this device (see Section 8).
 - **Do not fabricate water/dirty-water/detergent telemetry** — there is no sensor. If a future integration version adds one, replace the estimator, don't layer a fake sensor on top of it.
 - **Do not treat the water/detergent EMA seed values as real data** — they're flagged guesses in the YAML comments; don't cite the specific numbers (190 m², 95 m², etc.) as measured facts in a future session without checking whether they've since been refined by real button presses.
+- **Detergent dosing is NOT scaled by the 2026-09-17 water-refill fill-level select** — `vacuum_detergent_refills_since_bottle` still increments by exactly 1 on every refill press regardless of whether `vacuum_water_refill_level` reads 100% or 25%. This is a deliberate simplification carried over unchanged from the original design (1 press = 1 dose, per the user's stated mix ratio), not an oversight — if it turns out users add proportionally less detergent on a small top-up in practice, revisit this, but don't assume it's broken without checking first.
+- **Do not add a third, shared fill-level selector for water refill + dirty-water empty** — they're deliberately two separate `input_select` entities specifically to avoid the cross-button race `vacuum_log_preemptive`'s time-based auto-reset (3f) exists to prevent. See Section 3c's note.
+- **Do not add `initial:` to any tracker's EMA/snapshot/guard fields** — per CODING_STANDARDS Rule 5b. It's safe ONLY on genuine per-transaction selectors whose idle value equals their post-use reset value (the 3 fill-level/action `input_select` entities added 2026-09-17 qualify; a new EMA average or `_logged_once` guard never does).
 
 ---
 
@@ -671,7 +794,7 @@ individual notifications work fine). Schedule a restart to close this.
 | Error code 323's meaning unconfirmed | Low | Open — will resolve itself with more real occurrences now the pipeline captures live descriptions |
 | `deebot_client` map rendering (`getMapSet` "rcp not support") | — | **Closed 2026-08-31** — self-resolved within ~24h, no config change needed. Kept as a PROJECT_STATE.md Known Integration Issues row in case it regresses. |
 | Mat-reminder helpers can silently drift from the app's real schedule | Medium | Open by design — no automatic detection exists. Consider a periodic "does this still look right" nudge if it drifts again. |
-| Something resets the trackers' `_logged_once` flags + averages, cause unknown | Low (was Medium — mitigated 2026-09-03, root cause still open) | **Two separate occurrences now**: 2026-09-02T20:07:48 UTC and 2026-09-03T14:52:05 UTC. Ruled out (tested live, not assumed): `input_number.reload`, `input_boolean.reload`, and — for the second occurrence — `automation.vacuum_tracker_restore_on_startup` itself (`last_triggered` was `None` at the time). True cause still unidentified. **Mitigated, not fixed**: Section 3g's disk-backed persistence means a reset (whatever causes it) no longer discards real learning — the next HA restart restores from `packages/integrations/vacuum_tracker_state.json` regardless of why the live values reset. If it happens a third time, check `automation.reload`/`homeassistant.restart` call timing across ALL sessions, not just this domain's own reloads — both of those were the two remaining untested candidates. |
+| Something resets the trackers' `_logged_once` flags + averages, cause unknown | Low (was Medium — mitigated 2026-09-03, root cause still open) | **Two separate occurrences now**: 2026-09-02T20:07:48 UTC and 2026-09-03T14:52:05 UTC. Ruled out (tested live, not assumed): `input_number.reload`, `input_boolean.reload`, and — for the second occurrence — `automation.vacuum_tracker_restore_on_startup` itself (`last_triggered` was `None` at the time). True cause still unidentified at the time. **Mitigated, not fixed**: Section 3g's disk-backed persistence means a reset (whatever causes it) no longer discards real learning — the next HA restart restores from `packages/integrations/vacuum_tracker_state.json` regardless of why the live values reset. If it happens a third time, check `automation.reload`/`homeassistant.restart` call timing across ALL sessions, not just this domain's own reloads — both of those were the two remaining untested candidates. **Plausible explanation surfaced 2026-09-06/2026-09-17**: CODING_STANDARDS Rule 5b (added 2026-09-06, confirmed live the same day in two other domains — Water Cooler, Gas Bottles) documents that `initial:` on a legacy-YAML helper reverts it to that value on EVERY HA restart, not just first creation. Every pre-existing EMA/guard field in THIS file (water refill, dirty water, manual clean) still carries `initial:` and has never been retrofitted — the original two reset occurrences line up with this exact mechanism, though it was never conclusively proven as the cause here specifically (no controlled restart-test was run against these particular fields, unlike Water Cooler/Gas Bottles where it was). The 8 new EMA/guard fields added 2026-09-17 (dust bin-empty/bag-replace split) deliberately have NO `initial:`, avoiding the issue going forward for those specifically — the pre-existing water/dirty-water/manual-clean fields remain unfixed, a worthwhile future cleanup pass (retrofit no-`initial:` + re-seed via the JSON restore path, same pattern used for the new fields) but out of scope for today's change. |
 
 ---
 
@@ -694,3 +817,12 @@ open as of 2026-08-31) — summarized here for contract completeness:
 *Contract created: 2026-08-31*
 *Based on: packages/integrations/vacuum.yaml (as of the fault-alert +
 water/detergent estimator + Detergent Bought action sessions)*
+*Last updated: 2026-09-17*
+*Updated by: Dust bag tracker split into two (bin-empty/bag-replace) behind
+a single `input_select` dropdown (Section 3h); water-refill/dirty-water-
+empty pre-emptive logging replaced with per-tracker fill-level selectors
+that scale the EMA instead of skipping it entirely (Section 3c);
+`vacuum_log_preemptive` narrowed to the 3 remaining trackers with no
+natural fill fraction (Section 3f); restart-survival persistence expanded
+13→16 fields (Section 3g). YAML-only this session — not yet reloaded or
+live-verified, no HA API access. See PROJECT_STATE.md 2026-09-17 entry.*
