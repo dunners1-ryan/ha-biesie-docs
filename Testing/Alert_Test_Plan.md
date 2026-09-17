@@ -33,6 +33,20 @@
 > now also covering the `stale` severity path) before this pipeline can be considered
 > covered by this plan.
 >
+> **⚠️ 2026-09-17: BUG-N18 (`notifiers: STD_Alerts` double-delivery) fully closed across
+> all 13 affected files** (was 2 of 9 fixed as of the note above — see
+> `NOTIFICATIONS_CONTRACT.md` BUG-N18 for the complete list: critical_sensor_health,
+> device_battery, gas, dash_battery, device_power, media, presence, garden, doors, power,
+> and all 4 temperature domains). Also fixed the same session: `not_from`/`not_to`
+> reload-safety guards on 14 automations (`CODING_STANDARDS.md` Rule 3b) — a
+> `template.reload` was found to spuriously re-trigger unguarded automations and, via the
+> since-removed `notifiers:` blocks, bypass every delivery guard entirely. This changes
+> delivery-path mechanics for essentially every domain in this plan at once (not
+> escalation/message content, but whether a SECOND, unguarded push goes out on a config
+> reload) — every "expected results" cell that assumes a single delivery per event should
+> be re-verified, not just the domains this plan already flagged as stale. See
+> `PROJECT_STATE.md`'s 2026-09-17 session log entry for the full incident writeup.
+>
 > **⚠️ 2026-08-31: same still-unwritten Device Battery Fleet TEST section now also needs
 > to cover BUG-A22** — the `stale` severity path above got a second dimension: entities
 > labelled `battery_monitor_sparse_reporter` (currently the 10 SNZB-04P Zigbee door/gate

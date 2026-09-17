@@ -19,6 +19,10 @@
 # so this domain is very likely double-delivering every event; this is
 # NOTIFICATIONS_CONTRACT.md BUG-N18, still open for this file. Sections 3/4/5 rewritten
 # to match live code; File Inventory line count corrected.
+#
+# Last updated: 2026-09-17 — BUG-N18 fixed for this file: `notifiers: [STD_Alerts]`
+# removed from `alert.garden_alert`, real delivery is now solely `route_garden_alert`
+# (already the case since 2026-07-06). See NOTIFICATIONS_CONTRACT.md BUG-N18.
 ###############################################################################
 
 ---
@@ -97,14 +101,11 @@ script.notify_system_event (warning, actions: [TURN_OFF_POND_PUMP, CANCEL_GARDEN
                              telegram_action: cancel_garden_alert)
 ```
 
-**Known issue, not fixed here:** `alert.garden_alert` itself still has an active
-`notifiers: [STD_Alerts]` (confirmed live 2026-08-21) — this is one of the 8 files
-NOTIFICATIONS_CONTRACT.md's BUG-N18 lists as still carrying the redundant
-double-delivery pattern (water and network are the only 2 of the original 9 fixed so
-far, both 2026-08-18). In practice this domain likely sends **two** pushes per event
-today: one from `route_garden_alert`, one from `alert.garden_alert`'s own now-working
-`STD_Alerts` notifier (fixed 2026-08-09, BUG-N16). Flagged here and in
-NOTIFICATIONS_CONTRACT.md; not actioned (same restart-batch fix as the other 7 files).
+**✅ Fixed 2026-09-17:** `alert.garden_alert`'s `notifiers: [STD_Alerts]` removed —
+was double-delivering every event (one push from `route_garden_alert`, a second from
+the alert entity's own now-working `STD_Alerts` notifier, fixed 2026-08-09 BUG-N16).
+`route_garden_alert` is now the sole delivery path. Part of a 13-file session-wide fix
+— see NOTIFICATIONS_CONTRACT.md BUG-N18.
 
 **Cancel Alert (added 2026-08-18, BUG-A19 pattern):**
 ```
@@ -193,16 +194,14 @@ exist live in `alerts_garden.yaml` — added the other 3, all part of the
 | Suppress toggle | `input_boolean.garden_alert_notify` | ✅ |
 | Binary sensor | `binary_sensor.garden_alert_active` | ✅ delay_on 1 min, delay_off 5 min |
 | Context sensor | `sensor.garden_alert_context` | ✅ warning/normal, devices attribute |
-| Alert entity | `alert.garden_alert` | ⚠️ STD_Alerts, 60 min repeat — notifier is live again (fixed 2026-08-09, BUG-N16) but now redundant alongside `route_garden_alert`, see NOTIFICATIONS_CONTRACT.md BUG-N18 (still open for this file) |
+| Alert entity | `alert.garden_alert` | ✅ dashboard/ack/repeat-timer display only — `notifiers:` removed 2026-09-17 (BUG-N18) |
 | Real delivery path | `automation.route_garden_alert` | ✅ added 2026-07-06 — `script.notify_system_event`, 20s/1h/2h sends |
 | In aggregator trigger | `alerts_summary.yaml` trigger list | ✅ added 2026-04-29 |
 | Mobile action handler | `garden_alert_ack_turn_off_pond_pump` | ✅ proper event trigger |
 | Cancel Alert | `garden_alert_snoozed` + `garden_alert_cancel_from_notification` + `garden_alert_snooze_reset` | ✅ added 2026-08-18 (BUG-A19 pattern) |
 
-**PASS with a known open issue (doc-drift correction 2026-08-21 — this Section previously
-said flat "PASS" and didn't mention the double-delivery risk or the Cancel Alert feature
-at all):** functionally sound, but likely double-delivering per event until
-NOTIFICATIONS_CONTRACT.md BUG-N18 is resolved for this file.
+**PASS (2026-09-17 — the double-delivery risk flagged 2026-08-21 is now fixed, see
+above):** functionally sound, single delivery path (`route_garden_alert`).
 
 ---
 

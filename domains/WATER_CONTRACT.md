@@ -836,7 +836,15 @@ by a meaningful amount.
 **File:** `packages/alerts/alerts_water.yaml`  
 **Root cause:** `alert.water_alert`, `alert.water_borehole_fault`, and `alert.water_borehole_critical_fault` all notified via `notifiers: STD_Alerts`. That group was dead (see `NOTIFICATIONS_CONTRACT.md` BUG-N16) when the 2026-07-06 `route_water_tank_alert` / `route_water_borehole_fault_alert_tier_2_3` / `route_water_borehole_critical_fault_alert_tier_3_5` automations were built as the working replacement, calling `script.notify_water_event` directly. `STD_Alerts` mobile delivery was fixed 2026-08-09 (`configuration.yaml:78`, BUG-N16) but the alert entities' own `notifiers:` were never removed — both paths then fired for the same event. Confirmed on the 2026-08-18 09:11 fault: `sensor.water_alert_context` hit `critical` at 09:11:01 (firing the route automation) while `alert.water_alert` turned `on` at 09:11:31 (its own `STD_Alerts` notifier, now live) — two pushes ~30s apart for one event, on top of a third, separately-triggered push from `water_borehole_first_fault_notification` (fault-count reaching 1, also at 09:11:01) — three pushes for one 70-second event. Full cross-domain writeup: `NOTIFICATIONS_CONTRACT.md` BUG-N18.  
 **Fix:** Removed `notifiers: STD_Alerts` from all three `alert:` entities (matches the `alerts_security.yaml` `security_alert` BUG-A10 precedent — the alert entity stays for dashboard/ack visibility and its `repeat:` schedule, but the route automation is the sole delivery path). **⚠️ Requires full HA restart** (`alert:` entity change — CODING_STANDARDS.md).  
-**Not fixed — flagged for a future session:** this exact pattern (`alert:` with live `notifiers: STD_Alerts` *and* a parallel `route_*` automation calling `script.notify_*_event`) also exists in `alerts_temperature.yaml`, `alerts_doors.yaml`, `alerts_presence.yaml`, `alerts_device_power.yaml`, `alerts_power.yaml`, `alerts_media.yaml`, `alerts_batteries.yaml`, `alerts_garden.yaml`, and `alerts_network.yaml` — all built during the same 2026-07-06 STD_Alerts-was-dead window. Since the 2026-08-09 fix, every one of those domains is likely double-notifying the same way water was. Out of scope for this session (water-only ask); worth a dedicated cross-domain sweep. See `NOTIFICATIONS_CONTRACT.md` §7.
+**✅ Fixed 2026-09-17 across every remaining domain:** the same pattern in
+`alerts_temperature.yaml`, `alerts_doors.yaml`, `alerts_presence.yaml`,
+`alerts_device_power.yaml`, `alerts_power.yaml`, `alerts_media.yaml`, `alerts_batteries.yaml`,
+`alerts_garden.yaml`, `alerts_network.yaml`, plus `alerts_system_health.yaml`,
+`alerts_device_batteries.yaml`, `gas_automations.yaml`, `watercooler_automations.yaml`, and
+`vacuum_consumables_automations.yaml` (13 files total, 4 more than originally tracked here)
+was root-caused via a live incident and fixed the same way as water — `notifiers:` removed,
+`route_*_alert` automation confirmed as sole delivery path for each. See
+`NOTIFICATIONS_CONTRACT.md` BUG-N18 for the full list and incident writeup.
 
 ---
 

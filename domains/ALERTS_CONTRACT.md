@@ -195,21 +195,21 @@ fully correct. All domains route through the central notification script.
 
 | File | Lines | Status | Purpose |
 |---|---|---|---|
-| `alerts_helper.yaml` | 154 | ✅ Active | `active_alert_entities` sensor |
+| `alerts_helper.yaml` | 140 | ✅ Active | `active_alert_entities` sensor |
 | `alerts_summary.yaml` | 772 | ✅ Active | `alert_device_entities`, `global_alert_context`, all count sensors |
 | `alerts_doors.yaml` | 1413 | ✅ Active | Door/gate tiered severity, `alert.door_alert`, `automation.house_secured_check` (2026-08-23), laundry door+gate mute `input_boolean.laundry_door_alert_notify` (2026-09-02), garage door critical restricted to nobody-home (2026-09-17) |
-| `alerts_network.yaml` | 1391 | ✅ Active | WAN/LAN/device down, degraded, restart |
-| `alerts_power.yaml` | 496 | ✅ Active | Grid offline, battery low, excess load, prepaid drift |
-| `alerts_temperature.yaml` | 1531 | ✅ Active | WAN/LAN/device/storage temps |
-| `alerts_device_power.yaml` | 440 | ✅ Active | Device power fault (RPi, UPS) — BUG-A04 fixed 2026-04-14 |
-| `alerts_media.yaml` | 309 | ✅ Active | Media server downtime |
-| `alerts_system_health.yaml` | 452 | ✅ Active | Critical sensor watchman monitoring |
-| `alerts_presence.yaml` | 288 | ✅ Active | Unknown AP + occupancy anomaly — implemented 2026-04-16 |
+| `alerts_network.yaml` | 1392 | ✅ Active | WAN/LAN/device down, degraded, restart |
+| `alerts_power.yaml` | 503 | ✅ Active | Grid offline, battery low, excess load, prepaid drift |
+| `alerts_temperature.yaml` | 1563 | ✅ Active | WAN/LAN/device/storage temps |
+| `alerts_device_power.yaml` | 448 | ✅ Active | Device power fault (RPi, UPS) — BUG-A04 fixed 2026-04-14 |
+| `alerts_media.yaml` | 316 | ✅ Active | Media server downtime |
+| `alerts_system_health.yaml` | 464 | ✅ Active | Critical sensor watchman monitoring |
+| `alerts_presence.yaml` | 295 | ✅ Active | Unknown AP + occupancy anomaly — implemented 2026-04-16 |
 | `alerts_water.yaml` | 614 | ✅ Active | Water alert pipeline — implemented 2026-04-14 |
 | `alerts_security.yaml` | 295 | ✅ Active | Security alert pipeline — implemented 2026-04-14; `elevated` tier presence-gated + Camera field switched to `sensor.security_trigger_camera` 2026-09-15 (BUG-A25); repeat reminder now attaches an image 2026-09-17 (BUG-A26) |
-| `alerts_garden.yaml` | 282 | ✅ Active | Garden/pond pump unscheduled alert — implemented 2026-04-29 |
-| `alerts_batteries.yaml` | 448 | ✅ Active | Dashboard tablet battery low/overcharge alert — implemented 2026-05-27 |
-| `alerts_device_batteries.yaml` | 507 | ✅ Active | All OTHER battery devices (door/gate sensors, doorbell, phones, watches, laptops) — label-onboarded (`battery_monitor`), excludes inverter/UPS/dash-tablets — implemented 2026-08-21; staleness tier added 2026-08-24 (BUG-A20); per-device sparse-reporter stale override added 2026-08-31 (BUG-A22) |
+| `alerts_garden.yaml` | 289 | ✅ Active | Garden/pond pump unscheduled alert — implemented 2026-04-29 |
+| `alerts_batteries.yaml` | 455 | ✅ Active | Dashboard tablet battery low/overcharge alert — implemented 2026-05-27 |
+| `alerts_device_batteries.yaml` | 516 | ✅ Active | All OTHER battery devices (door/gate sensors, doorbell, phones, watches, laptops) — label-onboarded (`battery_monitor`), excludes inverter/UPS/dash-tablets — implemented 2026-08-21; staleness tier added 2026-08-24 (BUG-A20); per-device sparse-reporter stale override added 2026-08-31 (BUG-A22) |
 | `alerts_camera_health.yaml` | 316 | ✅ Active | Camera fleet health (`alert.camera_health`) — missing from this inventory until 2026-07-06 |
 
 *Line counts re-verified against `wc -l packages/alerts/*.yaml` 2026-08-21 — every count above was stale (the 2026-04-13 baseline never got updated as files grew with subsequent bug fixes/features); all 16 corrected to live values, none were placeholders (`~N`) any more. 7 of them (network/temperature/device_power/media/system_health/batteries/device_batteries) re-verified again 2026-09-11 after BUG-A24's click_url additions.*
@@ -1901,6 +1901,15 @@ firing should confirm an image renders.
 ---
 
 *Contract generated: 2026-04-13*
+*Last updated: 2026-09-17 — NOTIFICATIONS_CONTRACT.md BUG-N18 fully closed (13 files,
+`notifiers:` removed from every remaining `alert:` entity with a working `route_*_alert`
+replacement — critical_sensor_health, device_battery, dash_battery, device_power, media,
+presence, garden, doors, power, all 4 temperature domains); Section 4C's "Secondary
+observation" note on `input_boolean.problem_device_*` resetting across restarts confirmed
+and fixed — all 24 helpers had `initial: false` (CODING_STANDARDS.md Rule 5b violation),
+removed; File Inventory line counts corrected for 11 files. Also added CODING_STANDARDS.md
+Rule 3b (`not_from`/`not_to` reload guards on multi-value sensor triggers) — 14 automations
+fixed session-wide. See PROJECT_STATE.md's 2026-09-17 session log for the full incident.*
 *Last updated: 2026-08-31 (later) — BUG-A23 ("Ryan Macbook Pro" STALE alert was a dead
 duplicate `mobile_app` device registration, not the live Mac — orphaned since a
 2025-01-10 registration never reconnected after the 2026-08-24 restart, while the live
