@@ -110,7 +110,8 @@ Telegram mirror  →  notify.telegram_bot_5527
 | `input_boolean.entertaining_mode` | context | security | ✅ (manual) |
 | `input_boolean.arrival_detected` | presence (helpers) | security | ✅ SET by resolver (MI-04 fixed 2026-05-17; doc-drift corrected 2026-08-21) |
 | `sensor.security_threat_level` | security | security_automations, lighting | ✅ |
-| `sensor.security_event_classification` | security | security_event_router | ✅ |
+| `sensor.security_event_classification` | security | security_event_router | ✅ (2026-09-20: now also exposes `camera` attribute — router attaches that camera's own image) |
+| `input_boolean.security_alert_notify` | alerts (`alerts_security.yaml`) | security (`security_event_router` MUTED branch, `security_pool_alarm_trigger`) | ✅ **Cross-domain since 2026-09-20 (BUG-S85)** — previously gated only the alerts repeat-reminder pipeline. Cleared daily by `security_alerts_mute_morning_reset` (security) via `input_datetime.security_alerts_morning_reset`. |
 | `sensor.security_movement_path` | security | lighting_security | ✅ |
 | `sensor.security_lighting_intent` | security | lighting_security | ✅ |
 | `sensor.security_mode` | security (core) | notify_security_events | ✅ |

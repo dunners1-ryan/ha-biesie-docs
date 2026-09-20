@@ -42,7 +42,11 @@
       inside-camera criticals with nobody home still accept NVR outdoor noise as corroboration
       (Fri 18:14 cam15) — left, see BUG-S85 residual; `Door/Gate Left Open` criticals 4-9/day
       with implausible durations (alerts domain, untouched).
-      Full detail: SECURITY_CONTRACT.md BUG-S85; ALERTS_CONTRACT.md toggle row.
+      **Same-day follow-up:** reset-time helper added to the Operations → Security dashboard card (WebSocket save, no
+      restart); full restart then done + confirmed (new entities loaded, no log errors, recorder exclusion active).
+      `security_visitor_alerts_suppressed` still missing from that dashboard card (offered to user).
+      Full detail: SECURITY_CONTRACT.md BUG-S85; ALERTS_CONTRACT.md toggle row; SYSTEM_CONTRACT.md interface row;
+      Alert_Test_Plan.md TEST 6 flag.
       Files: `packages/security/security_logic.yaml`, `security_automations.yaml`,
       `security_helpers.yaml`.
 

@@ -28,7 +28,7 @@ Camera Motion → Trigger → Classify → Snapshot → Path Build → Notify
 | `arrival` | Known person arriving via gate + camera confirmation |
 | `visitor` | Movement at gate/perimeter, gate closed |
 | `service_person` | Low-trust person (staff/contractor) on property |
-| `intruder` | Unknown motion, no presence explanation |
+| `intruder` | Unknown motion in the grounds, no presence explanation — **requires an AI camera (ipcam03/04) active** (BUG-S85, 2026-09-20); analog-NVR-only motion is `grounds_low_confidence` (1 push/hour) |
 | `critical_intrusion` | Multiple zones, night mode, no known presence |
 | `idle` | No active event |
 

@@ -297,11 +297,11 @@ Once `regionentrance` is primary:
 |------|---------|
 | `cameras_core.yaml` | Group definitions: security_perimeter_cameras, security_grounds_front_cameras, security_grounds_rear_cameras, security_inside_house_cameras |
 | `cameras_processing.yaml` | Debounce sensors (`camXX_motion_valid`), camera correlation binary sensors, per-camera last event timestamp sensors, trigger-based last_seen_seconds sensors (1-minute update), EZVIZ doorbell integration |
-| `security_helpers.yaml` | All input helpers: 4 input_boolean, 3 input_number, 4 input_datetime, 22 input_text (per-camera images + history × 10 cams, plus event tracking) |
+| `security_helpers.yaml` | All input helpers: 4 input_boolean, 3 input_number, 5 input_datetime (5th = `security_alerts_morning_reset`, 2026-09-20), 22 input_text (per-camera images + history × 10 cams, plus event tracking) |
 | `security_core.yaml` | Binary sensors for boundary_permissive_window, visibility/weather conditions, lighting state; Sensors for security_mode, trust_mode, lighting_intent. **2026-09-17 (see LIGHTING_CONTRACT.md BUG-L25):** `security_visibility_poor`/`security_weather_low_light` gained 10min `delay_on`/`delay_off` — previously an unsmoothed re-read of `weather.openweathermap`'s condition string, flapping on/off every ~10min poll near a condition boundary. **Also 2026-09-17 (BUG-S81):** new `binary_sensor.security_weather_corroborated_clear` — PV-output-vs-Solcast-forecast veto on those same two sensors, added after OpenWeatherMap was live-caught reporting 95% cloud cover during confirmed sun. **Same-session follow-up (BUG-S82):** that new sensor gained its own 2min `delay_on`/`delay_off` after raw PV-power jitter made it flap every 15-90s, reintroducing the exact flapping defect BUG-L25 fixed elsewhere, one layer downstream. |
-| `security_logic.yaml` | Core logic sensors: event classification, trigger camera selection, correlation engine, movement confidence/path, intruder level, threat score and threat level |
+| `security_logic.yaml` | Core logic sensors: event classification, trigger camera selection, correlation engine, movement confidence/path, intruder level, threat score and threat level **+ 2026-09-20 (BUG-S85):** `binary_sensor.security_lounge_family_session`, classifier `camera` attribute, `grounds_ai` in RUNG 7. |
 | `security_zones.yaml` | Zone aggregation binary sensors: perimeter front/rear/combined, grounds, external, inside house |
-| `security_automations.yaml` | All automations: snapshot capture (×2 overlapping), movement path tracking, event lifecycle start/end, event router, visitor detection, arrival detection, grounds/rear/house motion, rear perimeter, gate open action, visitor-alert Cancel Alert pattern (BUG-S77, 2026-08-31) |
+| `security_automations.yaml` | All automations: snapshot capture (×2 overlapping), movement path tracking, event lifecycle start/end, event router, visitor detection, arrival detection, grounds/rear/house motion, rear perimeter, gate open action, visitor-alert Cancel Alert pattern (BUG-S77, 2026-08-31) **+ 2026-09-20 (BUG-S85):** `security_alerts_mute_morning_reset`; router MUTED branch, per-camera image, staff-aware visitor severity. |
 | `security_alarm.yaml` | Interface stub for the IDS Hyyp alarm panel integration — documents the expected entity interface, migration target for IDS automations once the integration is wired to HA. Not yet live (IMP-IDS01) — no IDS automations exist anywhere in the repo yet. |
 | `security_history_cleanup.yaml` | `script.security_history_cleanup` — one-shot manual utility to purge stale bare-filename/`security_`-prefixed camera history `input_text` entries left over from a pre-2026-05-17 automation format. Run manually via Developer Tools; safe to delete once no longer needed. |
 
@@ -1492,6 +1492,8 @@ hardcodes the title `"⚠️ Perimeter activity"` for every `cls == 'perimeter_t
 regardless of which zone actually fired. Two concrete gaps fed the catch-all:
 - RUNG 7 (`intruder`) requires `ip_cam or high_conf`. cam04 is an NVR pixel-diff camera with
   no AI — a lone cam04 trigger at low/medium confidence never clears that bar.
+  *(Superseded 2026-09-20, BUG-S85: RUNG 7 now requires `grounds_ai` — an AI camera in the
+  grounds — so NVR-only pairs can't reach `high_conf` → `intruder` either.)*
 - RUNG 7 also requires the gate to be CLOSED. A car sitting at an open gate (ipcam03 fired,
   `family_arriving` not yet confirmed by AP roaming) failed every rung — RUNG 1 needs
   `arriving=on`, RUNG 7 needs gate closed, RUNG 8c needs grounds to be off — and dropped to
@@ -2801,7 +2803,7 @@ completely separate, parallel scoring engine with no equivalent exclusion.
 home) before escalating — 2, 5, and 6 never did:
 ```jinja
 {# 2. Grounds at night + confirmed human (AcuSense) OR both-zone high confidence #}
-{% elif grounds and night and (confirmed_human or conf == 'high') and not trusted %}
+{% elif grounds and night and (confirmed_human or conf == 'high') and not trusted %}  {# superseded 2026-09-20 (BUG-S85): `or conf == 'high'` dropped, critical now needs confirmed_human #}
   critical
 ```
 Same missing-exclusion defect class as BUG-S80 (found earlier the same session), just on
@@ -2971,6 +2973,13 @@ scenarios — Fri NVR-only pair → `grounds_low_confidence` (was `intruder`); i
 `intruder`; lounge 04:5x, family home, no passage → `critical_intrusion`; same with cam15 first →
 `family_movement`; nobody-home armed lounge → `critical_intrusion` (RUNG 8 untouched). Morning reset
 live-tested: muted `security_alert_notify` → trigger → restored `on` + info push.
+**Dashboard + restart (same day):** `input_datetime.security_alerts_morning_reset` added to the Operations → Security
+"Camera System Control" entities card via the `lovelace/config/save` WebSocket call (no restart needed for that;
+live/disk read-back matched). Full HA restart then done and confirmed (uptime reset, all new entities loaded, no
+log errors, classifier already exposing `camera`); it also activated the recorder exclusion for
+`binary_sensor.security_lounge_family_session`. Note: `security_visitor_alerts_suppressed` is still NOT on that
+card despite the 2026-09-02 BUG-S77 follow-up saying it was — the morning reset clears it, so it should be added
+(offered to user, pending).
 **Not verified:** a real rain night; a real 04:50 walk; router MUTED branch and per-camera image
 path against a real event (router only fires on a genuine classification change).
 
@@ -3916,6 +3925,10 @@ Do not lower below 75 without confirming AI cameras are in use.
 via `input_datetime.last_security_event`. Critical events (score ≥ 80, inside house) bypass
 the cooldown to ensure immediate notification.
 Visitor/arrival info events are also outside the cooldown.
+**Amended 2026-09-20 (BUG-S85):** the 300s window is unchanged for every class except
+`grounds_low_confidence` (analog-camera-only, by definition), which now uses **3600s** — one
+heads-up an hour, not one per 5 min. `perimeter_front` is additionally skipped for 60s after a
+`visitor` push (double-push dedupe).
 Architecture preserved for new AI camera integration — cooldown is in the router only,
 not in the classification sensors, so new camera triggers flow through unchanged.
 
@@ -3955,6 +3968,12 @@ incompatible with this version of hikvision_next. Installer contacted for assist
 
 `security_pool_alarm_trigger` fires ipcam04's physical alarm output for rear property events.
 
+**Triggers (amended 2026-09-20, BUG-S85):** `ipcam04_pool_bar_motion_valid` and
+`ipcam05_back_boundary_motion_valid` **only** (AcuSense). `cam12_back_pond` / `cam09_back_bedroom`
+(analog NVR pixel-diff) were removed as triggers — cam12 alone fired the siren 14× on Fri 18-Sep
+(rain/fog, nobody home). Also requires `input_boolean.security_alert_notify` ON (muting alerts
+mutes the siren).
+
 **Time window:** Arms from 20:00 (`security_night_mode` ON OR `now().hour >= 20`).
 Old behaviour was night_mode only (~22:30+) — missed the 20:00–22:30 early-evening window.
 
@@ -3969,7 +3988,7 @@ Old behaviour was night_mode only (~22:30+) — missed the 20:00–22:30 early-e
 Rationale: critical always justifies waking the house; warning while asleep is likely dogs/wind
 on analog NVR (no AI) — alarm would cause unnecessary disturbance.
 
-Also gated by: `security_dogs_out` OFF + `guest_mode` OFF + 5-min cooldown on `last_intruder_event`.
+Also gated by: `security_dogs_out` OFF + `guest_mode` OFF + `security_alert_notify` ON + 5-min cooldown on `last_intruder_event`.
 
 ---
 

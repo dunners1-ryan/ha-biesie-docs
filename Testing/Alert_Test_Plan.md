@@ -97,6 +97,14 @@
 > pass rather than a fully separate effort, since both are "new domain, no section yet"
 > gaps discovered the same week.
 >
+> **⚠️ 2026-09-20: BUG-S85 changed what `input_boolean.security_alert_notify` does — TEST 6 is due for a re-run and
+> must be extended.** It now ALSO mutes every `security_event_router` threat push (logged as `MUTED …`) and the pool
+> siren, and is restored daily at 06:00 by `automation.security_alert_mute_morning_reset`. Add checks for: (1) mute
+> ON + a grounds/visitor classification → logbook `MUTED` entry, no push; (2) mute ON → pool siren does not fire;
+> (3) morning reset restores all three toggles (`security_alert_notify`/`security_system_enabled` on,
+> `security_visitor_alerts_suppressed` off) and sends one information push; (4) nothing re-arms between
+> mute-time and 06:00. Only (3) has been exercised so far (manual trigger, 2026-09-20). See SECURITY_CONTRACT.md BUG-S85.
+>
 > **⚠️ 2026-09-02: TEST 2 (Door/Gate Alerts) doesn't cover the new laundry door+gate mute**
 > — `input_boolean.laundry_door_alert_notify` (`alerts_doors.yaml`) mutes BOTH
 > `binary_sensor.laundry_door_sensor` and `binary_sensor.laundry_security_gate_sensor`
