@@ -451,6 +451,7 @@ No security-domain helpers were found to be UI-created. All are YAML-defined in
 | `input_datetime.last_security_event` | datetime | — | Cooldown reference |
 | `input_datetime.last_intruder_event` | datetime | — | Cooldown reference |
 | `input_datetime.last_visitor_event` | datetime | — | Cooldown reference |
+| `input_datetime.security_alerts_morning_reset` | datetime (time only) | — | **Added 2026-09-20 (BUG-S85).** Time of day (default 06:00, `initial:` deliberately kept — rarely-tuned setting) at which `security_alerts_mute_morning_reset` restores the three mute toggles. |
 | `input_datetime.security_event_start` | datetime | — | Event lifecycle tracking |
 | `input_text.security_event` | text | 255 | Last event description |
 | `input_text.security_last_motion_camera` | text | 255 | Last camera entity_id |
@@ -502,6 +503,7 @@ No security-domain helpers were found to be UI-created. All are YAML-defined in
 | `binary_sensor.security_lighting_allowed` | Lighting permitted (night/bad weather) | ✅ Fixed 2026-04-15 (Issue #4, doc-drift corrected 2026-09-17 — this row still said "BROKEN" three years after the fix) |
 | `binary_sensor.security_lighting_suppressed` | Guest/entertaining mode active | |
 | `binary_sensor.security_low_trust_active` | Maid/gardener/contractor present | |
+| `binary_sensor.security_lounge_family_session` | ON while a lounge (cam14) walk started in the bedroom passage (cam15 fired first); latches while cam14 keeps firing, drops 5 min after the last cam14/cam15 activity | **New 2026-09-20 (BUG-S85)** (`security_logic.yaml`). Consumed by classifier RUNG 2.5 and threat_level rule 1b only — both already require family home, so it never affects the nobody-home path. Not "direction": NVR channels give no direction data. |
 
 ---
 
@@ -2869,6 +2871,114 @@ staying `on` is unrelated to and unaffected by this change; the narrower low-lig
 itself was confirmed correct via the underlying sensor evaluation, not by observing a
 switch transition (see LIGHTING_CONTRACT.md for the reason-string cross-reference).
 Notification text change not yet observed against a real on/off firing this session.
+
+---
+
+### BUG-S85 — Friday-night alert storm (nobody home + rain): NVR-only motion reached `critical` via "high confidence" and drove the pool siren; mute toggle didn't mute; wrong-camera images; ~04:50 lounge false criticals; gardener at gate
+
+**Priority: HIGH | Status: ✅ FIXED 2026-09-20 (deployed via reload, ladder unit-tested, morning reset live-tested; NOT yet observed against a real rain event)**
+
+**Reported by:** user — screenshots of two "🚨 Intruder on property" pushes (Fri 18-Sep ~19:09/19:15)
++ "why was I spammed Friday night with security alerts, mostly non-IP cameras, all non-events — had to
+turn off security alerts to stop it"; muting should reset in the *morning*, not mid-night; "add a rule
+when the lounge camera alerts in the morning, if it comes from the bottom-left (from inside the house)
+it isn't an intruder"; "confirm cameras are firing for the right alert, got driveway for kitchen";
+"seems fixes for automations have made non-IP cameras noisy again"; then mid-session: gardener at the
+gate on Saturday still spammed the alerts.
+
+**Forensics (recorder + logbook, 2026-09-18 → 09-20):**
+- Nobody home 16:45 → 21:01, dark from 18:26, wet (paving visible wet in the pushed images;
+  Met.no `weather.forecast_home` said `rainy` 19:04-21:52 while `weather.openweathermap` said
+  `partlycloudy` all evening — same provider-disagreement as BUG-S79/S81, so weather is not a
+  usable gate). Cameras named in the pushes: cam07, cam04, cam12, cam09 (all analog NVR) + one
+  cam15. **No AI camera (ipcam01-05) appears as the trigger in any Friday-evening push.**
+- 17:45 → 21:00: **5 critical "Intruder on property"** (`intruder`, 18:51-19:55), **33 "Activity in
+  grounds"** warnings (one every ~5 min), **14 pool-siren firings** (`security_pool_alarm_trigger`, ~every
+  9 min, all on `cam12_back_pond`; note the siren also stamps `last_intruder_event`, which is why that
+  helper shows 21 changes), 1 "INSIDE (bedroom passage)" critical, 1 repeat reminder. Compare 28-Aug
+  (4 / 29 / 3) — same signature before *any* of last week's fixes. **Not a regression from
+  BUG-S78/S83/S84** — those fixed different paths (raw debounce; family-home false scoring;
+  weather lighting). Friday just hit the one path none of them covered: nobody home, where every
+  suppression is correctly off.
+- `input_boolean.security_alert_notify` went OFF at 18:51:51 and **the pushes did not stop** (19:08,
+  19:14, 19:48, 19:55 criticals after it). It stayed OFF until Sat 15:21 (20.5 h). This is the same
+  trap BUG-S77 documented on 2026-08-31: that boolean only gated the separate repeat-reminder
+  pipeline. The **"Snooze 5 min / 15 min / 1 hour"** menu visible in the screenshots is iOS's own
+  notification snooze — it never reaches HA (also documented in BUG-S77).
+
+**Root causes:**
+1. **"High confidence" was satisfiable by NVR alone.** `sensor.security_movement_confidence` =
+   `high` when any *front* camera (incl. cam04/cam07) + any *rear* camera (incl. cam12) are on.
+   Two pixel-diff channels reacting to the same rain corroborate each other with zero independent
+   evidence. RUNG 7 (`intruder`) accepted `ip_cam or high_conf`; `ip_cam` only tests the trigger
+   camera's *name* (a street camera outside the wall counted). threat_level rule 2 accepted
+   `conf == 'high'` too.
+2. **The pool siren was driven by raw NVR triggers** (`cam12`, `cam09`) — a physical siren on a
+   signal the repo already documents as false-positive-prone.
+3. **Only a 300 s cooldown** separated NVR-only pushes → 12/hour indefinitely.
+4. **The mute toggle wasn't wired to the router** (BUG-S77, above) and had no auto-reset.
+5. **Images came from per-ZONE slots**, not the classified camera: `security_image_grounds_front`
+   is written by ipcam03, cam04 *and* cam07, so a cam07 event carried whichever wrote last
+   (seen: "cam: cam07_front_kitchen" over an ipcam03 driveway frame; another over a cam04 carport
+   frame). The camera-entity → physical-view mapping itself is **correct** — verified 2026-09-20
+   by pulling a live frame from each of cam04/05/07/09/12/14/15 and reading the burned-in name.
+6. **Morning lounge false criticals:** RUNG 2.5 (23:00-05:00) and threat_level rule 1b fire when
+   lounge motion arrives while every phone still reads "in bedrooms" (AP roaming lag) and NVR
+   outdoor noise satisfies `front_approach_recent`. Recorder shows **30+** "INTRUDER — INSIDE (main
+   house)" pushes 02-Sep → 18-Sep, all `home: all`, almost all 04:49-04:59 (the early riser).
+7. **Gardener at the gate (Sat 19-Sep):** 15:29:57 perimeter_front warning + 15:30:08 critical
+   "Visitor at gate" (inside his 08:00-16:30 window — loitering ≥7 s at the gate *is* RUNG 5's
+   definition of visitor) and 16:34:15 another, 4 min after the schedule ended while he was
+   finishing. Two pushes per gate event is also a pattern (Sun 14:39:58 + 14:40:06).
+
+**Fix (`security_logic.yaml`, `security_automations.yaml`, `security_helpers.yaml`):**
+- `grounds_ai` (ipcam03/ipcam04 `motion_valid`) replaces `ip_cam or high_conf` in RUNG 7. NVR-only
+  grounds motion — however many NVR cameras agree — now lands in RUNG 7b `grounds_low_confidence`.
+- threat_level rule 2: dropped `or conf == 'high'` (critical now needs `confirmed_human`, i.e. an
+  AcuSense signal); NVR-only "high" still scores `warning` via rule 5.
+- Router `grounds_low_confidence` cooldown 300 s → **3600 s** and the message now says it is
+  analog-only/unconfirmed; one heads-up an hour.
+- Pool siren automation: triggers narrowed to **ipcam04 + ipcam05** (AcuSense); also requires
+  `security_alert_notify` on.
+- **Mute is real now:** router first branch logs `MUTED (security_alert_notify off) — <class>`
+  instead of pushing, for every threat class (perimeter_front, visitor, gate_activity,
+  perimeter_threat, grounds_low_confidence, intruder, critical_intrusion). Arrival/departure/
+  family/service classes are unaffected. Supersedes BUG-S77's "distinct from security_alert_notify".
+- **`security_alerts_mute_morning_reset`** (id; entity `automation.security_alert_mute_morning_reset`):
+  daily at `input_datetime.security_alerts_morning_reset` (06:00) restores `security_alert_notify` →
+  on, `security_system_enabled` → on, `security_visitor_alerts_suppressed` → off, with one
+  information push. A fixed morning time, **not** a countdown, so nothing re-arms at 01:00.
+- Images: classifier exposes `camera` (the exact `cam_name_v` in `reason`); router takes that
+  camera's own newest history entry if <60 s old, else a live snapshot of that camera into a per-
+  camera file `security_event_locked_<cam>.jpg`. Zone slots remain only as the `camera == none`
+  fallback. (Visitor/perimeter_front still read the perimeter slot — ipcam01/02 share it, both
+  street cameras, both AI.)
+- **Lounge rule:** new `binary_sensor.security_lounge_family_session` (cam15 fired ⇒ session, latched
+  while cam14 keeps firing, drops 5 min after last cam14/cam15 activity). RUNG 2.5 and threat_level
+  rule 1b require `not` it. **Direction ("bottom-left of the frame") is NOT observable:** cam14 is
+  an analog NVR channel — HA gets one on/off pixel-diff signal, no line-crossing/region data — so
+  "cam15 then cam14" is the implemented stand-in for "came from inside the house". A lounge trigger
+  with no passage activity first still alerts.
+- **Gardener:** a `visitor` classification while `low_trust_present` is on — or went off < 30 min
+  ago — is now ONE **warning** per 30 min ("Person at gate (staff on site / just left)"), not a
+  critical. `perimeter_front` is skipped for 60 s after a visitor push (double-push dedupe).
+  Non-staff visitors unchanged: critical, 30 s cooldown. The window itself
+  (`input_datetime.gardener_end`, currently 16:30) is a user setting, not changed.
+
+**Verification:** `ha core check` clean; `input_datetime`/`template`/`automation` reloaded, no log
+errors. Ladder unit-tested by rendering the real `ladder:` text via `/api/template` against 6
+scenarios — Fri NVR-only pair → `grounds_low_confidence` (was `intruder`); ipcam03 active →
+`intruder`; lounge 04:5x, family home, no passage → `critical_intrusion`; same with cam15 first →
+`family_movement`; nobody-home armed lounge → `critical_intrusion` (RUNG 8 untouched). Morning reset
+live-tested: muted `security_alert_notify` → trigger → restored `on` + info push.
+**Not verified:** a real rain night; a real 04:50 walk; router MUTED branch and per-camera image
+path against a real event (router only fires on a genuine classification change).
+
+**Known residual / watch:** (a) inside-camera criticals with nobody home still accept `ext_recent`
+(any outdoor camera incl. NVR) as corroboration — one such push Fri 18:14 (cam15, `Beds`); passage
+alone also fired 02-Sep 16:42 and 11-Sep three times. Left as-is (tightening it risks missing a real
+entry via the unmonitored side passage); revisit if it recurs. (b) `Door/Gate Left Open` criticals
+fire 4-9×/day with implausible durations ("sustained open, 574 min") — alerts domain, not touched.
 
 ---
 

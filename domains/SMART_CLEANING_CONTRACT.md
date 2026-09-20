@@ -813,7 +813,64 @@ press with something other than the "Normal" fill level.
 - **Do not build room-selection or "run this scenario" automations against `vacuum.clean_area` or `vacuum.send_command` without testing first** — both exist but are unverified against this device (see Section 8).
 - **Do not fabricate water/dirty-water/detergent telemetry** — there is no sensor. If a future integration version adds one, replace the estimator, don't layer a fake sensor on top of it.
 - **Do not treat the water/detergent EMA seed values as real data** — they're flagged guesses in the YAML comments; don't cite the specific numbers (190 m², 95 m², etc.) as measured facts in a future session without checking whether they've since been refined by real button presses.
-- **Detergent dosing is NOT scaled by the 2026-09-17 water-refill fill-level select** — `vacuum_detergent_refills_since_bottle` still increments by exactly 1 on every refill press regardless of whether `vacuum_water_refill_level` reads 100% or 25%. This is a deliberate simplification carried over unchanged from the original design (1 press = 1 dose, per the user's stated mix ratio), not an oversight — if it turns out users add proportionally less detergent on a small top-up in practice, revisit this, but don't assume it's broken without checking first.
+- **CORRECTED 2026-09-17, later the same day — the bullet above was wrong.**
+  `vacuum_detergent_refills_since_bottle` DOES now scale by `level_fraction`
+  (added `+level_fraction`, not a flat `+1`) — real incident, not a
+  hypothetical: a real bottle observed at ~1/8 (87.5%) remaining, against
+  the flat model's predicted 92% remaining (only 5 flat presses logged).
+  User confirmed real behavior directly: "every time i have refilled the
+  water have put in detergent if half water then 8 cap fills etc" — dosing
+  IS proportional to fill level (half refill ≈ half the caps), not a flat
+  dose every press. The 15-cap-per-full-refill constant itself checked
+  out fine (half of ~15-16 ≈ 8, matching the user's own ratio) — this was
+  a mechanism bug, not a wrong constant. The helper is now fractional
+  ("dose-equivalents used," `step: 0.1`, was integer `step: 1`) and its
+  live value was recalibrated to ~57.8 (0.875 × 66) to match the real
+  observed bottle — see PROJECT_STATE.md 2026-09-17 for the full incident.
+  **Do not revert this to a flat `+1`** — confirmed wrong, not a
+  simplification worth keeping.
+- **CORRECTED AGAIN 2026-09-18 — the "~57.8 (0.875 × 66)" recalibration
+  above was itself wrong**, not the mechanism (that part stayed correct),
+  but the constants it recalibrated against. The bottle's cap dispenses
+  **10mL per cap** (confirmed from the bottle's own printed instructions,
+  a photo the user checked), not the ~1mL this file had assumed since
+  2026-08-31 (never stated explicitly, just implied by "15 cap-fulls/
+  15mL"). Real dose per full refill = 16 caps (2× the stated "8 caps for
+  a half refill") × 10mL = **160mL**, not 15mL — so a 1L bottle lasts
+  **6.25 full-refill-equivalents**, not 66 (`vacuum_detergent_level`'s
+  formula changed from `100 − refills×1.5%` to `100 − refills×16%`,
+  `refills_remaining`'s ceiling from 66 to 6.25). Live value re-
+  recalibrated to **~5.47** (0.875 × 6.25) — coincidentally close to the
+  ORIGINAL flat-tracked 5.0 from before any of this was fixed, which in
+  hindsight was a useful sanity-check signal that got missed at the time.
+  Confirmed independent of the water-tank-liters question raised the same
+  session (T80S OMNI Station's clean water tank is genuinely 4L per
+  Ecovacs' own spec page, not the user's measured 3L — robot's own
+  onboard tank is a separate, much smaller 110mL — still unresolved
+  whether 3L was a real deliberate fill level or an undershoot of the
+  4L max; not blocking, since the cap-based dose calibration doesn't
+  depend on the tank-liters figure at all). See PROJECT_STATE.md
+  2026-09-18.
+- **CORRECTED A THIRD TIME 2026-09-18 (same day, later) — the tank-liters
+  question above WAS blocking after all, once the user actually read the
+  bottle's own printed ratio.** The bottle's label states **1:200** — at
+  the confirmed real 4L tank (not the user's earlier 3L guess), correct
+  dose = 4000mL ÷ 200 = 20mL = **2 caps per full refill**, not the 16 caps
+  the user had actually been using (an ~8x real-world overdose, not a
+  tracking error — a genuine finding about their actual practice, not
+  just this file's model). User's explicit decision: switch to correct
+  dosing (2 caps) going forward, but keep the CURRENT bottle's real
+  observed level (~1/8, 12.5% remaining) as the starting point rather
+  than pretending it was dosed correctly all along. Model now: **50
+  full-refill-equivalents/bottle, 2%/dose** (was 6.25/bottle, 16%/dose,
+  which matched the old 16-cap overdose habit). Live value set to
+  **43.75** (0.875 × 50) — same real 12.5%-remaining fact, re-expressed
+  on the new correct-dosing scale so future correctly-dosed refills count
+  down consistently from here. Three revisions to this one constant in
+  two days (66 → 6.25 → 50 refills/bottle) — the lesson for next time:
+  when a user-reported ratio and a user-reported real behavior disagree
+  by an order of magnitude, ask which one is authoritative (check the
+  product label) before recalibrating against either.
 - **Do not add a third, shared fill-level selector for water refill + dirty-water empty** — they're deliberately two separate `input_select` entities specifically to avoid the cross-button race `vacuum_log_preemptive`'s time-based auto-reset (3f) exists to prevent. See Section 3c's note.
 - **Do not add `initial:` to any tracker's EMA/snapshot/guard fields** — per CODING_STANDARDS Rule 5b. It's safe ONLY on genuine per-transaction selectors whose idle value equals their post-use reset value (the 3 fill-level/action `input_select` entities added 2026-09-17 qualify; a new EMA average or `_logged_once` guard never does).
 

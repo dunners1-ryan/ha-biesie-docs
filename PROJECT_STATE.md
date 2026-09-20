@@ -5,6 +5,153 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-20 — Security: BUG-S85 — Friday-night alert storm (NVR-only motion reached
+      `critical` + drove the pool siren), mute toggle that didn't mute, wrong-camera images,
+      ~04:50 lounge false criticals, gardener-at-gate pushes.** User: spammed Fri night
+      "mostly non-IP cameras, all non-events, had to turn off security alerts"; muting should
+      reset in the morning; lounge motion coming from the bedrooms isn't an intruder; images
+      showed driveway for kitchen; "fixes have made non-IP cameras noisy again"; then gardener
+      at the gate still spamming.
+      **Findings (recorder + logbook, not guessed):** Fri 17:45-21:00, nobody home, wet, dark:
+      5 critical "Intruder on property", 33 "Activity in grounds", 14 pool-siren firings, all
+      from analog NVR cameras (cam07/04/12/09) — no AI camera in any push. **Not a regression**
+      from BUG-S78/S83/S84: 28-Aug had the same signature (4/29/3) before any of them; Friday
+      hit the one path they didn't cover (nobody home, where all suppression is correctly off).
+      Root cause: "high confidence" = any front + any rear camera, which two rain-noisy NVR
+      channels satisfy with no independent evidence; RUNG 7 + threat_level rule 2 accepted it.
+      `security_alert_notify` went OFF 18:51 and did NOT stop pushes (BUG-S77 already documented
+      this trap on 31-Aug); it then stayed off 20.5 h. The "Snooze 5/15/1h" menu in the
+      screenshots is iOS's own — never reaches HA. Camera-entity → physical-view mapping
+      verified correct (live frame from each NVR channel, burned-in name read); wrong images
+      were the shared per-ZONE image slot (ipcam03+cam04+cam07 share one).
+      **Fixed:** RUNG 7 needs an AI camera IN the grounds (`grounds_ai`, ipcam03/04); rule 2
+      needs `confirmed_human`; NVR-only warnings 1/hour (was every 5 min); pool siren
+      triggers only on ipcam04/05; `security_alert_notify` OFF now mutes all router threat
+      pushes + siren; new `automation.security_alert_mute_morning_reset` restores all three
+      mute toggles daily at `input_datetime.security_alerts_morning_reset` (06:00, fixed time
+      not a timer); image = the classified camera's own frame (classifier `camera` attribute);
+      new `binary_sensor.security_lounge_family_session` (cam15 fired before cam14) exempts
+      RUNG 2.5 / rule 1b — direction ("bottom-left") is NOT observable from an analog NVR
+      channel, this is the stand-in; staff at gate = one warning per 30 min (incl. 30 min after
+      schedule end), perimeter_front deduped against visitor.
+      **Verified:** `ha core check`, reloads clean, ladder rendered against 6 scenarios,
+      morning reset live-tested. **NOT verified:** a real rain night, a real 04:50 walk, router
+      MUTED / per-camera-image branches (only fire on real events) — watch the next rain event
+      and tomorrow ~04:50.
+      **Open / user calls:** `input_datetime.gardener_end` is 16:30 (he was still there 16:34);
+      inside-camera criticals with nobody home still accept NVR outdoor noise as corroboration
+      (Fri 18:14 cam15) — left, see BUG-S85 residual; `Door/Gate Left Open` criticals 4-9/day
+      with implausible durations (alerts domain, untouched).
+      Full detail: SECURITY_CONTRACT.md BUG-S85; ALERTS_CONTRACT.md toggle row.
+      Files: `packages/security/security_logic.yaml`, `security_automations.yaml`,
+      `security_helpers.yaml`.
+
+- [x] **2026-09-18 — Vacuum: detergent dose-size constant corrected — real cap
+      size is 10mL, not the ~1mL previously assumed.** User: "I got it wrong with
+      measurements for cleaning solution each cap is 10ml as per instructions on
+      photo - and last i measured the water refill is 3l - check specs for t80s."
+      Yesterday's 2026-09-17 fix corrected the MECHANISM (proportional dosing via
+      `level_fraction`, was a flat `+1`) but recalibrated the live value using a
+      wrong-constant assumption (66 refill-equivalents/bottle, from an implied
+      1mL/cap). Real numbers: 10mL/cap (photo-confirmed) × 16 caps/full-refill
+      (2× the stated "8 caps for a half refill") = 160mL/dose → **6.25 full-
+      refill-equivalents per 1L bottle**, not 66. `sensor.vacuum_detergent_level`'s
+      formula changed from `100 − refills×1.5%` to `100 − refills×16%`;
+      `refills_remaining`'s ceiling from 66 to 6.25. Live value re-recalibrated
+      from yesterday's (also now-wrong) ~57.8 down to **~5.47** (0.875 × 6.25) —
+      notably close to the ORIGINAL pre-fix flat-tracked value of 5.0, a sanity-
+      check signal worth noticing sooner next time this kind of recalibration
+      happens.
+      **Water tank spec checked, not assumed**: fetched Ecovacs' own T80S OMNI
+      product page directly (not just a search summary) — OMNI Station clean
+      water tank is **4L**, not the user's measured 3L; the robot's own onboard
+      tank (auto-refilled from the station, not what "Log Water Refill" tracks)
+      is a separate, much smaller 110mL. Left open whether 3L is a deliberate
+      real fill level (not filling to the max line) or an undershoot — doesn't
+      block the detergent fix, since cap-based dose calibration doesn't depend
+      on the tank-liters figure at all.
+      Full detail: SMART_CLEANING_CONTRACT.md Section 3c (second correction
+      entry, same bullet chain as 2026-09-17's mechanism fix).
+      Files: `packages/integrations/vacuum.yaml`, `vacuum_tracker_state.json`.
+
+- [x] **2026-09-18 (later, same day) — Vacuum: detergent recalibrated a THIRD
+      time — the "tank spec doesn't matter" call above was wrong once the bottle's
+      own printed ratio was actually read.** User: "On the picture of the bottle
+      it says 1:200 and tank is 4l with cap 10ml so what is the correct amount of
+      solution then?" Math: 4000mL ÷ 200 = 20mL = **2 caps per full refill** — the
+      user had genuinely been using **16 caps, an ~8x real overdose**, not a
+      tracking bug. This is a real finding about actual practice (cost, residue,
+      machine care), not just a model-accuracy fix. User's explicit decision:
+      "I will refill correctly from now on but need to start with bottle level
+      where it is in photo so adjust averages and levels to where it is now" —
+      i.e., switch to correct 2-cap dosing going forward, but anchor the CURRENT
+      bottle's already-real ~1/8 (12.5%) remaining as the starting point rather
+      than pretending the whole bottle was dosed correctly. Model changed to
+      **50 full-refill-equivalents/bottle, 2%/dose** (was 6.25/bottle, 16%/dose —
+      that scale matched the old 16-cap overdose habit, now abandoned). Live
+      value set to **43.75** (0.875 × 50) — same real 12.5% fact, re-expressed on
+      the corrected scale. `vacuum_detergent_refills_since_bottle`'s `max:` bumped
+      20 → 60 to fit the new ceiling.
+      **Three revisions to this one constant in two days (66 → 6.25 → 50 refills/
+      bottle)** — worth a standing lesson, not just a fix: when a user-reported
+      ratio and a user-reported real behavior disagree by an order of magnitude
+      (here: 1:200 label vs. 16-cap habit implying ~1:19), don't recalibrate
+      against either one — ask which is authoritative (check the product label
+      directly) before touching the constant a second time.
+      Full detail: SMART_CLEANING_CONTRACT.md Section 3c (third correction entry).
+      Files: `packages/integrations/vacuum.yaml`, `vacuum_tracker_state.json`.
+
+- [x] **2026-09-17 (evening, even later) — Vacuum: real restart-bug incident (Rule 5b,
+      finally fixed not just flagged) + real detergent-dosing mechanism bug, both found
+      live by the user post-deploy of today's earlier vacuum work.**
+      **Restart bug**: user reported Refill Clean Water/Dirty Water Empty stuck at
+      "Overdue ~0.0d" despite pressing both that same afternoon. Root cause: `vacuum_
+      last_water_refill_time`/`_dirty_empty_time` (and manual-clean's equivalents) still
+      carried `initial:` from day one (2026-08-31/09-02 seeds) — CODING_STANDARDS Rule 5b
+      had flagged this exact file as a known-deferred cleanup earlier today, and today's
+      several restarts finally triggered it for real, exactly as predicted. Fixed
+      properly this time: removed `initial:` from all 9 affected fields (averages,
+      guards, AND snapshot timestamps/areas — previously only the averages were
+      persisted, snapshots were deliberately left out under a "self-corrects on next
+      press" assumption that broke once they also lost their `initial:` fallback).
+      Extended `vacuum_tracker_save.sh`/`vacuum_tracker_restore_on_startup` from 16 to 22
+      persisted fields to cover the 6 snapshot fields. Added defensive `as_timestamp(...,
+      fallback)` guards in all 3 log automations' interval math too, belt-and-suspenders.
+      Seeded today's real press as an approximate 14:00 timestamp (exact time unknown).
+      **Confirmed fixed live** after the user's next real restart — Refill Clean Water/
+      Dirty Water Empty both came back showing real numbers. Manual Clean's continued
+      "Overdue" reading was NOT a bug — genuinely last pressed 2026-09-02, correctly
+      overdue against its ~8.87d average.
+      **Detergent dosing mechanism bug (separate, real)**: user reported a physically
+      observed bottle at ~1/8 (87.5%) remaining while the tracker showed 92% remaining
+      (only 5 refills logged) — a ~40x gap. Root cause found via direct user
+      confirmation ("every time i have refilled the water have put in detergent if half
+      water then 8 cap fills etc") — dosing is proportional to fill level in real use,
+      but `vacuum_log_water_refill` incremented the refill counter by a flat `+1` every
+      press regardless of the already-existing `level_fraction` variable (built earlier
+      today for the water-EMA scaling, sitting right there unused for this purpose).
+      Fixed: counter now adds `level_fraction` instead of flat `1`, helper changed from
+      integer (`step: 1`) to fractional (`step: 0.1`, "dose-equivalents used" not
+      "presses"), `initial: 0` also removed (Rule 5b, already covered by the same
+      persistence). The 15-cap-per-full-refill constant itself was NOT wrong — the user's
+      own numbers (half refill ≈ 8 caps) confirm it — this was purely a mechanism bug.
+      Live value recalibrated to ~57.8 (0.875 × 66) to match the real observed bottle.
+      **Also fixed**: `sensor.vacuum_consumables_lifetime_spend`/`_savings` on the
+      dashboard reading 0 — a self-inflicted bug from earlier today's chart-range
+      refactor (`json_attributes_path` moved from flat `$.summary` to nested `$`,
+      breaking the dashboard's old flat-path reference); added two dedicated top-level
+      sensors so no dashboard card needs to know about the nesting. Also corrected the
+      seeded first detergent-bottle order's date from a 2026-09-01 placeholder to the
+      real 2026-08-31 (derived: machine added to HA 2026-08-29 + user-stated "2 days
+      after machine was bought") — moved that record's ~R478/R120 from September's
+      monthly_breakdown bucket into August's.
+      Full detail: SMART_CLEANING_CONTRACT.md Sections 3c/7 (restart bug + correction to
+      the earlier-today "Must NOT" note on detergent scaling), UTILITIES_CONTRACT.md
+      Section 9 (dashboard/order-history fixes).
+      Files: `packages/integrations/vacuum.yaml`, `vacuum_tracker_save.sh`,
+      `vacuum_tracker_state.json`, `packages/utilities/vacuum_consumables_core.yaml`,
+      `vacuum_consumables_order_history.json`, `.storage/lovelace.dashboard_operations`.
+
 - [x] **2026-09-17 (evening, later) — Security/Lighting: BUG-S84 — plain "cloudy" alone
       was enough to trigger boundary lighting; notifications gave no reason or weather
       context.** User, directive: "Shouldn't just be cloud cover but actually misty or
@@ -5848,6 +5995,9 @@ binary_sensor.security_external_motion_recent  ← ON for 5min after any perimet
                                                    outdoor path corroboration.
                                                    Defined in security_logic.yaml.
 binary_sensor.security_front_approach_recent   ← ON for 5min after a FRONT-APPROACH camera
+binary_sensor.security_lounge_family_session    ← added 2026-09-20 (BUG-S85), cam15 fired then cam14; latched, delay_off 5min; RUNG 2.5 + threat rule 1b exemption
+input_datetime.security_alerts_morning_reset    ← added 2026-09-20 (BUG-S85), time of day the mute toggles are restored (06:00)
+automation.security_alert_mute_morning_reset    ← added 2026-09-20 (BUG-S85), id security_alerts_mute_morning_reset
                                                    fires (ipcam01/02, ipcam03, cam04, cam07,
                                                    cam09, ipcam05). Excludes cam12+ipcam04
                                                    (pond/pool — rear NVR cameras that fire
