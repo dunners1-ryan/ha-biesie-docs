@@ -425,7 +425,7 @@ bottle connected:
   that appliance's identity select changes to a real bottle
   (`automation.gas_bottle_reassigned_stove`/`_heater`) OR whenever that
   bottle is refilled/exchanged in place without changing which appliance
-  it's on (`automation.gas_confirm_completed` — see 8d).
+  it's on (`automation.gas_log_refill_done`/`gas_log_exchange_done` — see 8d).
 - **`sensor.gas_stove_fraction_remaining`** / **`gas_heater_fraction_
   remaining`** — elapsed-time estimate against the matching avg-days
   input_number, same shape as `sensor.watercooler_current_bottle_fraction_
@@ -520,19 +520,56 @@ ad-hoc self-pickup with no advance order:
    order placed/expected date, sets `input_boolean.gas_order_in_progress`
    on. `automation.gas_order_reminder` nudges the morning of the expected
    date, same shape as Water Cooler's delivery reminder.
-2. **Log Refill/Exchange Done** (`input_button.gas_confirm_completed`) — the
-   real completion event, works whether or not step 1 happened. Reads
-   `input_boolean.gas_do_refill` / `gas_do_swap` (either or both — a winter
-   trip often does both at once, per the user's own stated pattern), and
-   `input_number.gas_order_refill_cost` / `gas_order_swap_cost`. For each
-   service that happened: marks that bottle's status Ready (Full); if that
+2. **Log Refill Done** (`input_button.gas_log_refill_done`) / **Log
+   Exchange Done** (`input_button.gas_log_exchange_done`) — two independent,
+   self-contained completion buttons (redesigned 2026-09-22, replacing a
+   single `gas_confirm_completed` button gated by `gas_do_refill`/`gas_
+   do_swap` toggles — see the BUG entry below), work whether or not step 1
+   happened. Each reads its own cost field (`gas_order_refill_cost` /
+   `gas_order_swap_cost`); for a combined winter trip, press both in either
+   order. Pressing either: marks that bottle's status Ready (Full); if that
    bottle is the one currently assigned to an appliance, EMA-updates that
    appliance's avg-days and resets its connected-since clock (the "same
    bottle refilled in place" case that a bare identity-select change would
-   never catch, since the select value doesn't change). Records
-   `input_datetime.gas_last_completed_time`, clears `gas_order_in_progress`
-   if one was open, resets the do-refill/do-swap toggles and cost fields
-   back to idle, and fires a `gas_transaction_logged` event (see 8e).
+   never catch, since the select value doesn't change); records
+   `input_datetime.gas_last_completed_time`; clears `gas_order_in_progress`
+   if one was open; resets its own cost field back to idle; fires a
+   `gas_transaction_logged` event (see 8e).
+
+   **Backdating** (`input_boolean.gas_backdate_entry` + `input_datetime.
+   gas_backdate_time`, added 2026-09-22): if the toggle is on and the
+   datetime holds a valid value, both buttons use that timestamp as the
+   effective completion time (for the EMA interval, the connected-since
+   clock, the transaction-log date, and `gas_last_completed_time`) instead
+   of `now()`, then turn the toggle back off. Off by default, so ordinary
+   same-day logging is unaffected.
+
+   **BUG (fixed 2026-09-22, real incident)**: under the old single-button
+   design, `gas_do_refill`/`gas_do_swap` lived on the separate "Order" card,
+   two cards away from the "Log Refill/Exchange Done" card holding the
+   button and cost fields. The user filled in `gas_order_swap_cost` (R300)
+   for a real exchange, then — finding no way to record that it had
+   happened the previous afternoon rather than "now" — tried to backdate it
+   by hand-editing `gas_last_completed_time` (a field that was purely a
+   display output of the automation, wired to nothing upstream) before
+   pressing the button. Because neither toggle was ever turned on, the
+   automation's own "nothing selected" branch fired silently (a single
+   easy-to-miss push notification, no dashboard-visible error) and stopped
+   before touching stock, bottle status, the burn-rate clock, or the
+   transaction log/monthly cost — the R300 simply vanished from every
+   downstream figure. Root-caused from live entity `last_changed`/logbook
+   timestamps via the Supervisor API (not guessed), then corrected by
+   manually replaying what the automation would have done with the true
+   2026-09-21 16:30 timestamp: EMA `gas_avg_days_per_bottle_stove` 136.67d →
+   97.06d (recalculated against the real 37.65-day interval), `gas_stove_
+   bottle_connected_time` reset to 2026-09-21 16:30, a `gas_transaction_
+   logged` event fired dated 2026-09-21, and the leftover R300 in `gas_
+   order_swap_cost` reset to 0. **Fix**: removed the toggles entirely —
+   `gas_do_refill`/`gas_do_swap` no longer exist, replaced by the two
+   dedicated buttons above, each colocated with its own cost field on one
+   card, so there is no longer a possible "pressed but nothing selected"
+   state. Also fixed the root design gap that caused the hand-edit attempt
+   in the first place, by adding the real backdate mechanism above.
 
 ### 8e. Transaction Log — cost/usage tracking without a JSON file
 
@@ -550,13 +587,14 @@ to it. `sensor.gas_month_actual_cost` / `gas_year_actual_cost` filter its
 
 **Design note — event-triggered, not button-state-triggered**: the sensor
 triggers off a custom `gas_transaction_logged` event fired by
-`automation.gas_confirm_completed`, not off `input_button.gas_confirm_
-completed`'s own state change directly. That automation captures the do-
-refill/do-swap/cost values into variables, then later in the same run resets
-those same helpers back to idle — if the sensor instead read those helpers
-live off the button's state-change trigger, it would race the automation's
-own reset with no ordering guarantee between an automation and a trigger-
-based template entity reacting to the same trigger. The event carries an
+`automation.gas_log_refill_done`/`gas_log_exchange_done` (split 2026-09-22
+from the original single `gas_confirm_completed`, see 8d), not off either
+button's own state change directly. Each automation captures its cost/
+timing values into variables, then later in the same run resets that same
+cost field back to idle — if the sensor instead read it live off the
+button's state-change trigger, it would race the automation's own reset
+with no ordering guarantee between an automation and a trigger-based
+template entity reacting to the same trigger. The event carries an
 immutable snapshot as `event_data`, so there's nothing to race. Confirmed
 live 2026-09-02: also hit two config-shape errors building this — a trigger-
 based sensor must be its own list item under `template:` (not nested inside
@@ -594,10 +632,10 @@ Reset"** button, pressed by hand after connecting a fresh/full bottle — a
 physical action HA cannot detect or trigger. First real reading logged the
 same day: `Gas (green zone, near top edge)` on the Swap bottle (then on the
 stove), needle position noted as approximate given photo blur.
-`automation.gas_confirm_completed` (8d) now reminds the user to press the
-reset button in its own completion notification whenever the just-completed
-refill/exchange is for whichever bottle is currently on the stove — the only
-appliance this gauge is fitted to.
+`automation.gas_log_refill_done`/`gas_log_exchange_done` (8d) now reminds
+the user to press the reset button in its own completion notification
+whenever the just-completed refill/exchange is for whichever bottle is
+currently on the stove — the only appliance this gauge is fitted to.
 
 ### 8g. Alert Pipeline
 

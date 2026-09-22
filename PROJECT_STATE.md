@@ -5,6 +5,50 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-22 — Utilities/Gas: silent no-op on exchange logging (R300 exchange
+      unrecorded) + full completion-flow redesign.** User reported entering a gas
+      exchange (yesterday 16:30, R300) "this morning" with no change to figures,
+      timing, or stock, plus the monthly cost not reflecting the R300.
+      **Root cause (Supervisor API state history + HA logbook, not guessed):**
+      user set `gas_order_swap_cost`=300 and hand-edited `gas_last_completed_time`
+      to "2026-09-21 16:30" trying to backdate it, then pressed `gas_confirm_
+      completed` — but `gas_do_swap` was never turned on (that toggle lived on a
+      separate dashboard card from the button/cost fields) so the automation's
+      "neither toggle on" branch fired silently (one easy-to-miss push
+      notification) and stopped before touching stock/status/EMA/transaction log.
+      `gas_last_completed_time` was purely a display field the automation always
+      overwrote — editing it did nothing, which is what pushed the user to try
+      that workaround in the first place; there was no real backdating mechanism.
+      **Live fix applied** via Supervisor API, replaying what the automation would
+      have done with the true 2026-09-21 16:30 timestamp: `gas_avg_days_per_
+      bottle_stove` recalculated 136.67d → 97.06d against the real 37.65-day
+      interval, `gas_stove_bottle_connected_time` reset to 2026-09-21 16:30, a
+      `gas_transaction_logged` event fired dated 2026-09-21 (R300 swap), leftover
+      `gas_order_swap_cost` reset to 0. Verified: `sensor.gas_transaction_log` (7
+      entries, correct tail row), `sensor.gas_month_actual_cost` (R300),
+      `sensor.gas_stove_days_remaining` (96.2d) all confirmed live afterward.
+      **Redesign shipped same session** (user: "make it easier for straight
+      replacement/refill whether from order and deliver or straight replace/
+      refill without ordering"): removed `gas_do_refill`/`gas_do_swap` entirely
+      — replaced the single `gas_confirm_completed` button with two independent,
+      self-contained buttons (`gas_log_refill_done`, `gas_log_exchange_done`),
+      each colocated on its own dashboard card with its matching cost field, so
+      there is no longer a "pressed but nothing selected" state possible. Added a
+      real backdate mechanism (`gas_backdate_entry` + `gas_backdate_time`) so a
+      genuine late entry no longer requires a session to hand-fix it. Files:
+      `gas_helpers.yaml`, `gas_automations.yaml`, `gas_core.yaml` (comments),
+      `.storage/lovelace.dashboard_operations` (Gas Bottles view restructured).
+      Config check passed; `input_boolean`/`input_datetime`/`input_button`/
+      `automation` reload all succeeded with no errors; both new automations'
+      key templates smoke-tested via `/api/template` (backdate on/off paths).
+      **Flagged, not resolved**: same session, `gas_heater_bottle_identity` was
+      independently changed to `"None"` by the user this morning — per Section
+      8c-bis this may be the wrong model if the (empty) Owned bottle is still
+      physically attached to the heater rather than removed; left as-is pending
+      user confirmation. **⚠️ Dashboard change requires a full HA restart**
+      (raw `.storage/lovelace` edit) — not yet restarted as of this entry.
+      See `docs/domains/UTILITIES_CONTRACT.md` Section 8d for full detail.
+
 - [x] **2026-09-20 — Security: BUG-S85 — Friday-night alert storm (NVR-only motion reached
       `critical` + drove the pool siren), mute toggle that didn't mute, wrong-camera images,
       ~04:50 lounge false criticals, gardener-at-gate pushes.** User: spammed Fri night
@@ -6159,11 +6203,19 @@ sensor.gas_spare_bottle_status                        ← added 2026-09-06 — i
                                                         STOVE's active one ran out? (stove-only check, deliberately
                                                         not heater) — feeds binary_sensor.gas_low as a 3rd OR
                                                         condition, warning-only, never escalates to critical
-input_boolean.gas_do_refill / gas_do_swap            ← TRANSIENT — read once by gas_confirm_completed then reset
-                                                        off after logging; do not treat as persistent state
-input_button.gas_confirm_completed                    ← the real completion event, works with or without an order
+input_boolean.gas_do_refill / gas_do_swap            ← REMOVED 2026-09-22 (BUG fix) — replaced by two dedicated
+                                                        buttons, see gas_log_refill_done/gas_log_exchange_done below
+input_button.gas_confirm_completed                    ← REMOVED 2026-09-22 — split into gas_log_refill_done /
+                                                        gas_log_exchange_done (self-contained, no toggle to forget)
+input_button.gas_log_refill_done                      ← added 2026-09-22 — self-contained "a refill happened" action
+input_button.gas_log_exchange_done                      (Owned/Swap bottle respectively), works with or without an
+                                                        order; see UTILITIES_CONTRACT.md Section 8d for the incident
+                                                        that led to this redesign
+input_boolean.gas_backdate_entry                      ← added 2026-09-22 — TRANSIENT, gates whether either button
+input_datetime.gas_backdate_time                        above uses this timestamp instead of now() for the
+                                                        completion; reset off after use
 sensor.gas_transaction_log                            ← event-triggered (gas_transaction_logged), NOT triggered off
-                                                        input_button.gas_confirm_completed's own state change — see
+                                                        either completion button's own state change — see
                                                         UTILITIES_CONTRACT.md Section 8e for why (race avoidance)
 sensor.gas_gauge_history                              ← Claude-maintained via /log-gas-reading, trend-only, does
                                                         NOT feed the avg-days EMAs above
