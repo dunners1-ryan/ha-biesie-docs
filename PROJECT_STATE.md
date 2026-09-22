@@ -5,6 +5,41 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-22 — Power/Geyser: BUG-PWR-GEYSER06 — a restart mid-window silently
+      reproduced BUG-PWR-GEYSER05's exact bug, plus a separate anchor-sharing bug
+      mislabeled the logbook either way.** User got a "bad midday geyser run" critical
+      alert and suspected it was just normal hot-water use draining the tank again, not
+      poor solar — correct. Traced live via Supervisor API (states/history/logbook, no
+      guessing): geyser reached temperature at 12:16 (76-min heat-up from an 11:00 solar
+      start — proves solar was fine), correctly set `input_boolean.geyser_
+      midday_reached_temp_today` on; tank dropped again at 14:51 from routine hot-water
+      use (expected daily cycling, exactly BUG-PWR-GEYSER05's "reheat after good solar"
+      case). But that flag flipped back to `off` again at 14:56 — 4 min before the 15:00
+      check — at the same instant several unrelated entities showed a restart signature
+      in history, almost certainly the pending HA Core restart from this morning's
+      separate gas-logging session (see entry below: "Dashboard change requires a full HA
+      restart — not yet restarted as of this entry"). Root cause: the flag was defined
+      with `initial: false` (power_helpers.yaml), which forces a hard reset on **every**
+      Core restart (not just the intended 00:01 automation reset) — unlike its sibling
+      `geyser_reached_temp_today`, which has no `initial:` and correctly survived the
+      same restart. At 15:00 the automation read the wiped flag as false and fired the
+      critical "🔴 poor midday" alert instead of the correct informational "reheat after
+      good solar" one. Separately found (latent since BUG-PWR-GEYSER05, independent of
+      the restart): the forced-60-min-run actions are shared between both branches via a
+      YAML anchor that also bundled a hardcoded logbook message ("reheat after a good
+      midday...") reused verbatim by the "never reached temp" branch too — so the
+      internal logbook record was mislabeled regardless of which branch actually fired
+      (the pushed notification itself was correct either way — separate code path).
+      **Fixed:** removed `initial: false` from `geyser_midday_reached_temp_today` (now
+      matches `geyser_reached_temp_today`'s restore-on-restart behavior); split the
+      shared anchor so each branch logs its own accurate logbook message, still gated on
+      the same run conditions. `check_config` valid; Reload Automations + Reload Helpers
+      (`input_boolean`) via Supervisor API both returned `[]` (no errors); confirmed the
+      flag's current runtime value was undisturbed by the reload (the fix only changes
+      behavior on the *next* restart). No restart required. Full detail:
+      POWER_CONTRACT.md Issue 36.
+      Files: `packages/power/power_helpers.yaml`, `packages/power/geyser_automations.yaml`.
+
 - [x] **2026-09-22 — Utilities/Gas: silent no-op on exchange logging (R300 exchange
       unrecorded) + full completion-flow redesign.** User reported entering a gas
       exchange (yesterday 16:30, R300) "this morning" with no change to figures,

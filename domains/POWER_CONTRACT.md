@@ -166,7 +166,7 @@ Full ROI/payback analysis for both line items: `private_docs/POWER_SYSTEM_AUDIT_
 | `power_statistics.yaml` | Rolling average sensors + solar forecast accuracy + 4-state weather correlation + season factor (P6 2026-06-14) | Derived |
 | `power_strategy.yaml` | power_strategy, power_strategy_status, severity | Decision |
 | `power_automations.yaml` | Power domain automations — migrated from automations.yaml; includes `pool_pump_solar_control` + `automation.pool_manual_run`/`script.pool_manual_run` (added 2026-09-11, mirrors geyser's manual run) | Automation |
-| `geyser_automations.yaml` | Geyser heat pump scheduling — 10 automations (turn_on, morning_backstop, turn_off, sports_night_scheduler, manual_run, heat_up_duration_capture, reached_temp_tracker, period_energy_snapshot, daily_minimum_check, morning_override_midday_clear) + script.geyser_manual_run (E2 2026-06-14; E4 retrofit: orchestrator gate, midday solar-gated, at-temp proxy, window helpers, emergency off; grown to 10 automations across E5-E10 + BUG-PWR-GEYSER01-05 — count corrected 2026-09-15, was stale at "4" since at least E4) | Automation |
+| `geyser_automations.yaml` | Geyser heat pump scheduling — 10 automations (turn_on, morning_backstop, turn_off, sports_night_scheduler, manual_run, heat_up_duration_capture, reached_temp_tracker, period_energy_snapshot, daily_minimum_check, morning_override_midday_clear) + script.geyser_manual_run (E2 2026-06-14; E4 retrofit: orchestrator gate, midday solar-gated, at-temp proxy, window helpers, emergency off; grown to 10 automations across E5-E10 + BUG-PWR-GEYSER01-06 — count corrected 2026-09-15, was stale at "4" since at least E4) | Automation |
 | `power_contract.yaml` | Documentation notes only — no executable YAML | Docs |
 | `battery_runtime.yaml` | Program-aware battery runtime, severity, confidence | Derived |
 | `battery_state.yaml` | battery_state_health (strong/healthy/low/critical) | State |
@@ -1742,7 +1742,7 @@ Force-on time = 15:00 − required minutes (90→13:30, 60→14:00, 30→14:30),
 
 **Sticky-flag bug fix (same day, 2026-06-20):** `geyser_period_energy_snapshot`'s midday alert and `geyser_daily_minimum_check`'s 20:00 "all good" branch both used to gate on `input_boolean.geyser_reached_temp_today`, which only resets at midnight. A geyser that reached temperature once overnight/early-morning stayed flagged on for the rest of the day even after the tank cooled from daytime use — silently suppressing both checks (root cause of a missing midday notification despite the tank being cold by 15:30). Both now use `binary_sensor.geyser_at_temperature` (real-time) for the actual decision; the sticky flag is kept only in log/notification text for context.
 
-**Midday safety-net auto-trigger (added 2026-06-20, split by BUG-PWR-GEYSER05 2026-09-15 — see Issue 35):** The midday alert in `geyser_period_energy_snapshot` (15:00) auto-triggers a forced 60-minute run — via the existing manual-run mechanism (`input_select.geyser_manual_run_duration` = "60" + `input_boolean.geyser_manual_run_active` → on) — whenever the tank is not at temperature and the midday delta is below threshold. This is a backstop for the case where Branch 2b (forced minimum, above) doesn't end up running the geyser, or the tank cooled again from use after Branch 2b/solar-gated Branch 2 already ran it. Gated by: switch off, `load_control_geyser_enabled` on, `geyser_manual_run_active` off, orchestrator not `loadshedding_critical`. Severity/title depend on `geyser_midday_reached_temp_today` (whether the geyser reached temperature at any point during 11:00-15:00, not just at the 15:00 instant): `critical` "🔴 poor midday" only if it never reached temp all window (genuine shortfall — was the only case before 2026-09-15); `information` "midday reheat after good solar" if it did reach temp mid-window and simply got used again before 15:00 (a fast reach-temp already proves solar was adequate — see Issue 35's real incident for why conflating these two was a false-alarm bug).
+**Midday safety-net auto-trigger (added 2026-06-20, split by BUG-PWR-GEYSER05 2026-09-15 — see Issue 35):** The midday alert in `geyser_period_energy_snapshot` (15:00) auto-triggers a forced 60-minute run — via the existing manual-run mechanism (`input_select.geyser_manual_run_duration` = "60" + `input_boolean.geyser_manual_run_active` → on) — whenever the tank is not at temperature and the midday delta is below threshold. This is a backstop for the case where Branch 2b (forced minimum, above) doesn't end up running the geyser, or the tank cooled again from use after Branch 2b/solar-gated Branch 2 already ran it. Gated by: switch off, `load_control_geyser_enabled` on, `geyser_manual_run_active` off, orchestrator not `loadshedding_critical`. Severity/title depend on `geyser_midday_reached_temp_today` (whether the geyser reached temperature at any point during 11:00-15:00, not just at the 15:00 instant): `critical` "🔴 poor midday" only if it never reached temp all window (genuine shortfall — was the only case before 2026-09-15); `information` "midday reheat after good solar" if it did reach temp mid-window and simply got used again before 15:00 (a fast reach-temp already proves solar was adequate — see Issue 35's real incident for why conflating these two was a false-alarm bug). `geyser_midday_reached_temp_today` has **no `initial:`** as of 2026-09-22 (BUG-PWR-GEYSER06 — see Issue 36): it used to have `initial: false`, which forced a reset on every HA Core restart (not just the intended 00:01 automation reset) and could silently reproduce Issue 35's exact bug if a restart landed mid-window. Each branch also now logs its own `logbook.log` message (previously shared via a YAML anchor that always logged the "reheat after good midday" text regardless of which branch fired — see Issue 36).
 
 **Morning extension (added 2026-06-21, reworked 2026-07-06):** Incident — cold (11°C), heavily overcast winter day (`solar_weather_correlation` degraded), more than one person home all day — the morning run alone wasn't enough; tank cold again by 11am showers. `geyser_turn_off` Branch 1 checks, at the normal morning hard-off, whether the geyser is STILL ACTUALLY HEATING (`binary_sensor.geyser_at_temperature == 'off'`, i.e. power draw still ≥ 50W) AND any of: (a) the cold trigger — `sensor.season == 'winter'` AND `state_attr('weather.openweathermap','temperature') < input_number.geyser_cold_ambient_threshold_c` (14°C default) AND `sensor.solar_weather_correlation in ['poor','degraded']` AND **more than one** family member in a home AP zone (inline count over `sensor.{ryan,vicky,luke,tayla}_ap_location`, not the universal-quantifier `binary_sensor.all_family_home` — a single person home alone doesn't need the extra capacity); (b) `input_boolean.holiday_mode == 'on'`; (c) `input_boolean.geyser_morning_extend_override == 'on'` (manual, same-day equivalent of holiday_mode for this logic only — doesn't touch security escalation or bedtime scheduling). If so (and `input_boolean.geyser_morning_extend_enabled` is on), it skips the turn-off and sets `input_boolean.geyser_morning_extended_today`.
 
@@ -3081,6 +3081,60 @@ fix landed); `automation.geyser_track_at_temperature_daily_reset` and `..._perio
 snapshot_morning_midday` both reloaded and confirmed `on`. Next midday window this fires in
 (tomorrow, or any day the geyser reaches temperature between 11:00-15:00) will exercise the new
 branch live.
+
+---
+
+### Issue 36 — ✅ FIXED 2026-09-22: BUG-PWR-GEYSER06 — Issue 35's own fix silently regressed: a mid-window HA restart wiped the new flag via `initial:`, plus a YAML-anchor bug mislabeled the logbook line regardless
+**Files:** `packages/power/power_helpers.yaml` (`geyser_midday_reached_temp_today`),
+`packages/power/geyser_automations.yaml` (`geyser_period_energy_snapshot` midday branch).
+**Reported by:** user — got a "bad midday geyser run" alert, suspected (correctly) it was just
+normal hot-water use draining the tank again, not poor solar.
+
+**Investigation (live Supervisor API — states/history/logbook, 2026-09-22):** Geyser turned on
+11:00 (Branch 2, solar-gated), `binary_sensor.geyser_at_temperature` → `on` at 12:16 (76-min
+heat-up — solar was fine), correctly set `input_boolean.geyser_midday_reached_temp_today` → `on`
+at that moment (confirmed via `/api/history/period`). Tank then dropped back to `off` at 14:51
+from normal hot-water use — a routine reheat, exactly Issue 35's "expected daily cycling" case.
+But `/api/history/period` on `geyser_midday_reached_temp_today` itself showed it flip `on`→`off`
+again at **14:56**, four minutes before the 15:00 check — at the same millisecond several
+unrelated entities re-asserted their existing state (a restart signature), almost certainly the
+pending HA Core restart from that morning's separate gas-logging session (PROJECT_STATE.md TODO:
+"Dashboard change requires a full HA restart — not yet restarted as of this entry"). At 15:00,
+`geyser_period_energy_snapshot` read `midday_reached_temp` as `false` and fired the **critical**
+"🔴 poor midday" alert — Issue 35's exact failure mode, reproduced through a different path than
+the one Issue 35 fixed.
+
+**Root cause 1 — restart wipe:** `geyser_midday_reached_temp_today` was defined with `initial:
+false` (power_helpers.yaml). In HA, `initial:` on an `input_boolean` forces a hard reset to that
+value on **every Core restart**, bypassing normal state restore — unlike its day-wide sibling
+`geyser_reached_temp_today`, which has no `initial:` and correctly restored `on` through the same
+restart (confirmed side-by-side in the same history query: `geyser_reached_temp_today` kept its
+value at 14:56, `geyser_midday_reached_temp_today` didn't). The flag was only ever meant to reset
+at 00:01 via `geyser_reached_temp_tracker`'s own `midnight_reset` branch — `initial:` was an
+unintended second reset path that fires on any restart, mid-window or not.
+
+**Root cause 2 (independent, latent since Issue 35) — anchor-shared logbook message:** Issue 35's
+fix shared the forced-60-min-run actions between both branches via
+`&safety_net_run_actions`/`*safety_net_run_actions` — but that anchor also bundled a hardcoded
+`logbook.log` line ("reheat after a good midday...") inside it, reused verbatim by the "poor
+midday, never reached temp" branch too. So even without root cause 1, the internal logbook record
+always claimed "reheat after a good midday" regardless of which branch actually fired — harmless
+to the pushed notification (each branch's `notify_power_event` title/message were correct and
+separate) but misleading for anyone reading the logbook/trace to diagnose an incident, including
+this one.
+
+**Fix:** (1) Removed `initial: false` from `geyser_midday_reached_temp_today` — matches
+`geyser_reached_temp_today`'s pattern; the automation's 00:01 reset remains the only intended
+reset. (2) Split the shared anchor: `&safety_net_run_actions` now holds only the mechanical
+actions (set duration, turn on `geyser_manual_run_active`); each branch logs its own
+`logbook.log` in a separate `if: *safety_net_run_conditions` block outside the anchor, gated on
+the same conditions so it still only logs when the run actually starts.
+
+**Deployed:** `check_config` via Supervisor API returned `valid`. Reload Automations and Reload
+Helpers (`input_boolean`) via Supervisor API both returned `[]` (no errors). Confirmed
+`geyser_midday_reached_temp_today`'s current runtime value (`off`, today's window already closed)
+was undisturbed by the helper-config reload — the `initial:` removal only changes behavior on the
+*next* restart, not retroactively. No restart required for either fix.
 
 ---
 
