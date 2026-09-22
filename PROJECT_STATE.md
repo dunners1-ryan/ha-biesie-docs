@@ -5,6 +5,31 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-22 — Lighting: BUG-L26 — `boundary_security_watchdog` fought bedtime and
+      manual overrides, repeatedly turning front/back security lights back on all night.**
+      User: front security light was on after they turned it off ~00:13, and shouldn't
+      have been on past 9:30pm bedtime at all. Traced live via recorder DB (state history +
+      context_id joins, not guessed): `bedtime_mode` went ON 21:00:00 (kids weekday
+      bedtime); `scene_kids_bedtime` correctly turned `front_house_security_light` OFF at
+      21:00:31; `automation.lighting_boundary_security_watchdog`'s next 30-min tick
+      (21:30:01) turned it straight back ON — 30s after bedtime. Same pattern repeated on
+      BOTH `front_house_security_light` and `back_house_security_light` every time the user
+      manually switched either off overnight (00:13/00:29/00:32 manual offs all undone by
+      the 00:30:04/01:00:04 watchdog ticks). Root cause: `expected_lights` in
+      `boundary_security_watchdog` (and the matching front/back/carport/office branch in
+      `boundary_security_on`) gated only on `night_early`=on AND `anyone_connected_home`=on
+      — no awareness of `bedtime_mode`, so it couldn't distinguish "device dropped out"
+      (its actual job, see BUG-L21) from "bedtime scene or user deliberately turned this
+      off." `bedtime_mode` was on continuously 21:00-03:00, so it covered every incident.
+      **Fixed:** both automations' front/back/carport/office rule now also requires
+      `input_boolean.bedtime_mode` = off. `boundary_street_light`/`main_entrance_light`
+      unchanged (not part of any bedtime scene). `entrance_down_lights` unaffected (already
+      excluded from this watchdog, see BUG-L22).
+      **Verified:** YAML parses clean. **Not yet live-verified** — needs `ha core check` +
+      Reload Automations, then confirm next bedtime that front/back security lights stay
+      off once the bedtime scene sets them, and next manual override overnight isn't undone.
+      Files: `packages/lighting/lighting_boundary.yaml`.
+
 - [x] **2026-09-22 — Power/Geyser: BUG-PWR-GEYSER06 — a restart mid-window silently
       reproduced BUG-PWR-GEYSER05's exact bug, plus a separate anchor-sharing bug
       mislabeled the logbook either way.** User got a "bad midday geyser run" critical
