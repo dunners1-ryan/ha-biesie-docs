@@ -45,7 +45,7 @@ bottles for the stove/heater (Section 8).
 |---|---|
 | `packages/utilities/watercooler_helpers.yaml` | input_number/input_datetime/input_boolean/input_button — stock, order/delivery fields, rate constants (ex VAT), thresholds |
 | `packages/utilities/watercooler_core.yaml` | `command_line:` sensor reading the invoice history file + all template sensors (stock estimate, order guidance, cost estimate vs. actual, alert context) |
-| `packages/utilities/watercooler_automations.yaml` | Log Bottle Changed / Place Order / Delivery Reminder / Confirm Delivery / Invoice Reminder / month-counter reset / alert routing trio / `alert:` block |
+| `packages/utilities/watercooler_automations.yaml` | Log Bottle Changed (backdate support added 2026-09-23) / Place Order / Delivery Reminder / Confirm Delivery / Invoice Reminder / month-counter reset / alert routing trio / `alert:` block |
 | `packages/utilities/watercooler_invoice_history.json` | Real invoice records + a `summary.monthly_breakdown` block — see Section 4 |
 
 Dashboard: Operations → **Water Cooler** (`watercooler-control`), linked from
