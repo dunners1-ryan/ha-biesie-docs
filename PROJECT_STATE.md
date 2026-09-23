@@ -5,7 +5,22 @@
 
 ## ⚠️ OPEN TODO
 
-- [x] **2026-09-23 (latest) — Power/Geyser: "staff on site" high-usage-day assumption
+- [x] **2026-09-23 (latest) — Infra/Backup: untracked 719 tracked-but-gitignored files
+      (camera snapshots, lock file, Solcast caches).** Found while explaining why
+      `git status` always showed `solcast_solar/solcast*.json` + `www/security_latest.jpg`
+      modified: `.gitignore` already excluded `www/*.jpg` ("Security snapshots - never
+      commit these") but 715 snapshots were tracked anyway (ignore rules don't affect
+      already-tracked files), so the daily `git add .` backup kept committing security
+      camera images to the remote. `git rm --cached` on 715 `www/` images + `.ha_run.lock`
+      + the 3 Solcast forecast caches (719 total; files untouched on disk); the 3 Solcast
+      caches added to `.gitignore` (`solcast-sites.json` stays tracked). Commit e3dbc442,
+      pushed, working tree clean afterwards. Deliberately left tracked: HACS frontend
+      bundles and `www/community/` card assets. **Still open / needs a decision**: old
+      snapshots remain in git history and the remote — purging means a history rewrite +
+      force-push, not done. Documented in INFRA_CONTRACT "Backup scope". No entities,
+      automations or hardware changed; no reloads needed.
+
+- [x] **2026-09-23 — Power/Geyser: "staff on site" high-usage-day assumption
       widened Mon/Thu → Mon/Thu/Sat; sports-night manual override added; reheat message
       overclaim softened (E11/E12).** Three requests in one session.
       **(1) E11 — overclaim fix.** Follow-up on BUG-PWR-GEYSER06's 2026-09-22 incident:

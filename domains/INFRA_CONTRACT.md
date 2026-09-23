@@ -187,6 +187,25 @@ the git-based config backup (`gitupdate.sh`). The Supervisor's own native HA bac
 snapshot, unrelated to this file) is a separate mechanism — see Part 1 BUG-CORE03 for its
 2026-08-09 failure and root cause.
 
+### Backup scope — what the git backup does and does not capture (2026-09-23)
+
+The 05:00 backup calls `gitupdate.sh` message-only, i.e. `git add .`, so `.gitignore` alone
+decides what reaches the private repo. On 2026-09-23 an audit found that files matching an
+ignore rule but **already tracked** were still being committed every day (`.gitignore` never
+affects tracked files): 715 camera snapshots under `www/` (`www/*.jpg`/`*.png` is ignored,
+with the comment "Security snapshots - never commit these"), a stray `.ha_run.lock`, and
+the three Solcast forecast caches. All 719 were untracked with `git rm --cached` (files stay
+on disk); the Solcast caches (`solcast_solar/solcast.json`, `solcast-undampened.json`,
+`solcast-usage.json` — rewritten by the integration on every refresh, so they showed as
+modified all day) were added to `.gitignore`. `solcast_solar/solcast-sites.json` (site
+config) stays tracked. **Old snapshots remain in git history and in the remote** — untracking
+does not purge them; that would need a history rewrite + force-push (not done, needs an
+explicit decision). Practical rule: adding a path to `.gitignore` does nothing for a file
+that is already tracked — `git rm --cached` it too, and check `git ls-files -ci
+--exclude-standard` for tracked-but-ignored files. Still tracked despite matching ignore
+rules, deliberately left alone: HACS frontend bundles under `custom_components/hacs/` and
+the HACS card assets under `www/community/`.
+
 ---
 
 ## Part 3: office/ — Printer Monitoring
@@ -356,7 +375,7 @@ via HACS and must be updated manually or via HACS UI.
 | Integration | Version | Purpose | Config Location |
 |-------------|---------|---------|-----------------|
 | `solarman` | 25.08.16 | Dual inverter (Master/Slave) Modbus polling | `packages/power/power_core.yaml` |
-| `solcast_solar` | v4.6.1 | Solar PV forecast (Solcast API) | `solcast_solar/` cache dir + UI |
+| `solcast_solar` | v4.6.1 | Solar PV forecast (Solcast API) | `solcast_solar/` cache dir + UI (forecast caches gitignored 2026-09-23 — see Backup scope) |
 | `hikvision_next` | 1.1.1 | NVR cameras (16ch DS-7116HGHI-F1) | `packages/security/cameras_core.yaml` |
 | `sonoff` | 3.12.2 | EWElink smart switches (pumps, lights) | `packages/integrations/sonoff.yaml` |
 | `tuya` | (cloud) | Tuya Cloud devices: geyser heat pump switch, pool pump, pond filter pump, water tank depth sensor | UI-only (no YAML config) |
