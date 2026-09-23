@@ -44,11 +44,13 @@
       `midday_adequacy` renders with the new template. **NOT live-exercised**: today
       (Wed) `staff_on_site` is off, so the boost/cap paths didn't run, and the override
       wasn't toggled on — it would shift tonight's real hard-off to 21:30/22:00.
-      **Still open**: no dashboard toggle for the override yet (stale "Resets Wed/Fri
-      00:01" text on the Sports Night card too — actually clears daily); add via
-      `lovelace/config/save` WebSocket (CODING_STANDARDS.md) to the entities card at
-      `dashboard_operations` views[3]/sections[0]/cards[3], next to
-      `geyser_morning_extend_override`. Docs: POWER_CONTRACT (helper table, schedule
+      **Dashboard (closed same day)**: pushed via `lovelace/config/save` WebSocket
+      (live config diffed equal to disk first; no restart) to `dashboard-operations`
+      views[3]/sections[0]: "Sports Night Override (tonight)" row added under the
+      Sports Night row in the Geyser Controls card; Sports Night card text fixed
+      ("Resets Wed/Fri 00:01" → "Override: any other night / Resets daily 00:01");
+      the `geyser_morning_extend_maidday_hour` row relabelled "(Staff On Site)".
+      Read back live AND from `.storage` — both match. Docs: POWER_CONTRACT (helper table, schedule
       reference, morning-extension section, Issue 36 correction), SYSTEM_CONTRACT row 99,
       PRESENCE_CONTRACT (new Presence → Power consumer row).
 
