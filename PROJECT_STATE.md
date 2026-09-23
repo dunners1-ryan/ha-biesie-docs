@@ -5,6 +5,48 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-23 — Utilities/Water Cooler: retroactive bottle-change logging +
+      backdate mechanism (mirrors Gas Bottles' 2026-09-22 fix).** User needed to log
+      a real bottle change that happened Monday 2026-09-21 09:00 — no way existed to
+      log `watercooler_log_bottle_changed` at anything other than "now" (Water
+      Cooler had never had the backdate mechanism Gas Bottles got the day before).
+      **Added**: `input_boolean.watercooler_backdate_entry` + `input_datetime.
+      watercooler_backdate_time` (`watercooler_helpers.yaml`), wired into
+      `watercooler_log_bottle_changed` (`watercooler_automations.yaml`) — same shape
+      as `gas_log_refill_done`/`gas_log_exchange_done`: toggle on + valid datetime
+      makes that the effective change time (EMA interval + `watercooler_last_bottle_
+      change_time`) instead of `now()`, then the toggle turns itself back off. The
+      existing 2026-09-04 duplicate-press debounce guard is skipped while backdating
+      — a deliberate backdated entry isn't the "pressed twice by accident" case that
+      guard exists for. Dashboard: `input_boolean.watercooler_backdate_entry` +
+      `input_datetime.watercooler_backdate_time` added to the "Bottles" card on
+      `watercooler-control`, pushed live via the `lovelace/config/save` WebSocket
+      path (CODING_STANDARDS.md) — no restart needed, verified against both the live
+      config and the on-disk `.storage` file. **Verified**: `ha core check` valid;
+      Reload Helpers (`input_boolean`, `input_datetime`) + Reload Automations all
+      returned `[]`. Real backdated entry logged live the same session — Monday
+      2026-09-21 09:00 bottle change: `watercooler_avg_days_per_bottle` 4.2→5.87d
+      (against the real 8.37-day interval since the prior 2026-09-13 00:00:28
+      change), `watercooler_bottles_in_stock` 5→4, `watercooler_empties_on_hand`
+      2→3, `watercooler_last_bottle_change_time` correctly set to 2026-09-21 09:00:00
+      (not "now") — confirmed via history API, not just the service-call response.
+      **Not done this session (flagged, scope decision needed)**: user also asked
+      about the vacuum consumables package lacking this. `vacuum_log_mop_roller_
+      replaced` is the closest analog (a genuine manual-log-plus-EMA button, same
+      shape as gas/water) but it also captures `vacuum_area_at_last_mop_roller_
+      replace` from the device's live cumulative-area sensor at press time — a
+      backdated timestamp can't retroactively know what that sensor read on the
+      backdated date, so a naive time-only backdate would silently decouple the
+      area-based estimate from the time-based one. Main/side brush/filter resets are
+      physical device-button presses tied to the device's own lifespan counter, not
+      a natural backdate candidate at all. Needs a real design decision (skip the
+      area component while backdating, with a caveat? scope to mop roller only?)
+      before building, not a straight copy-paste like Water Cooler was.
+      Files: `packages/utilities/watercooler_helpers.yaml`,
+      `packages/utilities/watercooler_automations.yaml`,
+      `.storage/lovelace.dashboard_operations` (Water Cooler view). Docs:
+      `docs/domains/UTILITIES_CONTRACT.md` Section 3.
+
 - [x] **2026-09-22 — Lighting: BUG-L26 — `boundary_security_watchdog` fought bedtime and
       manual overrides, repeatedly turning front/back security lights back on all night.**
       User: front security light was on after they turned it off ~00:13, and shouldn't

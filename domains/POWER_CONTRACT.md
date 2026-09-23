@@ -3136,6 +3136,16 @@ Helpers (`input_boolean`) via Supervisor API both returned `[]` (no errors). Con
 was undisturbed by the helper-config reload — the `initial:` removal only changes behavior on the
 *next* restart, not retroactively. No restart required for either fix.
 
+**Correction (2026-09-23):** the "from normal hot-water use" framing above (and in Issue 35) is
+overstated. Re-checked `sensor.geyser_heat_pump_power` around the 14:51-14:56 window — the power
+curve is a genuine, sustained ~8-min compressor spin-up (165→135→841→991→1090→1090→1322 W, same
+shape as a confirmed-real run), so the reheat itself was real, not a restart-induced sensor
+artifact. But *why* the tank cooled enough to trigger it is not actually verifiable: this circuit
+has no flow/usage sensor, so a tap draw and standing thermal loss produce an identical signature.
+Treat "hot-water use" in this doc and in Issue 35 as the automation's own (unverified) canned
+wording, not a confirmed cause. `geyser_automations.yaml` E11 (2026-09-23) softened the live
+notify/logbook messages to say "cooled and reheated, cause unconfirmed" instead.
+
 ---
 
 ## 12. Error Signatures (Watchman-Confirmed)

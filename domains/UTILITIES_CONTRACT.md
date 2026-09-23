@@ -91,6 +91,23 @@ calibrating estimate.
   608 days, from the real `watercooler_invoice_history.json` span), not
   just restored to the old 3.9 seed, since that's a more robust anchor than
   a value one fat-fingered press can wreck.
+- **Backdating (`input_boolean.watercooler_backdate_entry` + `input_datetime.
+  watercooler_backdate_time`, added 2026-09-23)**: mirrors Gas Bottles'
+  `gas_backdate_entry`/`gas_backdate_time` mechanism (Section 8d, added
+  2026-09-22) — real trigger here was the same class of gap: a bottle change
+  that actually happened Monday 2026-09-21 09:00 had no way to be logged at
+  its true time, only "now." If the toggle is on and the datetime holds a
+  valid value, `watercooler_log_bottle_changed` uses that timestamp as the
+  effective change time (for the EMA interval and `watercooler_last_bottle_
+  change_time`) instead of `now()`, then turns the toggle back off — off by
+  default, so ordinary same-day logging is unaffected. The debounce guard
+  above is skipped entirely while backdating (a deliberate backdated entry
+  is never the "accidental double-press" case that guard exists for). Dashboard
+  controls added to the "Bottles" card on `watercooler-control` via the
+  `lovelace/config/save` WebSocket path (no restart needed — see CODING_
+  STANDARDS.md). First real use the same day: backdated 2026-09-21 09:00
+  bottle change logged live, taking `avg_days_per_bottle` 4.2→5.87,
+  `bottles_in_stock` 5→4, `empties_on_hand` 2→3.
 - **Restore-state gap after an HA Core update (added 2026-09-06, real
   incident, different mechanism from the debounce bug above)**: an HA Core
   update (2026.8.3 → 2026.9.1) restarted Core at 13:01 SAST on 2026-09-06 —
