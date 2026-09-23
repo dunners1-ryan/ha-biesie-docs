@@ -96,7 +96,7 @@ Telegram mirror  →  notify.telegram_bot_5527
 | `binary_sensor.anyone_home` | presence (Mobile App) | lighting | ✅ |
 | `binary_sensor.low_trust_present` | presence (derived) | security, lighting_departure, alerts_doors | ✅ FIXED (was broken — IV-01/IV-02 resolved) |
 | `input_boolean.low_trust_present` | context (legacy manual) | ~~security, lighting~~ — do not use | ❌ NEVER AUTO-SET — replaced by binary_sensor |
-| `binary_sensor.staff_on_site` | presence (derived) | context_global, security, lighting | ✅ (lighting added 2026-09-07, LIGHTING_CONTRACT.md BUG-L22 — entrance_down_lights_daytime_low_light's staff-on-site carve-out; first lighting consumer of this entity, was previously security/context_global only) |
+| `binary_sensor.staff_on_site` | presence (derived) | context_global, security, lighting, power (geyser) | ✅ (power/geyser: `geyser_automations.yaml` Branch 2b midday forced minutes since 2026-06-20, and — replacing hardcoded Mon/Thu weekday checks — the evening-threshold boost, morning-extend cap, and `sensor.geyser_daily_status` `midday_adequacy` since 2026-09-23; POWER_CONTRACT.md. Note this consumer was undocumented here until 2026-09-23.) (lighting added 2026-09-07, LIGHTING_CONTRACT.md BUG-L22 — entrance_down_lights_daytime_low_light's staff-on-site carve-out; first lighting consumer of this entity, was previously security/context_global only) |
 | `input_boolean.staff_on_site` | context (legacy manual) | ~~security~~ — do not use | ❌ NEVER AUTO-SET — replaced by binary_sensor |
 | `sensor.security_trust_mode` | security (reads binary_sensor now) | alerts_doors, context_global | ✅ FIXED (IV-01 resolved) |
 | `binary_sensor.security_low_trust_active` | security (reads binary_sensor now) | lighting_security | ✅ FIXED |

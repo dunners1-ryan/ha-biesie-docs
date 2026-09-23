@@ -166,7 +166,7 @@ Full ROI/payback analysis for both line items: `private_docs/POWER_SYSTEM_AUDIT_
 | `power_statistics.yaml` | Rolling average sensors + solar forecast accuracy + 4-state weather correlation + season factor (P6 2026-06-14) | Derived |
 | `power_strategy.yaml` | power_strategy, power_strategy_status, severity | Decision |
 | `power_automations.yaml` | Power domain automations — migrated from automations.yaml; includes `pool_pump_solar_control` + `automation.pool_manual_run`/`script.pool_manual_run` (added 2026-09-11, mirrors geyser's manual run) | Automation |
-| `geyser_automations.yaml` | Geyser heat pump scheduling — 10 automations (turn_on, morning_backstop, turn_off, sports_night_scheduler, manual_run, heat_up_duration_capture, reached_temp_tracker, period_energy_snapshot, daily_minimum_check, morning_override_midday_clear) + script.geyser_manual_run (E2 2026-06-14; E4 retrofit: orchestrator gate, midday solar-gated, at-temp proxy, window helpers, emergency off; grown to 10 automations across E5-E10 + BUG-PWR-GEYSER01-06 — count corrected 2026-09-15, was stale at "4" since at least E4) | Automation |
+| `geyser_automations.yaml` | Geyser heat pump scheduling — 10 automations (turn_on, morning_backstop, turn_off, sports_night_scheduler, manual_run, heat_up_duration_capture, reached_temp_tracker, period_energy_snapshot, daily_minimum_check, morning_override_midday_clear) + script.geyser_manual_run (E2 2026-06-14; E4 retrofit: orchestrator gate, midday solar-gated, at-temp proxy, window helpers, emergency off; grown to 10 automations across E5-E10 + BUG-PWR-GEYSER01-06 — count corrected 2026-09-15, was stale at "4" since at least E4; E11/E12 2026-09-23: reheat-message cause softened, `staff_on_site` replaces hardcoded Mon/Thu, `geyser_sports_night_override` added to sports_night_scheduler; ~2310 lines) | Automation |
 | `power_contract.yaml` | Documentation notes only — no executable YAML | Docs |
 | `battery_runtime.yaml` | Program-aware battery runtime, severity, confidence | Derived |
 | `battery_state.yaml` | battery_state_health (strong/healthy/low/critical) | State |
@@ -1544,6 +1544,11 @@ Switch entity: `switch.geyser_heat_pump_switch` (~1.25 kW draw).
 # Control booleans
 input_boolean.geyser_sports_night              ← Tue/Thu auto-set 17:00; clears 00:01 daily
                                                   sports_night only extends evening hard-off
+input_boolean.geyser_sports_night_override     ← added 2026-09-23 — manual, same-day trigger for an
+                                                  ad-hoc sports night on any non-Tue/Thu night; turning
+                                                  it on immediately sets geyser_sports_night on via
+                                                  geyser_sports_night_scheduler; both clear together at
+                                                  00:01. No `initial:` (BUG-PWR-GEYSER06 pattern).
 input_boolean.geyser_morning_override          ← bypasses load_control_geyser_enabled for morning
                                                   Midday (12:00) auto-clear added 2026-06-29
                                                   (geyser_morning_override_midday_clear, geyser_automations.yaml)
@@ -1587,21 +1592,26 @@ input_number.geyser_adequate_daily_energy_by_midday  kWh 3.0   gate for evening 
                                                                relevant given 200L tank capacity vs 3-person
                                                                shower blocks (morning + evening) already near
                                                                capacity — see geyser_heat_up_duration_capture.
-input_number.geyser_thursday_high_usage_extra_kwh    kWh 1.5   added to the threshold above on Thursdays only
-                                                               (added 2026-07-03). Thursday is a maid day
-                                                               (presence_trust.yaml, weekday: [mon, thu],
-                                                               10:00-17:45) — extra daytime hot-water use draws
-                                                               the tank down more than normal, so the same
-                                                               midday kWh delta means less actual heat left by
+input_number.geyser_thursday_high_usage_extra_kwh    kWh 1.5   added to the threshold above whenever
+                                                               binary_sensor.staff_on_site is on (added
+                                                               2026-07-03, Thu-only; widened to Mon+Thu
+                                                               2026-07-13 BUG-PWR-GEYSER02; widened again
+                                                               2026-09-23 from a hardcoded Mon/Thu weekday
+                                                               list to binary_sensor.staff_on_site, which
+                                                               presence_trust.yaml derives from maid_on_site
+                                                               (Mon/Thu) OR gardener_on_site (Sat) — so this
+                                                               now also applies on Saturdays). Extra daytime
+                                                               hot-water/activity use draws the tank down more
+                                                               than normal on these days, so the same midday
+                                                               kWh delta means less actual heat left by
                                                                evening. Incident: 2026-07-02 midday delta 4.25
                                                                kWh read "Adequate" against the flat 3.0 kWh
                                                                threshold, early start (17:00) didn't fire,
                                                                18:30 fallback left tank not hot by ~20:00
-                                                               showers. Effective Thursday threshold: 4.5 kWh
+                                                               showers. Effective boosted threshold: 4.5 kWh
                                                                (would have caught the 4.25 kWh incident).
-                                                               User confirmed scope: Thursday only, not Monday
-                                                               (the other maid day) — raise threshold approach,
-                                                               not an unconditional bypass.
+                                                               Entity ID kept as-is despite the widened scope
+                                                               (avoid a rename touching dashboard bindings).
 input_number.geyser_min_daily_energy_kwh             kWh 2.0  trigger threshold for 20:00 backup check
 input_number.geyser_energy_at_morning_end            kWh      snapshot of energy_day at morning hard-off
 input_number.geyser_energy_at_midday_end             kWh      snapshot at 15:00 (midday hard-off)
@@ -1614,8 +1624,11 @@ input_number.geyser_midday_forced_minutes_summer           min  30  any non-wint
 # Morning extension (added 2026-06-21, reworked 2026-07-06) — see "Morning extension" note below
 input_boolean.geyser_morning_extend_enabled    master toggle, default on
 input_boolean.geyser_morning_extend_override   manual same-day trigger, default off — reset 00:01
-input_number.geyser_morning_extend_max_hour    h    9.0   safety cap, cold/poor-solar trigger, non-maid day
-input_number.geyser_morning_extend_maidday_hour h   10.0  safety cap, cold/poor-solar trigger, maid day (Mon/Thu)
+input_number.geyser_morning_extend_max_hour    h    9.0   safety cap, cold/poor-solar trigger, staff_on_site off
+input_number.geyser_morning_extend_maidday_hour h   10.0  safety cap, cold/poor-solar trigger, binary_sensor.staff_on_site
+                                                               on (Mon/Thu maid or Sat gardener — widened from a
+                                                               hardcoded Mon/Thu check 2026-09-23; entity ID kept
+                                                               as-is)
 input_number.geyser_holiday_extend_max_hour    h    13.0  safety cap, holiday_mode OR manual override trigger
 input_number.geyser_cold_ambient_threshold_c   °C   14  default
 input_boolean.geyser_morning_extended_today    internal flag — reset 00:01
@@ -1676,9 +1689,10 @@ automation.geyser_turn_on  (6 branches — morning ×3, midday, evening_early_wi
                      geyser_morning_override bypasses load_control_geyser_enabled
   Midday           : SOLAR-GATED — orchestrator [surplus, normal], solar > 300W, NOT at temp, before 15:00
   Evening early winter (17:00): winter only — fires if NOT at_temp AND midday delta < 3.0 kWh
-                     (4.5 kWh on Thursdays — maid-day high-usage bump, added 2026-07-03)
+                     (4.5 kWh when staff_on_site — Mon/Thu maid or Sat gardener, high-usage bump,
+                     added 2026-07-03, widened from Mon/Thu-only 2026-09-23)
   Evening early (17:30): non-winter — fires if NOT at_temp AND midday delta < 3.0 kWh
-                     (4.5 kWh on Thursdays — same bump applies regardless of season)
+                     (4.5 kWh when staff_on_site — same bump applies regardless of season)
   Evening late (18:30) : fires if NOT at_temperature AND switch off (all-seasons fallback)
 
 automation.geyser_turn_off  (7 branches + default, mode: queued)
@@ -1720,7 +1734,8 @@ automation.geyser_daily_minimum_check  (added 2026-06-17)
   If reached_temp → logbook only (all good)
 
 automation.geyser_heat_up_duration_capture  (added 2026-06-15 — unchanged)
-automation.geyser_sports_night_scheduler    (ON: Tue + Thu 17:00. OFF: 00:01 daily)
+automation.geyser_sports_night_scheduler    (ON: Tue + Thu 17:00, OR geyser_sports_night_override → on
+                                             [manual, added 2026-09-23]. OFF: both cleared 00:01 daily)
 automation.geyser_manual_run               (timed 30/60 min run via script.geyser_manual_run)
 ```
 
@@ -1748,10 +1763,10 @@ Force-on time = 15:00 − required minutes (90→13:30, 60→14:00, 30→14:30),
 
 2026-07-06 rework: the actual turn-off is no longer a fixed timer — Branch 1b now turns the geyser off as soon as it actually stops heating (`binary_sensor.geyser_at_temperature` → `on`), triggered directly off that state change. Three safety-cap time triggers are fallbacks only, in case the sensor never trips (e.g. an element fault) — hitting one fires a **warning**-severity notification instead of the normal information one, since it likely means something's wrong rather than just a slow reheat:
 - **09:00** (`geyser_morning_extend_max_hour`) — cold/poor-solar trigger, normal day. Covers a later morning gym-then-shower slot or a longer winter shower without running all the way to 11:00; the dynamic stop-on-heating-complete mechanism already prevents wasting grid power once the tank is actually hot, so this is purely how late the fallback can run.
-- **10:00** (`geyser_morning_extend_maidday_hour`) — cold/poor-solar trigger, on a maid day (Mon/Thu, `presence_trust.yaml` schedule) — extra household hot-water demand those days can need the extra hour.
+- **10:00** (`geyser_morning_extend_maidday_hour`) — cold/poor-solar trigger, when `binary_sensor.staff_on_site` is on (Mon/Thu maid or Sat gardener, `presence_trust.yaml` schedule — widened from a hardcoded Mon/Thu weekday check 2026-09-23) — extra household hot-water demand those days can need the extra hour.
 - **13:00** (`geyser_holiday_extend_max_hour`) — holiday_mode or manual override. Later because there's no wake-up/school run — mornings behave more like a lazy weekend, where a shower could land mid-morning or even early afternoon; the incident that prompted this path (2026-07-06) was a cold bath ~10am on a holiday morning.
 
-**Weekend interaction (added 2026-08-29, BUG-PWR-GEYSER04):** since the weekend hard-off is now later than the `geyser_morning_extend_max_hour` (9:00) and `_maidday_hour` (10:00) safety caps, a weekend cold/poor-solar extension effectively has no time-based fallback for the plain (non-holiday, non-maid-day) case — both caps have already passed by the time the normal weekend hard-off (winter 10:30 / non-winter 9:30) would even set `geyser_morning_extended_today`. Not unsafe: `extended_stopped_heating` (the state-based trigger) still terminates it the moment the tank actually reaches temperature, regardless of these fixed caps. Just means those two caps are effectively weekday-only in practice now.
+**Weekend interaction (added 2026-08-29, BUG-PWR-GEYSER04):** since the weekend hard-off is now later than the `geyser_morning_extend_max_hour` (9:00) and `_maidday_hour` (10:00) safety caps, a weekend cold/poor-solar extension effectively has no time-based fallback for the plain (non-holiday) case — both caps have already passed by the time the normal weekend hard-off (winter 10:30 / non-winter 9:30) would even set `geyser_morning_extended_today`. This still holds after the 2026-09-23 `staff_on_site` widening: on a Saturday with the gardener on site, `_maidday_hour` (10:00) is now the "correct" cap to apply, but it too has already passed by 10:00 when the Sat hard-off itself doesn't fire until 09:30/10:30 — so in practice a Sat extension is capped the same way a plain weekday-off-day one would be, just via the state-based trigger below rather than either fixed cap actually firing in time. Not unsafe: `extended_stopped_heating` (the state-based trigger) still terminates it the moment the tank actually reaches temperature, regardless of these fixed caps. Just means both fixed caps are effectively weekday-only in practice.
 
 `geyser_morning_extended_today` and `geyser_morning_extend_override` both reset at 00:01 alongside `geyser_reached_temp_today`. The extended window is NOT treated as "sacred" by the orchestrator-emergency branch (Branch 7) — a `loadshedding_critical` event during the extension still cuts power, unlike the true morning window. Note: `input_boolean.holiday_mode` is a shared, multi-domain toggle (already used by `security_logic.yaml` for threat escalation and `lighting_bedtime.yaml` for bedtime scheduling) — turning it on for a holiday affects those too. `geyser_morning_extend_override` was added so a single day's extension doesn't require flipping that shared toggle.
 

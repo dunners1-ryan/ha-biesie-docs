@@ -5,6 +5,53 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-23 (latest) — Power/Geyser: "staff on site" high-usage-day assumption
+      widened Mon/Thu → Mon/Thu/Sat; sports-night manual override added; reheat message
+      overclaim softened (E11/E12).** Three requests in one session.
+      **(1) E11 — overclaim fix.** Follow-up on BUG-PWR-GEYSER06's 2026-09-22 incident:
+      `sensor.geyser_heat_pump_power` showed a genuine ~8-min compressor spin-up from
+      14:51:48 (165→135→841→991→1090→1090→1322 W) — the reheat was real, not a
+      restart-induced sensor glitch. But the reheat-after-good-midday notify + logbook
+      text asserted "hot-water use since then" as the cause; there is no flow/usage
+      sensor on this circuit, so a tap draw and standing thermal loss are
+      indistinguishable. Both messages + two code comments now say "cooled and
+      reheating again, cause unconfirmed". POWER_CONTRACT Issue 36 got a dated
+      correction note (Issue 35/36 write-ups otherwise left as historical records).
+      **(2) E12 — staff_on_site.** Replaced hardcoded `weekday() in [0, 3]` with
+      `binary_sensor.staff_on_site` (already maid Mon/Thu OR gardener Sat via
+      `presence_trust.yaml`) in 4 places: Branch 3 evening-early threshold boost
+      (condition + logbook + notify), Branch 1 morning-extend cap selection, Branch 1b
+      matching condition for the 10:00 cap trigger, and the duplicated copy in
+      `power_state.yaml` `sensor.geyser_daily_status.midday_adequacy` (per the E6 sync
+      note). Branch 2b already used staff_on_site — untouched. Entity IDs
+      (`geyser_thursday_high_usage_extra_kwh`, `geyser_morning_extend_maidday_hour`)
+      deliberately NOT renamed (dashboard bindings; same precedent as
+      BUG-PWR-GEYSER02). Known limitation unchanged: on Saturday both fixed extend caps
+      (9:00/10:00) still pass before the weekend hard-off (9:30/10:30), so the
+      widening changes Sat's threshold boost but the cap change is inert in practice
+      (`extended_stopped_heating` still terminates — see POWER_CONTRACT "Weekend
+      interaction"). **(3) Sports night.** Tue/Thu auto-schedule left as-is. New
+      `input_boolean.geyser_sports_night_override` (no `initial:` — BUG-PWR-GEYSER06
+      lesson) wired into `geyser_sports_night_scheduler` via a state trigger: turning
+      it on sets `geyser_sports_night` on immediately; 00:01 daily now clears both
+      unconditionally (previously gated on sports_night being on, which would have left
+      a stale override on). Files: `packages/power/{geyser_automations,power_helpers,
+      power_state}.yaml`. **Verified**: `check_config` valid; Reload Helpers
+      (`input_boolean`), Templates, Automations all `[]`; `input_boolean.geyser_sports_
+      night_override` exists (off); scheduler automation
+      (`automation.geyser_sports_night_scheduler_tue_thu` — entity ID kept from the old
+      alias) reloaded and `on` with the new friendly name; `sensor.geyser_daily_status`
+      `midday_adequacy` renders with the new template. **NOT live-exercised**: today
+      (Wed) `staff_on_site` is off, so the boost/cap paths didn't run, and the override
+      wasn't toggled on — it would shift tonight's real hard-off to 21:30/22:00.
+      **Still open**: no dashboard toggle for the override yet (stale "Resets Wed/Fri
+      00:01" text on the Sports Night card too — actually clears daily); add via
+      `lovelace/config/save` WebSocket (CODING_STANDARDS.md) to the entities card at
+      `dashboard_operations` views[3]/sections[0]/cards[3], next to
+      `geyser_morning_extend_override`. Docs: POWER_CONTRACT (helper table, schedule
+      reference, morning-extension section, Issue 36 correction), SYSTEM_CONTRACT row 99,
+      PRESENCE_CONTRACT (new Presence → Power consumer row).
+
 - [x] **2026-09-23 — Utilities/Water Cooler: retroactive bottle-change logging +
       backdate mechanism (mirrors Gas Bottles' 2026-09-22 fix).** User needed to log
       a real bottle change that happened Monday 2026-09-21 09:00 — no way existed to
@@ -5891,6 +5938,12 @@ input_number.geyser_midday_forced_minutes_winter           min 60  winter, norma
 input_number.geyser_midday_forced_minutes_winter_extended  min 90  winter + staff_on_site OR weekend
 input_number.geyser_midday_forced_minutes_summer           min 30  any non-winter day
 # Trigger id: midday_force_check at 13:30/14:00/14:30 (force-on = 15:00 - required minutes)
+
+# Sports night manual override (added 2026-09-23)
+input_boolean.geyser_sports_night_override   manual same-day trigger; sets geyser_sports_night on, both clear 00:01
+# Entity ID kept as-is despite widened scope (staff_on_site: Mon/Thu maid OR Sat gardener, 2026-09-23):
+input_number.geyser_thursday_high_usage_extra_kwh   evening-threshold boost when binary_sensor.staff_on_site on
+input_number.geyser_morning_extend_maidday_hour     10:00 extend cap when binary_sensor.staff_on_site on
 ```
 
 ### Power Statistics + Weather Correlation (power_statistics.yaml — P6 2026-06-14)

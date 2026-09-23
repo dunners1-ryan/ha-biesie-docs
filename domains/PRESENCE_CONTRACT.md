@@ -421,6 +421,12 @@ Doors Domain section instead; nothing to list here.
 | `binary_sensor.staff_on_site` | context_global.yaml:68 | ✅ Uses derived binary_sensor |
 | `sensor.security_trust_mode` | context_global.yaml (comment/attr reference only) | ✅ Fixed — sensor itself now derived correctly (see above) |
 
+### Presence → Power
+
+| Entity | File | Status |
+|---|---|---|
+| `binary_sensor.staff_on_site` | geyser_automations.yaml (Branch 2b midday forced minutes; evening-early threshold boost; morning-extend 9:00/10:00 cap + matching Branch 1b condition), power_state.yaml (`sensor.geyser_daily_status` `midday_adequacy`) | ✅ Uses derived binary_sensor. Since 2026-09-23 this is the sole "high hot-water-demand day" signal (Mon/Thu maid + Sat gardener) — replaced hardcoded `weekday() in [0, 3]`. Changing the maid/gardener schedule weekdays in `presence_trust.yaml` now changes geyser behaviour too. |
+
 ---
 
 ## Section 8: Unknown AP Detection
