@@ -177,7 +177,7 @@ WATER_CONTRACT.md Recommendation 5 (new cooldown gate, `water_protection_automat
 
 ## ✅ What Works Well
 
-- Depth sensor spike filtering (`water_tank_depth_validated`)
+- Depth sensor filtering (`water_tank_depth_validated` — physical rise-envelope since 2026-09-25; see WATER_CONTRACT Issue 21)
 - Safety abort logic (all 5 protections in place)
 - Solar window scheduling
 - Fault counter tracking (daily + weekly)

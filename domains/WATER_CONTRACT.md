@@ -144,16 +144,16 @@ deleted 2026-08-21, Issue 11; WATER_CONTEXT.md listed 8 — outdated)
 | File | Role | Layer |
 |---|---|---|
 | `a_water_lifecycle_contract.yaml` | Specification document — LOCKED hard rules | Contract |
-| `water_helpers.yaml` | Lifecycle flags, timestamps, depth thresholds, day demand selectors (7 input_select), degraded-rise-rate thresholds (added 2026-08-21) | Helpers |
+| `water_helpers.yaml` | Lifecycle flags, timestamps, depth thresholds, day demand selectors (7 input_select), degraded-rise-rate thresholds (added 2026-08-21), `water_pump_run_start_depth` (added 2026-09-25, Issue 21) | Helpers |
 | ~~`water_policy_helpers.yaml`~~ | **Deleted 2026-08-21** (Issue 11) — orphaned duplicate threshold set, zero references anywhere, superseded by nothing (the real thresholds already lived in `water_helpers.yaml`) | — |
 | `water_sensor.yaml` | Derivative depth rate sensor (platform: derivative) | Core |
-| `water_templates.yaml` | Depth validation, tank level %, refill allowed, solar window, demand planning sensors | Templates |
+| `water_templates.yaml` | Depth validation (physical rise-envelope filter, rewritten 2026-09-25 — Issue 21), tank level %, refill allowed, solar window, demand planning sensors | Templates |
 | `water_state_extensions.yaml` | Derived cycle state mirror binary_sensor | State |
 | `water_refill_cycle.yaml` | Cycle state sensor, summary sensor, avg flow rate | State |
 | `water_refill_capture.yaml` | Automations that write start/end timestamps and depths | Automations |
-| `water_tank_refill_control.yaml` | Main control: demand-based pump on/off; water_stop_at_daily_target; mid-run shutdown | Automations |
+| `water_tank_refill_control.yaml` | Main control: demand-based pump on/off; water_stop_at_daily_target (60 s confirm-then-stop since 2026-09-25, Issue 21); mid-run shutdown | Automations |
 | `water_safety.yaml` | Hard stops: max depth (1.95m) + battery SOC floor (water_safety_battery_hard_stop) | Safety |
-| `water_protection_automations.yaml` | No-rise protection, spike logging | Safety |
+| `water_protection_automations.yaml` | No-rise protection (net-rise test since 2026-09-25), pump-run start-depth capture, untrusted-depth-sensor warning, spike logging (Issue 21) | Safety |
 | `water_fault_logging.yaml` | Centralised fault logger (queued) | Logging |
 | `water_health.yaml` | Sensor health binary_sensors (healthy/stable) | Health |
 | `water_consume_cycle.yaml` | Consumption rate sensor (from depth rate) | Analytics |
@@ -283,6 +283,7 @@ input_datetime.water_last_emergency_refill  last emergency mode start
 input_datetime.water_refill_solar_start     solar window start (time only)
 input_datetime.water_refill_solar_stop      solar window stop (time only)
 input_number.water_refill_start_depth       depth at start (written by capture only — control's duplicate write removed, Issue 3, 2026-07-08)
+input_number.water_pump_run_start_depth     validated depth at every pump off→on (written by water_capture_pump_run_start_depth; read by the depth filter envelope + no-rise net-rise test — Issue 21, 2026-09-25; no initial:)
 input_number.water_refill_end_depth         depth at end (written by capture)
 input_number.water_refill_start_level       % at start (UI/legacy only — NOT source of truth)
 input_number.water_refill_end_level         % at end (UI/legacy only)
@@ -365,14 +366,14 @@ sensor.water_tank_level_sensor_depth (RAW — never filtered, never smoothed)
     │
     ├──→ sensor.water_tank_depth  (template passthrough, float(-1))
     │        │
-    │        ├──→ sensor.water_tank_depth_validated  (spike-filtered, trigger-based)
+    │        ├──→ sensor.water_tank_depth_validated  (rise-envelope filtered, trigger-based — Issue 21)
     │        │        │
     │        │        ├──→ sensor.water_state  (state classification)
     │        │        ├──→ binary_sensor.water_refill_allowed (SOC gate)
     │        │        ├──→ binary_sensor.water_tank_full_depth
     │        │        ├──→ binary_sensor.water_tank_refilling  (uses < 1.95)
     │        │        ├──→ water_safety.yaml  (hard stop at > 1.95)
-    │        │        ├──→ water_protection_automations.yaml (no-rise check)
+    │        │        ├──→ water_protection_automations.yaml (no-rise: NET rise vs input_number.water_pump_run_start_depth, gated on binary_sensor.water_tank_depth_sensor_stable)
     │        │        └──→ input_number.water_refill_end_depth (written at cycle end)
     │        │
     │        └──→ sensor.water_tank_depth_spike_delta  (debug: cur - validated)
@@ -380,7 +381,7 @@ sensor.water_tank_level_sensor_depth (RAW — never filtered, never smoothed)
     └──→ sensor.water_tank_depth_rate (DERIVATIVE of RAW — spikes affect rate)
              │
              └──→ sensor.water_tank_consumption_rate (negative rate abs)
-                  sensor.water_borehole_no_rise_protection (uses depth_rate)
+                  (no longer read by no-rise protection since 2026-09-25 — Issue 21; still read by degraded-rise-rate protection + consumption rate)
 ```
 
 ### Cycle Start Sequence (Race Condition)
@@ -1111,7 +1112,7 @@ Five protections listed in `WATER_CONTEXT.md`. Each audited independently.
 - **Trigger:** `sensor.water_tank_depth_validated` above **1.95** (hardcoded, not policy-driven)
 - **Threshold used:** Hardcoded 1.95, NOT `input_number.water_target_depth_full` (initial: 1.85) and NOT `input_number.water_depth_full_threshold` (initial: 1.98)
 - **Independence:** ✅ Separate file, separate automation, does not check any refill flags
-- **Bypass possible?** Via spike filter — upward spikes > 0.35m are rejected by validated sensor; a genuine depth of 1.96m would trigger correctly
+- **Bypass possible?** Via the depth filter — rises faster than the physical envelope (≈0.8 m/h pumping) are rejected by the validated sensor (Issue 21, 2026-09-25; was: > 0.35 m while pump off only); a genuine depth of 1.96m would trigger correctly. **Residual:** a blind sensor stalls validated LOW so this stop cannot fire — see Issue 21 residual risk.
 - **Fixed 2026-08-21 (Issue 9):** 1-minute debounce re-enabled — no longer a single-spike false-abort risk.
 - **Verdict:** ✅ IMPLEMENTED, debounced. Threshold mismatch: `water_target_depth_full` = 1.85m but stop fires at 1.95m.
 - **2026-05-06:** `water_refill_aborted_due_to_safety` no longer set by this automation. Max depth = successful completion, not a fault. Lifecycle now shows "Completed (Full)" instead of "Aborted (Safety)". Notification changed to "Tank Full" title with clear success message.
@@ -1127,12 +1128,12 @@ Five protections listed in `WATER_CONTEXT.md`. Each audited independently.
 ### Protection 3: No-Rise Protection (Replaces Dry Run)
 - **Spec:** Pump running + depth not increasing after timeout → Stop pump
 - **Implementation:** `water_protection_automations.yaml` — `water_borehole_no_rise_protection`
-- **Trigger:** Pump on for 15 minutes + depth rate < 0.01 m/h + depth < 1.95
+- **Trigger:** Pump on for 15 minutes + depth < 1.95 + sensor trusted (`water_tank_depth_sensor_stable` on) + NET rise of validated depth since pump start < 0.02 m (**amended 2026-09-25, Issue 21** — was: instantaneous `depth_rate` < 0.01 m/h). Companion `water_depth_sensor_untrusted_while_pumping` warns (does not stop) at 15/30/45/60 min when the sensor is untrusted.
 - **Independence:** ✅ Separate condition checks; marks safety abort flag
 - **Amended 2026-09-25 (Issue 21):** now tests net rise of validated depth since pump start (< 0.02 m/15 min) vs `input_number.water_pump_run_start_depth`, and only when `binary_sensor.water_tank_depth_sensor_stable` is on. The Issue text below describes the old rate-based version.
-- **Issue:** Uses `sensor.water_tank_depth_rate` which is a derivative of the RAW sensor. If a raw sensor spike occurs within the 15-minute window, the derivative shows a positive rate, resetting the effective timer. A spike could therefore mask a genuine dry-run.
+- **Issue (RESOLVED 2026-09-25, Issue 21 — historical):** Used `sensor.water_tank_depth_rate` which is a derivative of the RAW sensor. If a raw sensor spike occurs within the 15-minute window, the derivative shows a positive rate, resetting the effective timer. A spike could therefore mask a genuine dry-run.
 - **Auto-retry (added 2026-08-18, Issue 20):** a no-rise trip is a NET signal — it can't distinguish "borehole producing nothing" from "borehole producing slowly, outpaced by concurrent house consumption." Confirmed real on 2026-08-18: net depth -0.04m over the 15min run, but `sensor.water_tank_consumption_rate` read 0.24-0.48 m/h the entire window (never zero), sensors were healthy/stable throughout, and a manual restart refilled normally within seconds. The automation now auto-retries after a cooldown instead of requiring a manual restart every time — see Issue 20.
-- **Verdict:** IMPLEMENTED. Works correctly for genuine no-rise conditions. Spike sensitivity is a minor risk.
+- **Verdict:** IMPLEMENTED. Net-rise test replaced the rate test 2026-09-25 after a confirmed false trip (24-Sep 10:35:50). Not yet observed on a live fill.
 
 ### Protection 4: Battery Hard Stop
 - **Spec:** SOC drops below `water_battery_soc_hard_stop` → Stop pump  
@@ -1163,9 +1164,10 @@ Five protections listed in `WATER_CONTEXT.md`. Each audited independently.
 
 | Protection | Status | Risk Level |
 |---|---|---|
-| Max depth stop | ✅ Implemented (minor spike risk) | Low |
+| Max depth stop | ✅ Implemented; 1-min `for:` can still be reset by noise dips near full; cannot fire if the sensor is blind (Issue 21 residual) | Low–Medium |
 | Dry run (power-based) | ❌ Disabled | Medium — 15min exposure |
-| No-rise protection | ✅ Implemented | Low (minor spike sensitivity) |
+| No-rise protection | ✅ Implemented — net-rise test since 2026-09-25 (Issue 21) | Low |
+| Fill-target stop | ✅ 60 s confirm-then-stop since 2026-09-25 (Issue 21) | Low |
 | Battery hard stop (reactive) | ✅ Implemented 2026-05-25 — `water_safety_battery_hard_stop` in `water_safety.yaml` | Low — floor set at 40% (temp; lower to 20% after new battery install) |
 | Max runtime cutoff | ❌ Missing | Medium — runaway possible |
 
@@ -1184,7 +1186,7 @@ Five protections listed in `WATER_CONTEXT.md`. Each audited independently.
 | Mounting height | ~2.08 m (above tank bottom) |
 | Max liquid depth | ~2.05 m (physical) |
 | Target full depth | 1.95 m (safety stop threshold) |
-| Known behaviours | Occasional large upward spikes (reported > 1.0m delta); connectivity drops causing unavailable transitions |
+| Known behaviours | Occasional large upward spikes (reported > 1.0m delta); connectivity drops causing unavailable transitions. **2026-09-25 (Issue 21):** junk readings occur DURING and for minutes AFTER pumping (surface turbulence) — raw pinned at 2.07 m (beyond the 2.05 m physical max) for 14–81 min, or bouncing 1.2–2.07 m over a real ~1.0 m; raw is clean again ~10 min after the pump stops |
 
 ### Spike Rejection Logic
 
@@ -1229,7 +1231,7 @@ Rules:
 | Dimension | Rating | Notes |
 |---|---|---|
 | Normal operation (no pump) | ✅ Good | Spike rejection works well |
-| During pump run | ⚠️ Moderate | All spikes accepted; glitch risk |
+| During pump run | ✅ Improved 2026-09-25 (Issue 21) | Rises must fit the physical envelope; was: all spikes accepted. Residual: can stall low if blind |
 | After connectivity drop | ✅ Good | Falls back to previous value |
 | As a control trigger | ⚠️ Moderate | Spike could cause false abort during fill |
 | As an audit record | ⚠️ Moderate | Start depth written from RAW, single writer only since Issue 3 fix (2026-07-08) |
@@ -1239,7 +1241,7 @@ Rules:
 
 The Tuya sensor is adequate for coarse level monitoring and scheduling decisions. It is NOT adequate as a sole safety arbiter without the debounce on the max-depth stop (Issue 9). The no-rise protection provides a practical second line of defence.
 
-For improved reliability, consider adding a `for: "00:00:30"` delay to the no-rise condition trigger to prevent rapid reconnect/disconnect cycles from producing confusing depth rates.
+**Updated 2026-09-25 (Issue 21):** the depth filter now bounds upward moves to a physical envelope, no-rise judges net rise (gated on sensor trust) instead of the raw derivative, and the fill-target stop confirms after 60 s — the old `for: "00:00:30"` suggestion is superseded. Still open (owner decision): a blind-sensor hard stop, and noise-dip resilience for the 1.95 m max-depth `for: 1 min` timer.
 
 ---
 
@@ -1277,4 +1279,5 @@ see PROJECT_STATE.md 2026-08-21 session entry for full detail. Locked Design Dec
 *Last updated: 2026-06-14 (E7)*  
 *Updated by: E7 — sensor.water_usage_today (utility_meter), sensor.water_tank_consumption_integral (integration), sensor.water_daily_usage_mean (statistics), sensor.water_effective_fill_target (template). Branch 4.7 predictive fill added. water_stop_at_daily_target updated to read water_effective_fill_target. Predictive fill enabled/wired — see Predictive Fill Helpers section above.*
 
+*Last updated: 2026-09-25 (Issue 21) — depth filter → physical rise envelope; no-rise → net-rise test gated on sensor trust; `water_stop_at_daily_target` 60 s confirm-then-stop; new `input_number.water_pump_run_start_depth` + capture automation + untrusted-sensor warning; alert routing dedupe (ALERTS_CONTRACT BUG-A27). Sweep: File Inventory, entity list, Depth Truth Chain, Protections 1/3, Safety Summary, Sensor Reliability all reconciled.*
 *Last updated: 2026-09-25 — Rule 5b audit: `initial:` removed from all seven `input_select.water_demand_<day>` helpers (`water_helpers.yaml`) — the summer/winter profile scripts write them, so a restart used to silently revert the chosen demand profile to the YAML defaults; and from the water/borehole `*_snoozed` booleans. Counters keep `initial: 0` (counter restore-state wins over `initial`). `water_notifications.yaml` weekly summary now reads validated `sensor.water_tank_level` (SYSTEM_CONTRACT IV-06).*

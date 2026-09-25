@@ -241,6 +241,8 @@ security gate behavior above is unaffected.
 
 ## 💧 TEST 3 — Water Alerts
 
+> ⚠️ **Re-run due (2026-09-25):** `route_water_tank_alert` dedupe (`escalate` trigger now requires `water_alert_active` on) and `water_alert_active` / `water_alert_context` no longer treating "refilling + pump on" as bad changed alert-delivery behaviour (ALERTS_CONTRACT BUG-A27, WATER_CONTRACT Issue 21). Confirm one push per event, not two.
+
 **Two test paths — threshold and state override**
 
 ### Method A — Lower depth threshold
@@ -401,6 +403,8 @@ Issues found:
 ---
 
 ## 🛡️ TEST 6 — Security Alerts
+
+> ⚠️ **Re-run due (2026-09-25):** `security_alert_repeat_reminder` now resolves one camera for name + image (SECURITY_CONTRACT BUG-S86). At the 5-min reminder confirm a single "Camera:" line and that the image matches it.
 
 ### Method A — Lower threat score threshold
 ```

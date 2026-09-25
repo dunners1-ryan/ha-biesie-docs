@@ -6343,7 +6343,10 @@ sensor.grid_to_battery_energy_today   ← utility_meter, created 2026-03-20
 ```
 sensor.water_state
 sensor.water_tank_level            ← friendly name "Water Tank Level %" — entity_id has % stripped
-sensor.water_tank_depth_validated
+sensor.water_tank_depth_validated   ← rise-envelope filtered since 2026-09-25 (BUG-W01)
+input_number.water_pump_run_start_depth ← validated depth at each pump off→on; envelope + no-rise net-rise baseline (added 2026-09-25, no initial:)
+automation.water_capture_pump_run_start_depth ← writes it (added 2026-09-25)
+automation.water_depth_sensor_untrusted_while_pumping ← warning-only, 15/30/45/60 min (added 2026-09-25)
 switch.borehole_pump
 input_boolean.water_refill_cycle_active
 input_boolean.water_refill_aborted_due_to_safety   ← can be stuck ON after Tuya reconnect false-aborts
