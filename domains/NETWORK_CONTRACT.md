@@ -896,3 +896,5 @@ discovered and documented, IMP-NET03 (disabled UniFi diagnostic entities) added.
 *Last updated: 2026-06-19 — BUG-NET01/02/03 closed (CPU/memory availability and packet loss formula all corrected; verified in code)*
 *Last updated: 2026-05-28 — network_nas.yaml added; NAS graceful shutdown + WoL restore pipeline documented (Section 10)*
 *Source: packages/network/network_helpers.yaml, packages/alerts/alerts_network.yaml, packages/network/network_ups.yaml, packages/network/network_nas.yaml, .storage/lovelace.dashboard_operations*
+
+*Last updated: 2026-09-25 — Rule 5b audit: `initial:` removed from `input_boolean.ups_nas_was_shutdown` (the flag that gates Wake-on-LAN after a UPS-triggered NAS shutdown — a restart during an outage previously cleared it, so the NAS would not be woken) and `ups_nas_auto_shutdown_enabled` (re-armed by automation), both `network_nas.yaml`; and from the four `*_alert_snoozed` booleans in `alerts_network.yaml`.*

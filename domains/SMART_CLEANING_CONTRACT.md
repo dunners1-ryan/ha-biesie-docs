@@ -916,3 +916,5 @@ that scale the EMA instead of skipping it entirely (Section 3c);
 natural fill fraction (Section 3f); restart-survival persistence expanded
 13→16 fields (Section 3g). YAML-only this session — not yet reloaded or
 live-verified, no HA API access. See PROJECT_STATE.md 2026-09-17 entry.*
+
+*Last updated: 2026-09-25 — Rule 5b audit: `initial:` removed from `vacuum_job_summary_sent_today` and `vacuum_detergent_low_notified` (recorder showed both reset on real restarts, causing a possible duplicate daily summary / repeat low-detergent push), `deebot_alert_snoozed`, and the three `vacuum_total_*_at_midnight` snapshot numbers (a mid-day reset made the next summary report lifetime totals as "today"). Log-form selects (`vacuum_dirty_water_level`, `_water_refill_level`, `_dust_bag_action`) keep `initial:` — they reset to idle by design.*

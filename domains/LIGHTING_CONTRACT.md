@@ -1332,3 +1332,5 @@ back house security lights all night (00:30:04/01:00:04 corrections). Fixed: bot
 automations' front/back/carport/office rule now also requires `bedtime_mode`=off.
 Section 4 table, Section 9.6, and the File Inventory line count (502→529) updated.*
 *Next review: After new AI cameras installed (cam motion valid sensors change)*
+
+*Last updated: 2026-09-25 — Rule 5b audit: `initial: false` removed from `input_boolean.bedtime_mode` (`lighting_helpers.yaml`). It is written by 5 bedtime/wake automations and gates the boundary-security watchdog (BUG-L26), so a restart after bedtime previously reset it to off and re-enabled the security-light watchdog overnight.*

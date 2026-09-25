@@ -398,6 +398,24 @@ guess from the name. The rule of thumb that held in both real fixes:
   restart never actually happened, not that it was quick), and check
   whether the test value survived.
 
+**Repo-wide audit completed 2026-09-25** (`scripts/audit_initial_helpers.py` re-runs the writer
+analysis). Of 278 helpers with `initial:`, 54 that carry state across days or are written by
+automations had it removed (snooze/mute flags, `bedtime_mode`, NAS shutdown flags, force-charge and
+geyser daily flags, vacuum daily flags/snapshots, Water Cooler order-lifecycle helpers, water demand
+profile selects, prepaid realign drift — per-domain lists in each contract's 2026-09-25 changelog
+line and PROJECT_STATE.md). Findings worth remembering:
+
+- **`counter` is unaffected** — counters restore their last state over `initial:`; recorder data
+  showed them surviving restarts. Only `input_boolean`/`input_number`/`input_select`/
+  `input_datetime` reset.
+- **Check the registry before trusting a "survived" result.** A YAML helper whose entity_id was
+  already taken by a UI-created helper becomes `<name>_2` and its `initial:` is dead config
+  (found: `high/low_solar_forecast_trigger`, `inverter_solar_mode_helper` — POWER_CONTRACT Issue 38).
+- **Per-transaction form fields** (cost/qty/price/vendor/level selects that an automation resets to
+  idle after logging) legitimately keep `initial:`; losing a half-typed form on restart is harmless.
+- Removing `initial:` is safe to apply live: `input_boolean`/`input_number`/`input_select` reload
+  left all 54 values unchanged.
+
 ### Rule 6 — Never use Jinja2 block tags to conditionally emit YAML keys
 
 HA's YAML parser processes `{% %}` tags **before** evaluating templates. A `{%` that appears at the structural YAML level (i.e. where a key or list item would appear) is seen as an illegal `%` token and causes HA to enter recovery mode.

@@ -2380,6 +2380,7 @@ reflect the fix.
 `unavailable` battery sensor read as "0% — always below threshold"
 **File:** `packages/alerts/alerts_power.yaml`
 **Priority:** P1 — guaranteed false CRITICAL push on any Solarman hiccup or reload
+*(2026-09-25 note: the sensor this issue names, `sensor.inverter_1_battery`, was later replaced by the published aggregate `sensor.inverter_battery_soc` — see Issue 37. The `has_value()` guard now wraps the aggregate.)*
 **Reported by:** user, got a "[GRID] Power Alert — Power Event → Battery Low · unavailable%
 Duration: 0 min" push right after a "Reload Helpers"
 
@@ -2900,7 +2901,7 @@ manually post-reload. Anyone changing an existing `input_number`'s `initial` in 
 should expect the same and set the live value explicitly, not assume Reload Helpers alone applies
 it.
 
-### Issue 32 — 🔍 FOUND, NOT FIXED 2026-08-29: `sensor.geyser_control_status`'s hardcoded midday window (12:00–15:00) predates the 11:00 midday trigger
+### Issue 32 — ✅ FIXED 2026-09-25 (found 2026-08-29): `sensor.geyser_control_status`'s hardcoded midday window (12:00–15:00) predates the 11:00 midday trigger
 **File:** `packages/power/power_state.yaml` (`sensor.geyser_control_status`, `in_midday` variable).
 **Found by:** live spot-check while verifying the BUG-PWR-GEYSER04 fix above (unrelated to it —
 noted here rather than folded into that entry, per the "record deferred findings" rule).
@@ -2911,8 +2912,8 @@ trigger" note above), but `sensor.geyser_control_status` read **"Outside active 
 of "Running — midday solar". Root cause: this sensor's `in_midday` template is hardcoded
 `12 <= now_h < 15`, never updated when the real `geyser_turn_on` midday window gained its earlier
 11:00 trigger. Any midday run between 11:00–12:00 shows as "Outside active windows" on the
-dashboard. **Not fixed** — out of scope for the session that found it; needs `in_midday` changed
-to `11 <= now_h < 15` to match `geyser_turn_on`'s actual trigger list.
+dashboard. **Fixed 2026-09-25:** `in_midday` changed to `11 <= now_h < 15` in `power_state.yaml`
+(`sensor.geyser_control_status`) to match `geyser_turn_on`'s actual trigger list; template reloaded.
 
 ---
 
@@ -3160,6 +3161,45 @@ has no flow/usage sensor, so a tap draw and standing thermal loss produce an ide
 Treat "hot-water use" in this doc and in Issue 35 as the automation's own (unverified) canned
 wording, not a confirmed cause. `geyser_automations.yaml` E11 (2026-09-23) softened the live
 notify/logbook messages to say "cooled and reheated, cause unconfirmed" instead.
+
+
+### Issue 37 — ✅ FIXED 2026-09-25: `alerts_power.yaml` (and `grid_risk.yaml`) read the per-inverter SOC sensor instead of the published aggregate (SYSTEM_CONTRACT IV-04)
+**Files:** `packages/alerts/alerts_power.yaml`, `packages/power/grid_risk.yaml`
+`Power Battery Low Alert Active`, the `Power Alert Context` trigger list + state, its `devices`
+attribute and the notification message all read `sensor.inverter_1_battery` (slave-only, per
+inverter) instead of `sensor.inverter_battery_soc` (`power_core.yaml`, average of both inverters
+with single-inverter fallback). It would silently have monitored the wrong battery bank had the
+master/slave role assignment ever changed. `grid_risk.yaml`'s `grid_risk_severity` had the same
+read (not previously listed). **Fixed:** all live references now use `sensor.inverter_battery_soc`
+(the `has_value()` guard from Issue 23 is kept, now on the aggregate); a commented-out legacy block
+in `alerts_power.yaml` was left untouched. `check_config` valid, template reload clean,
+`sensor.power_alert_context`/`sensor.grid_risk_severity` verified `normal` live.
+`alerts_summary.yaml`/`alerts_system_health.yaml` still watch `sensor.inverter_1_battery`
+deliberately — those are per-device availability monitors, not SOC decisions.
+
+### Issue 38 — ✅ AUDITED 2026-09-25: repo-wide `initial:` reset-on-restart sweep (CODING_STANDARDS Rule 5b) + shadowed solar helpers
+**Files:** `power_helpers.yaml`, `prepaid_helpers.yaml`, `solar_helpers.yaml` (this domain); full
+cross-domain list in PROJECT_STATE.md's 2026-09-25 entry.
+All 278 legacy-YAML helpers carrying `initial:` were classified (static walk of every package,
+`automations.yaml`, `scripts.yaml`, `scenes.yaml`, pyscript for writers, plus live value vs `initial:`
+and recorder before/after values across the last 8 restarts). **Removed `initial:` (state carried
+across days / written by automations):** `energy_saving_mode`, `force_charge_active`,
+`force_charge_target_soc`, `geyser_morning_extend_override`, `geyser_morning_extended_today`,
+`inverter_programme_auto_enabled`, `geyser_last_heat_up_minutes` (recorder proved it reset
+170→0 on a real restart), `prepaid_drift_at_last_realign`. **Kept `initial:`** on genuine settings —
+all thresholds/targets/tariffs, `orchestrator_enabled`, `load_control_airfryer_enabled`, the
+`simulator_*` overrides (pyscript `energy_simulator.py`), and the 48 kWh SOC thresholds
+(`apply_48kwh_thresholds.py` was a one-shot; the YAML values already equal the live ones).
+Helper reload confirmed no live value changed.
+**Separate finding (not fixed, harmless):** `input_number.high_solar_forecast_trigger`,
+`input_number.low_solar_forecast_trigger` and `input_select.inverter_solar_mode_helper` are
+**shadowed by older UI-created helpers** with the same entity_id (unique_ids
+`high_solar_forecast_helper`, `low_solar_forecast_helper`, `inverter_scene_state_helper`). The
+`solar_helpers.yaml` definitions therefore exist only as orphan `_2` entities
+(`..._trigger_2`, `inverter_solar_mode_helper_2`); nothing references them. Every automation reads
+the UI helpers (live: 35 / 28 kWh, "High Solar"), so `initial: 25 / 10 / Medium` in that file is
+dead config and misleading. Cleanup (delete the 3 YAML blocks + orphan registry entries) is
+optional and unscheduled.
 
 ---
 
@@ -3607,6 +3647,7 @@ and its two corrected same-fact references above in Sections 3/6); zoom-button
 snap-back and y-axis over-scale bugs root-caused and fixed on 4 cards; 14d/60d/90d range
 buttons added across 4 cards. New "`custom:plotly-graph` Card Gotchas" subsection added
 above capturing the three underlying card-behavior bugs for future sessions.*
+*Last updated: 2026-09-25 — Issue 32 closed (`in_midday` window 11–15); Issue 37 (alerts_power/grid_risk aggregate SOC, SYSTEM_CONTRACT IV-04) fixed; Issue 38 (repo-wide `initial:` audit, 8 power helpers de-seeded, 3 shadowed solar helpers documented).*
 *Last updated: 2026-08-21 — Issue 7 closed (sensor.inverter_today_energy_import removed as
 confirmed dead code, not fixed with detection logic); Issue 8 confirmed (group has 1 real
 member, not empty); Issue 17 closed (power_helpers.yaml layering violation — group:/template:

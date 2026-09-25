@@ -303,7 +303,10 @@ Once `regionentrance` is primary:
 | `security_zones.yaml` | Zone aggregation binary sensors: perimeter front/rear/combined, grounds, external, inside house |
 | `security_automations.yaml` | All automations: snapshot capture (×2 overlapping), movement path tracking, event lifecycle start/end, event router, visitor detection, arrival detection, grounds/rear/house motion, rear perimeter, gate open action, visitor-alert Cancel Alert pattern (BUG-S77, 2026-08-31) **+ 2026-09-20 (BUG-S85):** `security_alerts_mute_morning_reset`; router MUTED branch, per-camera image, staff-aware visitor severity. |
 | `security_alarm.yaml` | Interface stub for the IDS Hyyp alarm panel integration — documents the expected entity interface, migration target for IDS automations once the integration is wired to HA. Not yet live (IMP-IDS01) — no IDS automations exist anywhere in the repo yet. |
+| `security_snapshot_retention.yaml` | **Added 2026-09-25 (ISSUE 10):** `shell_command.purge_www_snapshots` + `automation.security_snapshot_retention_purge` (daily 03:30, 14-day retention, skips helper-referenced files). Backing script: `scripts/purge_www_snapshots.sh` |
 | `security_history_cleanup.yaml` | `script.security_history_cleanup` — one-shot manual utility to purge stale bare-filename/`security_`-prefixed camera history `input_text` entries left over from a pre-2026-05-17 automation format. Run manually via Developer Tools; safe to delete once no longer needed. |
+
+*(10 files live as of 2026-09-25 with `security_snapshot_retention.yaml`.)*
 
 *(Added 2026-08-21: both files existed already but were missing from this table —
 9 files live in `packages/security/`, this table previously listed only 7. Also note
@@ -443,7 +446,7 @@ No security-domain helpers were found to be UI-created. All are YAML-defined in
 | `input_boolean.security_event_active` | boolean | — | Active event flag (write-back from automations) |
 | `input_boolean.security_alert_active` | boolean | — | Alert active flag (consumed by alerts domain) |
 | `input_boolean.security_visitor_alerts_suppressed` | boolean | — | **Added 2026-08-31 (BUG-S77), dashboard entry added 2026-09-02** (BUG-S77 shipped the helper but never wired it into any dashboard — found missing when user asked where it was). Manual dashboard mute, `visitor` router branch only — arrival/departure/intruder/perimeter_threat unaffected. Lives in the Operations → Security dashboard's "Camera System Control" entities card. |
-| `input_boolean.visitor_alert_snoozed` | boolean | — | **Added 2026-08-31 (BUG-S77).** Per-cycle mute set by the "Cancel Alert" action button on a Visitor-at-gate push/Telegram message; auto-clears via `security_visitor_alert_snooze_reset` (10min gate-quiet OR `staff_on_site` off). Not meant to be toggled by hand. |
+| `input_boolean.visitor_alert_snoozed` | boolean | — | **Added 2026-08-31 (BUG-S77).** Per-cycle mute set by the "Cancel Alert" action button on a Visitor-at-gate push/Telegram message; auto-clears via `security_visitor_alert_snooze_reset` (10min gate-quiet OR `staff_on_site` off). Not meant to be toggled by hand. `initial:` removed 2026-09-25 (Rule 5b audit) so an active snooze survives a restart. |
 | `counter.security_grounds_low_confidence_count` | counter | — | **Added 2026-07-17 (IMPROVEMENT-S67).** Consecutive `grounds_low_confidence` firings; reset by `security_reset_grounds_low_confidence_counter` after 15min grounds-quiet. Drives the daytime warning→information downgrade. |
 | `input_number.perimeter_open_escalation_minutes` | number | 1–60 | Escalation timeout |
 | `input_number.house_entry_escalation_minutes` | number | 1–60 | Escalation timeout |
@@ -685,7 +688,7 @@ security_event_end
 commented-out remnants. `ls www/ | grep -c '^security_cam'` → **0** live — the orphan
 duplicate-file class this issue was about no longer exists. This was Option A from the
 Fix section below, not Option B. The retention/cleanup follow-up ("Also needed") is
-still open — tracked separately as ISSUE 10, now at 31,812 files (see that entry).
+tracked separately as ISSUE 10 — fixed 2026-09-25 (see that entry).
 
 **Symptom:** Every motion event creates two snapshot files:
 - `security_cam05_front_driveway_TIMESTAMP.jpg` (security_ prefix)
@@ -889,7 +892,7 @@ object or split into 3 discrete fixed-size `input_text` entities
 ---
 
 ### ISSUE 10 — www/ snapshots accumulate without cleanup
-**Priority: MEDIUM | Risk to fix: LOW | ❌ STILL OPEN — re-verified 2026-08-21, has gotten worse**
+**Priority: MEDIUM | Risk to fix: LOW | ✅ FIXED 2026-09-25 — daily retention purge live (see "Fixed" block below)**
 
 **Symptom:** 1,871 snapshot files in `/config/www/`. No retention policy. Disk will fill
 over time.
@@ -905,6 +908,25 @@ count this issue was originally filed against. Confirmed no cleanup mechanism ex
 anywhere in `packages/` (`security/`, `core/`, `backup/`) — grep for
 `shell_command`/pyscript snapshot-cleanup patterns found nothing. Still open, and the
 growth trend argues for prioritizing it over its current MEDIUM label.
+
+**Fixed 2026-09-25** (count had reached 46,321 files / 6.6 GB): new
+`packages/security/security_snapshot_retention.yaml` + `scripts/purge_www_snapshots.sh`.
+`automation.security_snapshot_retention_purge` runs daily 03:30 and calls
+`shell_command.purge_www_snapshots`, deleting epoch-stamped snapshots
+(`<camera>_<10-digit epoch>.jpg`) in `/config/www` older than **14 days**. It **skips any file still
+referenced** by an `input_text` helper (per-camera `*_history`, `security_event_images`,
+`security_event_session`, `security_image_*`, `security_last_motion_image`) or
+`sensor.security_last_image_url` — rarely-triggered cameras (ipcam02, ipcam04, ipcam05) keep pointing
+at snapshots months old and a plain age purge would have broken their dashboard images. The protect
+list is built in the automation from a strict `[A-Za-z0-9_.-]` regex match on the helpers' `/local/`
+URLs, so helper contents can't inject shell syntax. `*_latest.jpg` and other non-epoch names never
+match the purge pattern. Retention (14) is a variable in the automation, deliberately not an
+`input_number` (a helper without `initial:` would default to its minimum on first load). Failure
+(non-zero return) notifies via `script.notify_system_event`; success writes a logbook line
+(`deleted=N kept_protected=M`). First run: **46,321 → 7,589 files, 6.6 GB → 1.0 GB**, 3 protected
+files kept, referenced snapshots verified present. BusyBox note: `touch -d 'N days ago'` is not
+supported in the add-on shell — use `touch -t` when testing the script (`WWW_DIR=<dir>` overrides
+the target directory for tests).
 
 ---
 
@@ -3222,8 +3244,8 @@ SPRINT 2 — Snapshot Deduplication (Issue 1)
 [✅] Decide on Option A or Option B (see Issue 1) — Option A chosen
 [✅] Implement chosen option — DONE, doc-drift correction 2026-08-21 (found already fixed
                  live — filename_cam has no security_ prefix, 0 orphan files in www/)
-[ ] Add www/ retention cleanup (daily cron via pyscript or shell_command) — still open,
-                 see ISSUE 10 (31,812 files as of 2026-08-21)
+[✅] Add www/ retention cleanup (daily cron via pyscript or shell_command) — DONE 2026-09-25,
+                 see ISSUE 10 (fixed)
 [ ] Validate no dashboard cards break — not re-validated this session (doc-only pass);
                  worth a quick dashboard check next time www/ or snapshot paths are touched
 

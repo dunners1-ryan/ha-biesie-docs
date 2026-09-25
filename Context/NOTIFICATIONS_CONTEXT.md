@@ -28,7 +28,7 @@ Domain Automation → Notification Script → Severity Routing → Platform Deli
 `notify_security_event`/`notify_presence_event`/`notify_lighting_event` — live files use
 different pluralization, and lighting's is actually `notify_light_events.yaml`, not
 `notify_lighting_event.yaml`), and 2 files were missing entirely
-(`water_notifications.yaml`, `power_notifications.yaml`). 13 files live, not 11.**
+(`water_notifications.yaml`, `power_notifications.yaml`). 13 files live, not 11 (12 as of 2026-09-25 — empty `power_notifications.yaml` stub deleted).**
 
 ```
 packages/notifications/  (13 files)
@@ -44,7 +44,7 @@ packages/notifications/  (13 files)
   presence_notifications.yaml      # Per-person unknown AP alert automations
   water_notifications.yaml         # Water-specific notification automations
   notifications_helpers.yaml       # Input helpers for control
-  power_notifications.yaml         # Empty stub, 0 bytes, unused — see NOTIFICATIONS_CONTRACT.md
+  # power_notifications.yaml — empty stub, DELETED 2026-09-25 (power notifications live in notify_power_event.yaml)
 ```
 
 ---

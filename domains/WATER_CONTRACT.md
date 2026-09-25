@@ -1276,3 +1276,5 @@ see PROJECT_STATE.md 2026-08-21 session entry for full detail. Locked Design Dec
 "Emergency Telegram calls are direct" row superseded (Issue 10 fix).*
 *Last updated: 2026-06-14 (E7)*  
 *Updated by: E7 — sensor.water_usage_today (utility_meter), sensor.water_tank_consumption_integral (integration), sensor.water_daily_usage_mean (statistics), sensor.water_effective_fill_target (template). Branch 4.7 predictive fill added. water_stop_at_daily_target updated to read water_effective_fill_target. Predictive fill enabled/wired — see Predictive Fill Helpers section above.*
+
+*Last updated: 2026-09-25 — Rule 5b audit: `initial:` removed from all seven `input_select.water_demand_<day>` helpers (`water_helpers.yaml`) — the summer/winter profile scripts write them, so a restart used to silently revert the chosen demand profile to the YAML defaults; and from the water/borehole `*_snoozed` booleans. Counters keep `initial: 0` (counter restore-state wins over `initial`). `water_notifications.yaml` weekly summary now reads validated `sensor.water_tank_level` (SYSTEM_CONTRACT IV-06).*

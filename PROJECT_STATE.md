@@ -5,6 +5,51 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-25 — Project-state check: 4 quick fixes + www/ retention + repo-wide `initial:`
+      audit (Rule 5b) + docs reconciliation.** Started as a state check of the open TODO log
+      against live code and the domain contracts; several "open" items were already fixed (BUG-N18
+      done 2026-09-17, E11 entry already logged 2026-09-23) and several "fixed" ones were verified
+      still broken in code. **Code fixes (all verified live, `check_config` valid, reloads clean):**
+      (1) `alerts_power.yaml` battery-low binary sensor, context sensor trigger/state, devices
+      attribute and message read `sensor.inverter_battery_soc` instead of per-inverter
+      `sensor.inverter_1_battery` (SYSTEM_CONTRACT IV-04; same bug also fixed in
+      `grid_risk.yaml` `grid_risk_severity`). (2) `sensor.geyser_control_status` `in_midday`
+      12–15 → 11–15 (POWER_CONTRACT Issue 32). (3) `water_notifications.yaml` weekly summary reads
+      validated `sensor.water_tank_level` (IV-06). (4) **www/ snapshot retention** (SECURITY_CONTRACT
+      ISSUE 10): new `packages/security/security_snapshot_retention.yaml` +
+      `scripts/purge_www_snapshots.sh`, daily 03:30, 14-day retention, skips any snapshot still
+      referenced by an `input_text` history/event helper (rarely-triggered cameras point at
+      100+-day-old files). First run 46,321 → 7,589 files, 6.6 GB → 1.0 GB. **Repo-wide
+      `initial:` audit** (closes the 2026-09-06 REPO-WIDE AUDIT entry): 278 helpers classified by
+      writers + live-vs-`initial` + recorder before/after across the last 8 restarts; **54
+      state-carrying helpers had `initial:` removed** (all `*_alert_snoozed`, `laundry_door_alert_
+      notify`, `security_alert_notify`, `bedtime_mode`, `ups_nas_was_shutdown`/`_auto_shutdown_
+      enabled`, 7 power helpers incl. `geyser_last_heat_up_minutes`/`force_charge_*`/`energy_
+      saving_mode`, `prepaid_drift_at_last_realign`, 2 visitor booleans, 5 Water Cooler
+      order-lifecycle/month-counter helpers, 7 `water_demand_<day>` selects, 6 vacuum daily
+      flags/snapshots); helper reload left every live value unchanged. Counters are unaffected by
+      `initial:`. Full rules and findings: CODING_STANDARDS Rule 5b addendum; audit script
+      `scripts/audit_initial_helpers.py`. **Found, not fixed (harmless):** three `solar_helpers.
+      yaml` helpers (`high/low_solar_forecast_trigger`, `inverter_solar_mode_helper`) are
+      shadowed by UI-created helpers of the same entity_id — the YAML copies are orphan `_2`
+      entities and their `initial:` values are dead config (POWER_CONTRACT Issue 38).
+      **Lower-priority items:** deleted the empty `power_notifications.yaml` stub (nothing
+      referenced it; `notify_power_event.yaml` is the live handler); cleared the 13 cosmetic
+      `name` overrides on `sensor.iphone14_tayla_mobile_app_*` via the entity registry API
+      (BUG-P21/P22 loose end); `watercooler_empties_on_hand` confirmed correct at 4 by the user
+      (2026-09-14 deferred correction closed); stale Water Cooler/Ecovacs/BUG-L20/GEYSER-DISPLAY01
+      log entries ticked closed (their work is complete — see Group V and the contracts).
+      **Deliberately left open:** Tuya "sign invalid" root cause, Telegram photo attachment,
+      Alert_Test_Plan run (Test 4 flagged due), 4th-restart-sighting investigation, FORECASTBIAS01
+      monitoring, Water Cooler double-press loose thread. Docs updated: SYSTEM_CONTRACT (IV-04/IV-06,
+      E1), POWER_CONTRACT (Issues 32/37/38), SECURITY_CONTRACT (ISSUE 10, file inventory),
+      NOTIFICATIONS_CONTRACT + Context/{NOTIFICATIONS,ALERTS,SECURITY}_CONTEXT, changelog lines in
+      ALERTS/LIGHTING/NETWORK/WATER/UTILITIES/SMART_CLEANING contracts, CODING_STANDARDS,
+      Alert_Test_Plan, CLAUDE.md (security/ 10 files). Files: `packages/alerts/*` (snooze
+      helpers, alerts_power), `packages/power/{grid_risk,power_state,power_helpers,prepaid_helpers}
+      .yaml`, `packages/notifications/water_notifications.yaml`, `packages/{lighting,network,
+      security,utilities,water,integrations}` helper files, `scripts/`.
+
 - [x] **2026-09-25 (latest) — Water: false "Safety Abort" + false "Fill target reached" stops
       (BUG-W01/W02, WATER_CONTRACT Issue 21).** User: 24-Sep ~10:36–10:40 three critical
       "Water Safety Abort" pushes — real or not? Not: pump was filling (1260 W, tank rising
@@ -907,7 +952,7 @@
       `packages/lighting/lighting_boundary.yaml`, `packages/lighting/lighting_helpers.yaml`,
       `packages/alerts/alerts_security.yaml`.
 
-- [ ] **2026-09-14 — Water Cooler: `watercooler_empties_on_hand` had the same
+- [x] **2026-09-14 — Water Cooler: `watercooler_empties_on_hand` had the same
       every-restart-`initial:`-reset bug fixed on 4 other helpers 2026-09-06,
       missed by that pass.** User: "seems like spare empty bottles is wrong
       as had 8 bottles delivered and have swopped 2 but is showing only 1?"
@@ -1297,7 +1342,7 @@
       than waiting for weather to clear. Full writeup: `LIGHTING_CONTRACT.md`
       BUG-L22.
 
-- [ ] **2026-09-06 — REPO-WIDE AUDIT NEEDED: `initial:`-resets-on-every-
+- [x] **2026-09-06 — REPO-WIDE AUDIT NEEDED: `initial:`-resets-on-every-
       restart bug (CODING_STANDARDS.md Rule 5b), only fixed where it's
       been caught by accident so far (`utilities/` — Water Cooler + Gas
       Bottles).** Confirmed live, independently, twice the same day: any
@@ -2220,7 +2265,7 @@
       Pipeline Audit + File Inventory line count re-verified (1028, was
       892 as of the 08-31 sweep — grew ~136 lines this session).
 
-- [ ] **2026-08-31 (evening) — New domain: Water Cooler tracker, first
+- [x] **2026-08-31 (evening) — New domain: Water Cooler tracker, first
       subsystem of a new `utilities/` package (user's steer: a home for
       recurring consumable-delivery utilities, distinct from `packages/
       water/`'s tank/plumbing system — a future one, e.g. gas bottles, gets
@@ -2462,7 +2507,7 @@
       status corrected, BUG-S77 full entry added (Section 6), Section 9 checklist item
       corrected, Section 3 entity rows added, Section 2 file description updated.
 
-- [ ] **2026-08-31 — Ecovacs Deebot: fault-alert pipeline (V3) + water/
+- [x] **2026-08-31 — Ecovacs Deebot: fault-alert pipeline (V3) + water/
       detergent estimator (V12) built; map bug self-resolved; dashboard
       layout correction (user's fix, not mine) + several small fixes.
       Group V: V1 partial, V2/V3/V6/V7/V9/V12 done, V4/V5/V8/V10/V11 open.**
@@ -2505,7 +2550,7 @@
       ("Today" / "Lifetime", user request mid-session), a new "Alert Status"
       + "Water & Detergent" section. Full detail in Group V below.
 
-- [ ] **2026-08-30 (night) — Ecovacs Deebot: dashboard built + mat reminder
+- [x] **2026-08-30 (night) — Ecovacs Deebot: dashboard built + mat reminder
       automation shipped. Group V: V1 partial, V7/V9 done; V3/V4/V5/V8/V10
       still open.** `packages/integrations/vacuum.yaml` created — mat-removal
       reminder (input_datetime × 2, input_boolean, 2 automations), validated
@@ -2517,7 +2562,7 @@
       and `vacuum.send_command` — see V10. Confirmed no camera entity exists
       for this device. Full detail in Group V below.
 
-- [ ] **2026-08-30 — Ecovacs Deebot T80S Omni: mapping finished, scenario/schedule
+- [x] **2026-08-30 — Ecovacs Deebot T80S Omni: mapping finished, scenario/schedule
       plan agreed, live telemetry confirmed working. Group V (see Verified
       Priority Work Queue) V2/V6 marked done; V1/V3/V4/V5/V7/V8 still open.**
       Map "Biesie Main House" done — 9 rooms: Bedroom Main, Bedroom Luke,
@@ -2547,7 +2592,7 @@
       alerting (V3) remain genuinely untested/unbuilt — don't mark those done
       based on this session.
 
-- [ ] **2026-08-30 (later same day) — Room renamed Sunroom → Reading room in the
+- [x] **2026-08-30 (later same day) — Room renamed Sunroom → Reading room in the
       Deebot app map; renamed to match everywhere above and in Group V below.
       User reports "a couple cleans" done but not all three scenarios yet —
       re-checked live via Supervisor API, numbers are unchanged from the
@@ -2561,7 +2606,7 @@
       back or ask for a re-check — that's what tightens the 10:30 start gap
       in the schedule.
 
-- [ ] **2026-08-30 (evening) — Plan changed: user is trialling whole-house
+- [x] **2026-08-30 (evening) — Plan changed: user is trialling whole-house
       "Auto Clean" (AI) via the app's own Schedule screen instead of the
       3-scenario split above, for now.** Two schedule slots created in-app:
       **06:00 Auto Clean / Workday** (weekdays) and **08:00 Auto Clean /
@@ -2585,7 +2630,7 @@
       actually takes, which also answers whether 06:00 finishes with enough
       margin before people are up on workdays.
 
-- [ ] **2026-08-29 — NEW INTEGRATION: Ecovacs Deebot T80S Omni added (`ecovacs`
+- [x] **2026-08-29 — NEW INTEGRATION: Ecovacs Deebot T80S Omni added (`ecovacs`
       core integration, config entry created 2026-08-29T12:20, account
       dunners1@gmail.com). Currently doing its initial house mapping run — no
       automations/alerts/dashboard built yet.** 31 entities confirmed live in
@@ -2647,7 +2692,7 @@
       to 9.5 after the reload. Worth remembering for any future `initial`
       change on an already-created helper.
 
-- [ ] **2026-08-29 — BUG-PWR-GEYSER-DISPLAY01: `sensor.geyser_control_status`'s
+- [x] **2026-08-29 — BUG-PWR-GEYSER-DISPLAY01: `sensor.geyser_control_status`'s
       hardcoded 12:00–15:00 midday window predates the 11:00 midday trigger —
       found live, not fixed.** Spotted while verifying the BUG-PWR-GEYSER04 fix
       above (unrelated to it): at 11:41 SAST the geyser was genuinely `on` (the
@@ -2659,7 +2704,7 @@
       Fix: change `in_midday` to `11 <= now_h < 15`. See Issue 32 in
       [POWER_CONTRACT.md](../docs/domains/POWER_CONTRACT.md).
 
-- [ ] **2026-08-29 — BUG-L20: stale-copy import of `lighting_arrival_night.yaml`
+- [x] **2026-08-29 — BUG-L20: stale-copy import of `lighting_arrival_night.yaml`
       re-introduced five closed bugs; caught before reload, all re-fixed.
       ⚠️ `automation.reload` still owed on the box.** User reported that
       "alert + lighting files" edited in a separate session against the git
@@ -2781,7 +2826,7 @@
       applied and live-verified. `NETWORK_CONTRACT.md` updated: BUG-NET10
       correction entry, Section 7, header changelog, summary table row.
 
-- [ ] **2026-08-24 — Tayla iPhone14 entity rename: two rounds of loose ends, one
+- [x] **2026-08-24 — Tayla iPhone14 entity rename: two rounds of loose ends, one
       was a real functional break (BUG-P22).** Renamed all
       `tayla_iphone14_mobile_app_*` entities to `iphone14_tayla_mobile_app_*` via
       Settings → Entities. Confirmed via `.storage/core.entity_registry`: all 27
@@ -2992,18 +3037,18 @@
       corrections the audit *fixed* (already done — see the dated session-log entries
       below). Nothing here needs more investigation — each was independently confirmed
       live during the audit. Pick any one and go straight to implementing.
-      - [ ] **`alerts_power.yaml` battery-low alert reads the wrong SOC sensor**
+      - [x] **`alerts_power.yaml` battery-low alert reads the wrong SOC sensor**  ✅ (fixed 2026-09-25)
             (SYSTEM_CONTRACT.md IV-04 / POWER_CONTRACT.md). Reads
             `sensor.inverter_1_battery` (per-inverter, slave-only) in ~4 places instead
             of the published aggregate `sensor.inverter_battery_soc`. Breaks if inverter
             role assignment ever changes. **2-minute fix, 4 entity-name replacements,
             zero design decision needed** — the smallest genuinely-open item from the
             whole audit.
-      - [ ] **`water_notifications.yaml` reads raw Tuya sensor, not validated depth**
+      - [x] **`water_notifications.yaml` reads raw Tuya sensor, not validated depth**  ✅ (fixed 2026-09-25)
             (SYSTEM_CONTRACT.md IV-06). Line ~158, `tank_level` value in a notification
             message uses `sensor.water_tank_level_sensor_liquid_level` (raw %) instead of
             a validated-depth-derived percent. Low priority, 1-line fix.
-      - [ ] **8 alert domains still double-deliver via a redundant `notifiers: [STD_Alerts]`**
+      - [x] **8 alert domains still double-deliver via a redundant `notifiers: [STD_Alerts]`**  ✅ (already fully fixed 2026-09-17 (NOTIFICATIONS_CONTRACT BUG-N18) — checkbox was never ticked)
             (NOTIFICATIONS_CONTRACT.md BUG-N18). Water and network were fixed 2026-08-18/21
             respectively (removed the now-redundant `notifiers:` line from the `alert:`
             entity, since `route_*_alert` automations are the real delivery path and
@@ -3017,7 +3062,7 @@
             (SECURITY_CONTRACT.md ISSUE 9, still open). Needs a pyscript-managed state
             object or 3 discrete fixed-size `input_text` entities — see CODING_STANDARDS
             Rule 5.
-      - [ ] **`www/` snapshot retention — 31,812 files and climbing, no cleanup**
+      - [x] **`www/` snapshot retention — 31,812 files and climbing, no cleanup**  ✅ (fixed 2026-09-25 (46k files/6.6GB → 7.6k/1.0GB, daily purge live))
             (SECURITY_CONTRACT.md ISSUE 10, re-verified worse than documented this
             session — was 1,871 when originally filed). No shell_command/pyscript purge
             exists anywhere in `packages/`. Add a daily cleanup for snapshots older than
@@ -3030,7 +3075,7 @@
             No binary_sensor detects `group.known_power_loads` being empty/unsynced at
             startup, and no re-sync trigger exists if `sync_power_groups.py` fails
             silently.
-      - [ ] **`packages/notifications/power_notifications.yaml` — 0-byte empty stub**,
+      - [x] **`packages/notifications/power_notifications.yaml` — 0-byte empty stub**,  ✅ (stub deleted 2026-09-25; notify_power_event.yaml is the live handler)
             unchanged since at least 2026-02-03. `notify_power_event.yaml` is the real
             handler. Needs a delete-or-populate decision, not urgent either way.
       - [ ] **`docs/Testing/Alert_Test_Plan.md` needs an actual run.** Created

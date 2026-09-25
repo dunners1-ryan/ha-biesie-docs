@@ -290,6 +290,8 @@ Issues found:
 
 ## ⚡ TEST 4 — Power Alerts
 
+> **⚠️ 2026-09-25: due for re-run.** `Power Battery Low Alert Active` and `Power Alert Context` now read the aggregate `sensor.inverter_battery_soc` (was per-inverter `sensor.inverter_1_battery`); snooze booleans (`power_alert_snoozed`) no longer reset to off on Core restart. Any expected-result cell keyed to `inverter_1_battery` is stale.
+
 ### TEST 4A — Grid Offline
 
 ### Method

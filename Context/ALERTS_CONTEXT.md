@@ -47,7 +47,7 @@ packages/notifications/  (13 files)
   notify_power_event.yaml, notify_water_events.yaml, notify_security_events.yaml,
   notify_presence_events.yaml, notify_system_event.yaml, notify_light_events.yaml,
   admin_notifications.yaml, presence_notifications.yaml, water_notifications.yaml,
-  power_notifications.yaml (empty stub, unused)
+  (power_notifications.yaml empty stub deleted 2026-09-25)
 ```
 
 ---

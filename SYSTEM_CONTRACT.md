@@ -8,9 +8,9 @@
 # Section 6 risk tables + Section 7 execution plan + Section 8 architecture violations
 # live: most are resolved (usually within days of this doc being written — the fixes
 # just never got reflected here). Genuinely still open, confirmed live, not stale
-# claims: IV-04 (alerts_power.yaml reads per-inverter SOC not aggregated),
-# IV-06 (water notifications read raw Tuya %, not validated depth), MI-06 (no
-# anyone_probably_home reconciliation sensor exists). Status added inline per item
+# claims: MI-06 (no anyone_probably_home reconciliation sensor exists). IV-04
+# (alerts_power.yaml per-inverter SOC) and IV-06 (water notifications raw Tuya %)
+# were both FIXED 2026-09-25. Status added inline per item
 # rather than rewriting the historical root-cause writeups. Contracts list below
 # corrected 10→11 (GARDEN_CONTRACT.md was missing).
 # Source: All 11 domain contracts + PROJECT_STATE.md
@@ -120,7 +120,7 @@ Telegram mirror  →  notify.telegram_bot_5527
 | `sensor.inverter_pv_power` | power | alerts_power, security (added 2026-09-17, SECURITY_CONTRACT.md BUG-S81 — `binary_sensor.security_weather_corroborated_clear`, first Power→Security dependency in this repo) | ✅ |
 | `sensor.solcast_pv_forecast_power_now` | power (Solcast integration) | security (added 2026-09-17, BUG-S81 — same corroboration sensor, forecast-for-right-now denominator) | ✅ |
 | `sensor.inverter_power` | power | alerts_power | ✅ |
-| `sensor.inverter_1_battery` | power (slave direct) | alerts_power | ⚠️ bypasses published SOC |
+| `sensor.inverter_battery_soc` | power | alerts_power (+ power/grid_risk.yaml) | ✅ fixed 2026-09-25 (was reading per-inverter `sensor.inverter_1_battery`, IV-04) |
 | `sensor.house_energy_resilience_hours` | power | alerts_power (devices list) | ✅ |
 | `sensor.house_energy_resilience_status` | power | alerts_power (devices list) | ✅ |
 | `sensor.load_shedding_status_card` | power | context_global | ✅ |
@@ -288,7 +288,7 @@ immediately — this document just never got the update). Status added inline be
 entry rather than rewriting the detailed writeups, which stay accurate as historical
 root-cause records; the domain contracts (`docs/domains/*_CONTRACT.md`) are the
 authoritative current-state reference per the Document Index in PROJECT_STATE.md.
-Genuinely still open: **IV-04, IV-06, MI-06** — confirmed live, not stale claims.
+Genuinely still open: **MI-06** only. IV-04 and IV-06 fixed 2026-09-25.
 
 ### IV-01 [CRITICAL] Security reads presence internal flags, not published trust outputs
 **✅ FIXED — confirmed live 2026-08-21** (BUG-P01/P02, PRESENCE_CONTRACT.md; fixed 2026-04-15/S1).
@@ -347,7 +347,7 @@ alerts is consuming a security sensor that is known-broken.
 ---
 
 ### IV-04 [MEDIUM] Power alerts reference per-inverter sensor, not published aggregated SOC
-**❌ STILL OPEN — re-verified live 2026-08-21, not stale.** `alerts_power.yaml` still reads
+**✅ FIXED 2026-09-25** — `alerts_power.yaml` (binary sensor, context sensor trigger/state, devices attribute, notification message) and `power/grid_risk.yaml` (`grid_risk_severity`, same bug) now read `sensor.inverter_battery_soc`. Template reload + values verified live. Original finding (re-verified 2026-08-21): `alerts_power.yaml` read
 `sensor.inverter_1_battery` in the low-battery binary sensor, context sensor, and
 notification message (4 occurrences, e.g. lines ~81-83, 135, 150, 215, 232) — not
 `sensor.inverter_battery_soc`. Genuinely unfixed; flagging for action, not just doc-drift.
@@ -396,10 +396,9 @@ warning never suppresses during scheduled staff hours.
 ---
 
 ### IV-06 [LOW] Water notifications reference raw Tuya sensor, not validated depth
-**❌ STILL OPEN — re-verified live 2026-08-21, not stale.** `water_notifications.yaml:158`
-still reads `sensor.water_tank_level_sensor_liquid_level` (raw Tuya %) for the
-`tank_level` value in a notification message, not a validated-depth-derived percent.
-Genuinely unfixed, low priority per its original severity.
+**✅ FIXED 2026-09-25** — `water_notifications.yaml:158` (weekly summary `tank_level`) now reads
+`sensor.water_tank_level` (validated-depth-derived %, same sensor the Tank Full notification
+already used). Original finding: it read `sensor.water_tank_level_sensor_liquid_level` (raw Tuya %).
 
 **Domain A:** notifications (notify_water_events.yaml)  
 **Domain B:** water
@@ -635,7 +634,7 @@ Within a group, do them in order.
 
 **⚠️ Doc-drift correction 2026-08-21 — same sweep as Sections 4-6, re-verified against
 live code.** Groups A, B, C, D are all done (see the matching IV/MI/BUG items in
-Sections 4/5 for individual confirmation). **Group E (IV-04) and Group F (MI-06) are
+Sections 4/5 for individual confirmation). **Group E (IV-04) was fixed 2026-09-25; Group F (MI-06) is
 genuinely still open** — re-confirmed live this session, not stale claims. Kept the
 step-by-step plans below as-written since they're still valid instructions for E and F
 if someone picks those up; A-D are historical record only now.
@@ -755,8 +754,8 @@ This requires a design decision first. Do not implement until F1 is resolved.
 
 ### Summary: Safe to Do Immediately (No Dependencies, No Design Decisions)
 
-*(Doc-drift correction 2026-08-21: 7 of these 8 were already done, re-verified live. Only
-E1 remains genuinely open — see IV-04 in Section 4.)*
+*(Doc-drift correction 2026-08-21: 7 of these 8 were already done, re-verified live. The
+last one, E1, was done 2026-09-25 — see IV-04 in Section 4.)*
 
 | Fix | File | Type | Effort | Status (2026-08-21) |
 |-----|------|------|--------|--------|
@@ -767,7 +766,7 @@ E1 remains genuinely open — see IV-04 in Section 4.)*
 | C2 | notify_water_events.yaml | rename 1 entity | 2 min | ✅ Done |
 | C3 | notifications_helpers.yaml | add 4 lines | 5 min | ✅ Done |
 | D2 | presence_boundary.yaml | delete automation | 5 min | ✅ Done |
-| **E1** | **alerts_power.yaml** | **rename 1 entity** | **2 min** | **❌ Still open — see IV-04** |
+| E1 | alerts_power.yaml | rename 1 entity | 2 min | ✅ Done 2026-09-25 — see IV-04 |
 
 These 8 fixes address 5 bugs, close 2 interface violations, and can all be validated
 in a single HA config reload. Total estimated effort: ~36 minutes. Actual as of

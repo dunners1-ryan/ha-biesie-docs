@@ -53,6 +53,7 @@ packages/security/  (9 files)
   security_automations.yaml   # snapshot capture, event lifecycle, event router
   security_alarm.yaml         # IDS Hyyp interface stub (not yet wired)
   security_history_cleanup.yaml # one-shot manual camera-history cleanup script
+  security_snapshot_retention.yaml # daily 03:30 www/ snapshot purge (14d, skips helper-referenced files) — scripts/purge_www_snapshots.sh
 ```
 
 ---

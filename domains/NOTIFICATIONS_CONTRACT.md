@@ -15,7 +15,8 @@
 # auditing this, and fixed a real actions:-nested-inside-push: bug on
 # notify_presence_events.yaml's iPhone warning branch (unrelated to click-through,
 # found in passing).
-# Last updated: 2026-08-21 (deep drift sweep) — Files Audited table had 3 filename
+# Last updated: 2026-09-25 — `power_notifications.yaml` empty stub deleted (12 files live).
+# Previous: 2026-08-21 (deep drift sweep) — Files Audited table had 3 filename
 # mismatches (notify_security_event/notify_presence_event/notify_lighting_event → live
 # names all differ by plural/naming) and was missing power_notifications.yaml entirely
 # (a 0-byte empty stub, flagged not deleted). BUG-N18 still listed alerts_network.yaml as
@@ -93,7 +94,7 @@ with platform-independent script layer. It owns:
 | `admin_notifications.yaml` | Admin-only notifications |
 | `presence_notifications.yaml` | Per-person unknown AP alerts (legacy/supplementary) |
 | `water_notifications.yaml` | Water-specific notification automations |
-| `power_notifications.yaml` | **Empty stub — 0 bytes, unchanged since at least 2026-02-03.** Not a live script; `notify_power_event.yaml` is the real power notification handler. Flagged for a delete-or-populate decision, not actioned here (out of scope for a doc-drift pass). |
+| ~~`power_notifications.yaml`~~ | **Deleted 2026-09-25.** Was a 0-byte empty stub (unchanged since 2026-02-03), not a live script — nothing referenced it. `notify_power_event.yaml` (`script.notify_power_event`) is the real, live power notification handler and was never affected; 12 files now live in `packages/notifications/`. Original note: flagged for a delete-or-populate decision, not actioned (out of scope for a doc-drift pass). |
 
 *(Doc-drift correction 2026-08-21: 3 filenames in this table didn't match the live files —
 `notify_security_event.yaml` → `notify_security_events.yaml`, `notify_presence_event.yaml`
