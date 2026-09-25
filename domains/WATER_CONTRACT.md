@@ -863,6 +863,68 @@ was root-caused via a live incident and fixed the same way as water — `notifie
 
 ---
 
+### Issue 21 — ✅ FIXED 2026-09-25: false "Safety Abort" + false "Fill target reached" stops from depth-sensor junk while pumping (BUG-W01 / BUG-W02)
+**Priority: HIGH | Status: deployed via Reload Helpers/Templates/Automations; filter replayed against the real 24-Sep data (below); NOT yet observed on a live fill**
+
+**Reported by:** user — three CRITICAL "[SYSTEM] Water Safety Abort" pushes on 24-Sep ~10:36–10:40
+("Tank 47.7% Low Pump Off" ×2, then "Tank 60.0% Refilling Pump On") — "aborts but was filling, or was just issues?"
+
+**Verdict:** it WAS filling; every abort/stop was false. Timeline (SAST, 24-Sep): raw depth sat at 2.07 m
+(pinned) 08:59→10:20 while a real 50-min fill ran; at 10:20:10 `water_stop_at_daily_target` stopped the
+pump ("Completed Normally") on junk 1.82/2.07 m at a real ~0.83 m; the pump restarted 10:20:50; at
+**10:35:50 `water_borehole_no_rise_protection` tripped** with the pump drawing 1260 W and the tank really
+rising ~0.45 m/h; more false target-stops 10:39:30 and 10:55:40. Truth cross-check: once the pump stopped
+and the water settled (11:05) raw read a clean 1.09 m and then rose 0.45 m/h — the old validated sensor
+had reported 1.4–1.87 m for the same period.
+
+**Root causes**
+1. **Depth filter trusted everything while the pump ran** (Rule 4 in the old Spike Rejection Logic, already
+   listed as a known weakness). This Tuya sensor only emits junk during/just after pumping (surface
+   turbulence; a pinned 2.07 = beyond the 2.05 m physical max), so the filter was disabled exactly when needed.
+2. **No-rise protection judged `sensor.water_tank_depth_rate`** — a derivative of the last two RAW readings,
+   held until the next reading. One junk pair (0.92→1.16→0.93) left it at −82.9 m/h at the 15-min check.
+   (Also fails the other way: a junk positive rate masks a genuine dry run.)
+3. **`water_stop_at_daily_target` fired on the first reading above target**, no debounce.
+4. **Alert pipeline**: `route_water_tank_alert`'s `context → critical` trigger (immediate) and its
+   `alert_active` for-20s trigger both fired for one event (two identical pushes); and
+   `water_state = refilling` with the abort flag still on (flag lingers until the new cycle clears it) counted
+   as "bad state" → a third critical push while the pump was running.
+
+**Fixes**
+- **A (BUG-W01)** `sensor.water_tank_depth_validated` (`water_templates.yaml`) rewritten: upward moves must fit a
+  physical envelope — pump ON: `max(run-start depth + 0.15 + 0.8 m/h × hours since pump on, prev + 0.05 +
+  0.8 m/h × hours since last accepted change)`; pump OFF: `prev + 0.05 + 0.1 m/h × hours since last change`.
+  Drops always accepted. Run-start term is ratchet-proof; prev term lets a long-silent sensor catch up.
+  **Replay of the real 24-Sep raw data**: rejected every 1.82/2.07/1.84/1.87 junk value, tracked 0.83→0.95→1.07 m
+  (real ≈1.07–1.09 m at 10:55–11:05); no false full-stops possible.
+- **B (BUG-W01)** no-rise now tests NET rise of validated depth since pump start (< 0.02 m over 15 min, ≈0.08 m/h,
+  ~1/6 of the observed fill rate) against new `input_number.water_pump_run_start_depth`, captured on every pump
+  off→on by new `automation.water_capture_pump_run_start_depth`. It only judges when
+  `binary_sensor.water_tank_depth_sensor_stable` is on (raw ≈ validated ±0.15 m) — a blind/noisy sensor is "no
+  information", not "no rise". Falls back to the old rate test only if no start depth was ever captured.
+  Fault logbook line now includes start depth and raw-sensor age.
+- **C (BUG-W01)** `water_stop_at_daily_target`: on crossing, wait 60 s then stop only if validated depth is still
+  ≥ target − 0.10 m; `mode: single`. Deliberately not `for: 00:01:00` (a noise dip resets that timer forever).
+- **D (BUG-W02)** `alerts_water.yaml`: `binary_sensor.water_alert_active` and `sensor.water_alert_context` no
+  longer treat "refilling + pump on" as a bad state; `route_water_tank_alert`'s `escalate` trigger only passes when
+  `water_alert_active` is already on (initial delivery is then the single alert_active trigger). Logic-tested with
+  simulated inputs (real abort still critical; lingering flag while pumping → warning, no push).
+- **New (warning only)** `automation.water_depth_sensor_untrusted_while_pumping`: at 15/30/45/60 min of pumping with an
+  untrusted sensor (unstable, or raw > 2.05 m) → logbook + warning notify. Does not stop the pump.
+
+**RESIDUAL RISK (accepted, needs owner decision):** with a blind sensor the validated depth now stalls LOW, so the
+fill-target and 1.95 m stops cannot fire — previously junk highs stopped the pump early (accidentally
+fail-safe for overflow, but unreliable supply). Overflow protection in that case is the operator acting on the
+warning above. A blind-sensor hard stop (e.g. 45 min with no valid reading) was NOT added — it would stall supply
+whenever the sensor dies and needs manual clearing. `water_stop_refill_at_max_depth` keeps its `for: 1 min`
+(a noise dip near full can still reset it) and `water_borehole_degraded_rise_rate_protection` still uses the raw
+derivative — both left as-is.
+
+**Files:** `water_templates.yaml`, `water_helpers.yaml`, `water_protection_automations.yaml`,
+`water_tank_refill_control.yaml`, `packages/alerts/alerts_water.yaml`.
+
+---
+
 ## 7. Error Signatures (Watchman-Confirmed)
 
 | Entity | Status | File | Issue |
@@ -1067,6 +1129,7 @@ Five protections listed in `WATER_CONTEXT.md`. Each audited independently.
 - **Implementation:** `water_protection_automations.yaml` — `water_borehole_no_rise_protection`
 - **Trigger:** Pump on for 15 minutes + depth rate < 0.01 m/h + depth < 1.95
 - **Independence:** ✅ Separate condition checks; marks safety abort flag
+- **Amended 2026-09-25 (Issue 21):** now tests net rise of validated depth since pump start (< 0.02 m/15 min) vs `input_number.water_pump_run_start_depth`, and only when `binary_sensor.water_tank_depth_sensor_stable` is on. The Issue text below describes the old rate-based version.
 - **Issue:** Uses `sensor.water_tank_depth_rate` which is a derivative of the RAW sensor. If a raw sensor spike occurs within the 15-minute window, the derivative shows a positive rate, resetting the effective timer. A spike could therefore mask a genuine dry-run.
 - **Auto-retry (added 2026-08-18, Issue 20):** a no-rise trip is a NET signal — it can't distinguish "borehole producing nothing" from "borehole producing slowly, outpaced by concurrent house consumption." Confirmed real on 2026-08-18: net depth -0.04m over the 15min run, but `sensor.water_tank_consumption_rate` read 0.24-0.48 m/h the entire window (never zero), sensors were healthy/stable throughout, and a manual restart refilled normally within seconds. The automation now auto-retries after a cooldown instead of requiring a manual restart every time — see Issue 20.
 - **Verdict:** IMPLEMENTED. Works correctly for genuine no-rise conditions. Spike sensitivity is a minor risk.
@@ -1124,6 +1187,11 @@ Five protections listed in `WATER_CONTEXT.md`. Each audited independently.
 | Known behaviours | Occasional large upward spikes (reported > 1.0m delta); connectivity drops causing unavailable transitions |
 
 ### Spike Rejection Logic
+
+> **SUPERSEDED 2026-09-25 (Issue 21 / BUG-W01):** the six-rule description below is the OLD filter. The live filter
+> is an upward-rise *envelope* (pump on: run-start depth + 0.15 + 0.8 m/h × hours-on, or prev + 0.05 + 0.8 m/h ×
+> hours-since-change; pump off: prev + 0.05 + 0.1 m/h × hours). Rule 4 below ("trust everything while pumping") no
+> longer exists. Kept for history.
 
 Implemented in `water_templates.yaml` as a trigger-based template sensor (`sensor.water_tank_depth_validated`):
 

@@ -5,7 +5,27 @@
 
 ## ⚠️ OPEN TODO
 
-- [x] **2026-09-25 (latest) — Security: BUG-S86 — "Security Alert still active" reminder
+- [x] **2026-09-25 (latest) — Water: false "Safety Abort" + false "Fill target reached" stops
+      (BUG-W01/W02, WATER_CONTRACT Issue 21).** User: 24-Sep ~10:36–10:40 three critical
+      "Water Safety Abort" pushes — real or not? Not: pump was filling (1260 W, tank rising
+      ~0.45 m/h). Depth sensor emits junk while pumping (pinned 2.07 m / 1.2–2.07 bouncing); the
+      old filter trusted everything while the pump ran, no-rise judged a stale −82.9 m/h derivative,
+      target-stop had no debounce, alert routing double-fired + treated "refilling, pump on" as bad.
+      **Fixed (all four + one addition):** A depth filter → physical rise envelope (replayed against
+      the real data: tracked 0.83→1.07 m, truth ≈1.09); B no-rise → net rise since pump start, gated on
+      sensor trust; C target-stop → 60 s confirm, ±0.10 m tolerant, mode single; D alert routing dedupe +
+      "refilling+pump on" not critical; new warning-only untrusted-sensor automation.
+      New entities: `input_number.water_pump_run_start_depth`, `automation.water_capture_pump_run_start_depth`,
+      `automation.water_depth_sensor_untrusted_while_pumping`. Files: `packages/water/{water_templates,
+      water_helpers,water_protection_automations,water_tank_refill_control}.yaml`,
+      `packages/alerts/alerts_water.yaml`. **Verified**: `ha core check` valid; Reload Input Number/
+      Templates/Automations all `[]`; new entities present; validated sensor updating with the new
+      template; alert gate/context/escalate logic tested with simulated inputs. **NOT observed** on a
+      live fill. **Residual risk (owner decision):** blind sensor now stalls validated LOW so target/1.95 m
+      stops can't fire — mitigated only by the new warning; no blind-sensor hard stop added (see contract).
+      Also: the security BUG-S86 entry below.
+
+- [x] **2026-09-25 — Security: BUG-S86 — "Security Alert still active" reminder
       named two different cameras over a third's image.** Live push 24-Sep 09:37 (Path: Side
       Entry) showed "Camera: Cam07 Front Kitchen" then "Camera: Cam12-Back-Pond" + a cam12 frame.
       `security_alert_repeat_reminder` (`alerts_security.yaml`) mixed three sources — live
