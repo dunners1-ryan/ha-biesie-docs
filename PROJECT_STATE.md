@@ -5,7 +5,21 @@
 
 ## ⚠️ OPEN TODO
 
-- [x] **2026-09-23 (latest) — Infra/Backup: untracked 719 tracked-but-gitignored files
+- [x] **2026-09-25 (latest) — Security: BUG-S86 — "Security Alert still active" reminder
+      named two different cameras over a third's image.** Live push 24-Sep 09:37 (Path: Side
+      Entry) showed "Camera: Cam07 Front Kitchen" then "Camera: Cam12-Back-Pond" + a cam12 frame.
+      `security_alert_repeat_reminder` (`alerts_security.yaml`) mixed three sources — live
+      priority sensor (cam07), global last-motion tracker appended by the script (cam12), global
+      last-motion image (cam12) — which disagree whenever two NVR cameras are on at once. Now
+      resolves ONE camera (classifier `camera` attr → trigger sensor → tracker), passes it as
+      `camera_override`, drops its own `Camera:` line, and snapshots that same camera to
+      `www/security_reminder_<cam>.jpg` (gitignored). **Verified**: `ha core check` valid,
+      Reload Automations `[]`, automation `on`, resolver template rendered against live state
+      (cam07 across all sources). **NOT observed** on a real 5-min reminder. Dead
+      `alert.security_alert` message left as-is (needs restart, never delivered). Docs:
+      SECURITY_CONTRACT BUG-S86. No entities added/renamed.
+
+- [x] **2026-09-23 — Infra/Backup: untracked 719 tracked-but-gitignored files
       (camera snapshots, lock file, Solcast caches).** Found while explaining why
       `git status` always showed `solcast_solar/solcast*.json` + `www/security_latest.jpg`
       modified: `.gitignore` already excluded `www/*.jpg` ("Security snapshots - never

@@ -3025,6 +3025,34 @@ image mobile push path itself is unaffected.
 
 ---
 
+### BUG-S86 — "Security Alert still active" reminder showed two different cameras (and a third camera's image) when two non-IP cameras were active
+**Priority: MEDIUM | Status: ✅ FIXED 2026-09-25 (deployed via Reload Automations; resolver template verified against live state; NOT yet observed on a real 5-min reminder)**
+
+**Reported by:** user — screenshot Thu 24-Sep 09:37: `[SECURITY] ⏰ Security Alert still active (5min)`,
+"Path: Side Entry", then "Camera: Cam07 Front Kitchen" and again "Camera: Cam12-Back-Pond" with a
+cam12 frame attached. "still confusing cameras for alerts on the non IP cameras."
+
+**Root cause:** `security_alert_repeat_reminder` (`alerts_security.yaml`) was never migrated to the
+BUG-S85 one-camera model the router got. One push drew on three independent sources:
+1. message text `Camera:` → `sensor.security_trigger_camera` — live first-match **priority** list (cam07 outranks cam12);
+2. `notify_security_event`'s own appended `Camera:` → global `input_text.security_last_motion_camera` — whoever fired **last** (cam12);
+3. image → global `input_text.security_last_motion_image` — also last-fired (cam12).
+With two NVR cameras on at once, "priority" and "last-fired" disagree, so the text contradicted itself
+and the picture. The router's initial alert was unaffected (uses the classifier's `camera` attribute).
+
+**Fix:** the reminder now resolves ONE camera (`rem_cam_id`: classifier `camera` attribute → live
+`sensor.security_trigger_camera` → `security_last_motion_camera`, first that is a real `camera.*`
+entity), passes it as `camera_override`, drops its own embedded `Camera:` line (the script appends
+one), and takes a fresh `camera.snapshot` of that same camera to `/config/www/security_reminder_<cam>.jpg`
+(gitignored via `www/*.jpg`). If the camera is unavailable the image is that camera's own newest
+`input_text.<cam>_history` entry, never another camera's. `alerts_security.yaml` only.
+
+**Not changed (known):** the dead `alert.security_alert` `message:` (dashboard-only, still reads
+`sensor.security_trigger_camera`) — editing needs an HA restart; it is never delivered. Any future
+`notify_security_event` caller that embeds a `Camera:` line must also pass `camera_override`.
+
+---
+
 ## Section 7: Active Log Errors
 
 **⚠️ Stale snapshot (flagged 2026-07-08):** this section pre-dates Sprint 1 (2026-04-15)
