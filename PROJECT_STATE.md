@@ -5,6 +5,22 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-09-29 — Water Cooler: one unlogged bottle swap reconciled (state
+      correction only, no code change).** User reported 1 spare bottle left after the
+      2026-09-28 16:03 swap, but HA showed 2. From `home-assistant_v2.db` history, the
+      logged changes since the 2026-09-04 delivery (09-04, 09-08, 09-13, 09-21 backdated,
+      09-25, 09-28) are 3.3–4.4 days apart, except 09-13 00:00 → 09-21 09:00 (8.4 days,
+      two bottles' worth). Consumption since 09-04 (24.3 d ≈ 6 swaps) and the correct
+      2026-09-06 hand-count of 7 both confirm one missed swap. The user placed it on
+      Thursday night 2026-09-17 20:00 (they said "Thursday 18th"; the 18th was a Friday,
+      so Thursday was used). **Fixed live via Core API:** `watercooler_bottles_in_stock`
+      2→1, `watercooler_empties_on_hand` 5→6, `watercooler_avg_days_per_bottle`
+      4.39→3.75 (EMA replayed from 4.2 with the 09-17 swap inserted: 4.45 → 4.09 → 4.06
+      → 3.75; the 8.4-day single interval had inflated it to 5.87 on 09-23).
+      `watercooler_last_bottle_change_time` was left at 2026-09-28 16:03:06 (still the
+      latest real swap). The backdate button was deliberately not used, because it would
+      have overwritten the latest-change time with 09-17.
+
 - [x] **2026-09-25 — Project-state check: 4 quick fixes + www/ retention + repo-wide `initial:`
       audit (Rule 5b) + docs reconciliation.** Started as a state check of the open TODO log
       against live code and the domain contracts; several "open" items were already fixed (BUG-N18

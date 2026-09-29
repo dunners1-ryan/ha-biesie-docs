@@ -108,6 +108,14 @@ calibrating estimate.
   STANDARDS.md). First real use the same day: backdated 2026-09-21 09:00
   bottle change logged live, taking `avg_days_per_bottle` 4.2→5.87,
   `bottles_in_stock` 5→4, `empties_on_hand` 2→3.
+- **A missed swap needs manual correction, not a backdated press (2026-09-29)**: a
+  swap on Thursday 2026-09-17 was never logged, found from an 8.4-day gap between
+  logged changes. The backdate path always overwrites `watercooler_last_bottle_
+  change_time`, so it can only log a swap older than the latest real one by
+  moving the clock backwards. That is wrong here, so the fix was direct `set_value`
+  calls instead: stock −1, empties +1, and `avg_days_per_bottle` recomputed by
+  replaying the EMA with the missed swap inserted (4.39→3.75). See
+  `docs/PROJECT_STATE.md`'s 2026-09-29 entry.
 - **Restore-state gap after an HA Core update (added 2026-09-06, real
   incident, different mechanism from the debounce bug above)**: an HA Core
   update (2026.8.3 → 2026.9.1) restarted Core at 13:01 SAST on 2026-09-06 —
