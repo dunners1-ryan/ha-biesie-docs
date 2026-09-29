@@ -20,6 +20,19 @@
       `watercooler_last_bottle_change_time` was left at 2026-09-28 16:03:06 (still the
       latest real swap). The backdate button was deliberately not used, because it would
       have overwritten the latest-change time with 09-17.
+      **Follow-up the same day: swap-overdue reminder added** so this can't go
+      unnoticed again. New `automation.water_cooler_swap_overdue_reminder`
+      (`watercooler_automations.yaml`) runs daily at 19:00 and notifies when the
+      current bottle has been on for ≥ avg + `watercooler_swap_overdue_grace_days`
+      (default 1 d), with ≥1 spare in stock. New helpers
+      `input_number.watercooler_swap_overdue_grace_days` and
+      `input_datetime.watercooler_swap_reminder_time` (settings, so `initial:` is
+      OK under Rule 5b). `check_config` valid, input_number/input_datetime/
+      automation reloaded, all 3 entities live, and the corrected stock values
+      survived the reload. A replay of the 09-13→09-21 window shows it would have
+      fired 2026-09-18 at 19:00. **Not yet seen firing for real.** The settings
+      aren't on the `watercooler-control` dashboard yet; edit them via Settings →
+      Helpers.
 
 - [x] **2026-09-25 — Project-state check: 4 quick fixes + www/ retention + repo-wide `initial:`
       audit (Rule 5b) + docs reconciliation.** Started as a state check of the open TODO log

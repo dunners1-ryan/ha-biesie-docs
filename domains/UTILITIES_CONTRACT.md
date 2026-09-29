@@ -347,6 +347,20 @@ and `can_acknowledge` UI — **not** the real delivery path (that's
 Requires a full HA restart to activate (`alert:` entities cannot be
 reloaded).
 
+**Swap-overdue reminder (added 2026-09-29), a plain reminder outside the
+pipeline above:** `automation.water_cooler_swap_overdue_reminder` runs daily at
+`input_datetime.watercooler_swap_reminder_time` (19:00) and sends an
+`information` notification ("Bottle swap not logged?") when the mounted bottle
+has been on for at least `avg_days_per_bottle` + `input_number.watercooler_
+swap_overdue_grace_days` (default 1 d). It repeats every evening until Log
+Bottle Changed is pressed. Gated on `watercooler_alert_notify` on and
+`bottles_in_stock` ≥ 1 (with no spare, the low-stock alert already covers
+it). There is deliberately no binary_sensor, `_alert_context` or `alert:`
+entity: it's a nudge to log a button press, not a stock condition, so it
+stays out of the aggregator. It was added after the unlogged 2026-09-17 swap
+(Section 3), and a replay of that window shows it would have fired on
+2026-09-18 at 19:00 (5.8 d elapsed vs a 5.2 d threshold).
+
 **Required attribute shape (2026-09-02 fix, real bug not a doc gap):**
 `sensor.watercooler_alert_context` originally shipped without a `duration`
 attribute — ALERTS_CONTRACT.md Section 3's canonical pipeline already
