@@ -35,6 +35,18 @@
       call was blocked as a real-world actuation), a real notification tap, the verify-timeout
       warning, the garage relay at all (inching unknown). **Open:** CarPlay/widgets are configured
       in the Companion app on the phone (not server-side); gate switch WiFi signal is marginal.
+      **Follow-up same day:** user confirmed the gate relay inches 8 s and the motor is a toggle
+      sequence (open → stop → close). Replaced the 8 s shared cooldown with a 2 s per-group debounce +
+      follow-up rule (repeat `open` while still travelling = another pulse), added `stop` command
+      and cover `stop_cover`; verify script releases a stuck relay after 12 s and skips the
+      warning when a newer press superseded it. New `input_boolean.security_pedestrian_alert_control_
+      enabled` (left OFF); visitor buttons now "Open Main Gate" / "Open Pedestrian Gate". Dashboard:
+      Security view cards rebuilt (sensor status rows, WiFi rows only when weak < −85 dBm) and a
+      "Gate & Garage Control" tile block added to the Home dashboard under Physical Entry Status
+      (pushed via `lovelace/config/save`, backups `*.bak.20261003_access2`). Honor tablets already
+      received buttons (all non-info branches pass `actions`). `arrival_gate_control_enabled`
+      investigated: dormant since 2026-02-05, nothing reads it. **NOT exercised live:** no real pulse,
+      follow-up/stop behaviour, or tile taps; garage inching unconfirmed.
       Docs: SECURITY_CONTRACT (Section 3 Access Control, file inventory, 10.4, BUG-S87),
       NOTIFICATIONS_CONTRACT, ALERTS_CONTRACT, SYSTEM_CONTRACT, Context/SECURITY_CONTEXT,
       Alert_Test_Plan (Test 2 due), CLAUDE.md.
@@ -5728,6 +5740,9 @@ automation.security_access_control_from_notification  # OPEN_GATE / OPEN_GATE_PE
                                                  # OPEN_GARAGE / CLOSE_GARAGE + Telegram equivalents
 input_boolean.security_gate_alert_control_enabled    # security_helpers.yaml — no initial:
 input_boolean.security_garage_alert_control_enabled  # security_helpers.yaml — no initial:
+input_boolean.security_pedestrian_alert_control_enabled # 2026-10-03 follow-up — no initial:
+input_number.security_access_repeat_window_seconds   # follow-up tap window (default 15 s)
+input_datetime.security_access_last_pulse_gate / _garage  # debounce + verify supersession
 switch.smart_switch_main_gate / _main_gate_ped / smart_switch_garage   # integration-provided relays
 # REMOVED 2026-10-03: automation.gate_open_from_notification (targeted nonexistent
 # switch.smart_gate_switch — BUG-S87). Do not reintroduce switch.smart_gate_switch.

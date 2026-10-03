@@ -287,12 +287,12 @@ Warning and Critical notifications bypass quiet hours in all scripts (correct be
 Standard fields: `severity`, `title`, `message`, `image`, `source`, `gate_control`
 
 **`access_controls` (list, optional) — added 2026-10-03 (SECURITY_CONTRACT.md "Access Control"):**
-Entries `gate` (Open Gate + Pedestrian when the gate is closed, Close Gate when open),
+Entries `gate` (Open Main Gate / Open Pedestrian Gate when the gate is closed — each only if its own toggle is on — Close Gate when open),
 `gate_close` (Close Gate, only while open), `garage` (Open/Close Garage by state),
 `garage_close` (Close Garage, only while open). The script builds the buttons from live
 `binary_sensor.main_gate_sensor` / `binary_sensor.garage_door_sensor` state at send time and
 only when `input_boolean.security_gate_alert_control_enabled` / `security_garage_alert_control_enabled`
-is on. Appended AFTER the caller's own `actions` (Android shows 3 max); iOS buttons carry
+is on (gate / pedestrian / garage — `security_pedestrian_alert_control_enabled` added 2026-10-03). Honor tablets (`honor10_dash`, `honorx7_dash`, `ap_0223_1001`) get the same buttons on warning/critical. Appended AFTER the caller's own `actions` (Android shows 3 max); iOS buttons carry
 `authenticationRequired: true`. Mirrored as extra Telegram inline rows (`🚪 Open Gate:/open_gate`,
 etc.). `gate_control: true` = `["gate"]` — its old "Reply OPEN to open gate" Telegram text
 (no handler ever existed) was removed. Taps handled by

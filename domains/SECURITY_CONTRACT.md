@@ -549,16 +549,24 @@ send time — field `access_controls`, or legacy `gate_control: true` = `["gate"
   `authenticationRequired: true` (Face ID before a lock-screen tap runs). Android tablets
   show at most 3 buttons; caller buttons (Cancel Alert) come first.
 
-**Dashboard:** Operations → Security, cards "🚪 Access Control" (cover, Pedestrian Open,
-permission toggle, both gate-switch RSSI) and "🚗 Garage Control" (cover, permission toggle,
-RSSI) — replaced the "(Future)" placeholders 2026-10-03 (the old "Gate Control" toggle was
+**Dashboard:** Operations → Security, cards "🚪 Main Gate Control" (cover with open/stop/close,
+Pedestrian OPEN, gate sensor, gate + pedestrian permission toggles) and "🚗 Garage Control" (cover,
+garage door + garage security gate sensors, permission toggle). Switch WiFi rows are `conditional`
+rows — shown only when RSSI < −85 dBm or unavailable. Home dashboard (`dashboard-overview` → Home,
+under "Physical Entry Status"): "🚪 Gate & Garage Control" tiles — tap = `cover.toggle` (with
+confirmation), hold = `cover.stop_cover`; Pedestrian tile tap = pedestrian open, hold = stop gate;
+conditional weak-WiFi tile. Replaced the "(Future)" placeholders 2026-10-03 (the old "Gate Control" toggle was
 bound to `input_boolean.arrival_detected`, the old gate row to the nonexistent
 `switch.smart_gate_switch`).
 
 **Not built (deliberately):** no auto-open on arrival and no auto-close on departure —
 both actuate a gate with nobody confirming the driveway is clear.
-`input_boolean.arrival_gate_control_enabled` (presence_helpers.yaml, on the Presence view)
-predates this and is read by nothing — not wired into access control.
+`input_boolean.arrival_gate_control_enabled` (presence_helpers.yaml, added 2026-02-05 with
+`arrival_camera_capture_enabled`, shown on the Operations Presence view) has never been read by any
+automation, template or script — a dormant placeholder. Arrival detection does not use it:
+`security_gate_vehicle_stage1` / `security_arrival_stage2_confirm` (gate sensor + ipcam01 direction +
+AP roaming) and `presence_boundary_resolver` (sets `input_boolean.arrival_detected`) run regardless.
+Not wired into access control; candidate for deletion.
 
 ## Section 4: Data Flow Map
 
