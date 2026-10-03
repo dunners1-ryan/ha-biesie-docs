@@ -66,7 +66,7 @@ correlation, threat scoring) silently ignore staff presence.
 
 | File | Lines | Purpose |
 |---|---|---|
-| `presence_helpers.yaml` | 105 | Arrival/departure booleans, last-event timestamps |
+| `presence_helpers.yaml` | 106 | Arrival/departure booleans, last-event timestamps (2026-10-03: unused `arrival_gate_control_enabled` deleted) |
 | `presence_core.yaml` | 264 | AP→room map, per-person location, RAW occupancy, groups |
 | `presence_confidence.yaml` | 276 | Confidence scoring + binary occupied (per room) + `family_arriving`, `family_departing`, `all_family_home` (added S2 2026-05-17; `family_arriving`/`departing` logic updated S8 2026-05-19 — snapshot-delta replaces recency-only) |
 | `presence_boundary.yaml` | 798 | Boundary resolver (gate-based arrival/departure), `presence_clear_arrival_flag` auto-clear (added S1.4 2026-05-17), `presence_snapshot_who_home` rolling snapshot (added S8 2026-05-19), `laundry_entry_event`/`laundry_departure_event` (added 2026-08-23, mirror house_entry_event/house_departure_event) |

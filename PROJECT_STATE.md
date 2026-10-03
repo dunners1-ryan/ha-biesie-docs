@@ -35,8 +35,8 @@
       call was blocked as a real-world actuation), a real notification tap, the verify-timeout
       warning, the garage relay at all (inching unknown). **Open:** CarPlay/widgets are configured
       in the Companion app on the phone (not server-side); gate switch WiFi signal is marginal.
-      **Follow-up same day:** user confirmed the gate relay inches 8 s and the motor is a toggle
-      sequence (open → stop → close). Replaced the 8 s shared cooldown with a 2 s per-group debounce +
+      **Follow-up same day:** motor is a toggle sequence (open → stop → close) (the "8 s" the user
+      mentioned is the motor's AUTOCLOSE delay, not relay inching — corrected in follow-up #2 below). Replaced the 8 s shared cooldown with a 2 s per-group debounce +
       follow-up rule (repeat `open` while still travelling = another pulse), added `stop` command
       and cover `stop_cover`; verify script releases a stuck relay after 12 s and skips the
       warning when a newer press superseded it. New `input_boolean.security_pedestrian_alert_control_
@@ -47,6 +47,16 @@
       received buttons (all non-info branches pass `actions`). `arrival_gate_control_enabled`
       investigated: dormant since 2026-02-05, nothing reads it. **NOT exercised live:** no real pulse,
       follow-up/stop behaviour, or tile taps; garage inching unconfirmed.
+      **Follow-up #2 (same day):** (a) user's motor-app screenshot showed the 8 s is the motor's
+      autoclose (8 s after fully open), not relay inching — code comments + SECURITY_CONTRACT/this
+      file corrected; relay pulses are <1 s. (b) User turned `security_pedestrian_alert_control_enabled`
+      ON. (c) **DELETED `input_boolean.arrival_gate_control_enabled`** after an exhaustive scan (every
+      file under /config incl. dashboards, registry, restore_state, UI-created automations/scripts,
+      label enumeration): only its definition + one Operations Presence-view row referenced it —
+      removed from `presence_helpers.yaml`, the dashboard row (via `lovelace/config/save`, backup
+      `lovelace.dashboard_operations.bak.20261003_arrivalgate`), registry entry now a tombstone in
+      `deleted_entities`. `arrival_camera_capture_enabled` is also code-unused (dashboard only) —
+      left, not asked. check_config valid; input_boolean reload clean; live state 404 as expected.
       Docs: SECURITY_CONTRACT (Section 3 Access Control, file inventory, 10.4, BUG-S87),
       NOTIFICATIONS_CONTRACT, ALERTS_CONTRACT, SYSTEM_CONTRACT, Context/SECURITY_CONTEXT,
       Alert_Test_Plan (Test 2 due), CLAUDE.md.
@@ -5663,7 +5673,9 @@ check those (and this file's 2026-06-17 session log entry) before editing this b
 - `switch.smart_switch_main_gate` (CK-BL602-4SW-AY, area Main Gate), `switch.smart_switch_main_gate_ped`
   (CK-BL602-4SW-HS, pedestrian input), `switch.smart_switch_garage` (CK-BL602-4SW-HS, area Garage) —
   eWeLink `sonoff` custom integration, dry-contact triggers into the motor controllers. Gate relays
-  set to inching (auto-off) — confirmed from history; garage relay never pulsed as of 2026-10-03.
+  inch (auto-off in <1 s — history shows 0.1–1 s pulses); garage relay never pulsed as of 2026-10-03.
+- Garage motor (app screenshot 2026-10-03): trigger TRG2/IO 5, Standard mode, open position 4.24 m,
+  26 m/min, **autoclose ON 8 s after fully open**, pre-open/close delays off, PIRAC off.
 - WiFi: main gate −98 dBm, pedestrian −92 dBm (marginal — lost commands possible), garage −44 dBm.
 - Driven only via `script.security_access_operate` — see SECURITY_CONTRACT.md Section 3 "Access Control".
 
