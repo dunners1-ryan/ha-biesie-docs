@@ -823,6 +823,8 @@ now bind to `*.mobile_*`; a future hardware rename is fixed in this file once.
 | `sensor.mobile_prepaid` | Prepaid | `sensor.prepaid_units_left_safe` | int kWh; attr `days_left` |
 | `sensor.mobile_prepaid_days` | Prepaid Days | `sensor.prepaid_estimated_days_remaining` | alert icon at ≤ `prepaid_warning_days_remaining` |
 | `sensor.mobile_water_tank` | Water Tank | `sensor.water_tank_level` | int % |
+| `sensor.mobile_gas_days` | Gas Days | `sensor.gas_stove_days_remaining`, `sensor.gas_heater_days_remaining` | soonest of the two (d, 1 dp); attrs stove/heater/spare/low; alert icon follows `binary_sensor.gas_low` |
+| `sensor.mobile_vacuum` | Vacuum | `vacuum.deebot_t80s_biesie`, `sensor.deebot_t80s_biesie_error` | Error / Docked / Cleaning / …; fault wins over activity; attrs battery, error_code, error text, alert, consumables_low, detergent_pct |
 | `switch.mobile_patio_lights` | Patio Lights | `switch.pool_patio_down_lights` | proxy |
 | `switch.mobile_street_light` | Street Light | `switch.boundary_street_light` | proxy; boundary watchdog may re-assert |
 | `switch.mobile_front_light` | Front Light | `switch.front_house_security_light` | proxy |
@@ -841,6 +843,7 @@ now bind to `*.mobile_*`; a future hardware rename is fixed in this file once.
 - `sensor.mobile_*` / `switch.mobile_*` are excluded from the recorder (configuration.yaml
   entity_globs) — they duplicate recorded sources. No `state_class` → no statistics.
 - When a source entity is renamed, update this file and the table above; widgets need no change.
+- Intended device split: **CarPlay** = `cover.main_gate`, `cover.garage_door`, `script.security_manual_gate_pedestrian` + a few `switch.mobile_*` lights (quick-access list, max ~4–6); **phone / Mac / tablets** share one widget set of the `sensor.mobile_*` read-outs + lights/pumps. Both are chosen on-device, not in HA.
 - Device-side setup (widgets, CarPlay quick-access list, Mac menu bar) is done in the Companion
   app — not server-side config.
 
