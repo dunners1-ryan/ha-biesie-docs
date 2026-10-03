@@ -800,8 +800,12 @@ is canonical for which use case (forecast vs nowcast vs historical).
 
 ## Part 9: mobile/ — Phone / Laptop / CarPlay Surface Layer
 
-**Added 2026-10-03.** `packages/mobile/mobile_templates.yaml` — short-named, rounded entities
-for iOS/macOS Companion widgets, the macOS menu bar, Watch complications and CarPlay.
+**Added 2026-10-03.** Two files:
+- `packages/mobile/mobile_templates.yaml` (506 lines) — short-named, rounded `sensor.mobile_*`
+  read-outs and `switch.mobile_*` pass-through proxies for iOS/macOS Companion widgets, the
+  macOS menu bar, Watch complications and CarPlay.
+- `packages/mobile/mobile_groups.yaml` (92 lines) — `house_control_security` / `_other` / `_all`
+  / `house_info` reference groups (see Rules below for what these are and aren't for).
 
 **Why it exists:** those surfaces bind to an `entity_id` stored *on the device* and truncate
 names at ~12–14 characters. The phone/Mac widgets had been set up against hardware ids that

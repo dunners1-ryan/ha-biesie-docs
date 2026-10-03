@@ -84,6 +84,26 @@
       quick-access list / Mac menu bar on each device against the `*.mobile_*` entities.
       **Follow-up same day:** added `sensor.mobile_gas_days` (22.9 d — heater is the soonest; stove 84.8; `gas_low` on because spare bottle is empty) and `sensor.mobile_vacuum` (Docked; error code 0; consumables low). Now 12 sensors + 8 switches. Prepaid already reads `_safe` (the removed `sensor.prepaid_units_left` is unrelated).
       **Groups added:** `mobile_groups.yaml` — `house_control_security` (8), `house_control_other` (12), `house_control_all` (20, flattened), `house_info` (12); 9 more light proxies (now 17 switches). `check_config` valid, template+group reload clean, none unavailable. `house_info` may sit at `unknown` (sensor-only group) — harmless.
+      **Follow-up:** 3 proxy friendly names collided with the real switches in the Companion app's
+      entity picker (`Garage Light`/`Laundry Light`/`Office Light` both existed) — renamed the
+      `mobile_*` proxies to `Garage Lights`/`Laundry Lights`/`Office Lights` (plural) so the app
+      picker shows two distinct rows instead of one ambiguous one.
+      **User-side findings (no code owns these, for the next session's context):** (1) groups
+      cannot be bound to a Companion app widget/CarPlay tile — widgets and CarPlay bind individual
+      entities only, confirmed against the iOS Companion docs; the groups above are a reference
+      list, not a deployment mechanism. (2) The in-app entity picker searches friendly *names*, not
+      entity_ids — `mobile_*` as a search term returns nothing; search the Name column from the
+      entity table in this doc instead. (3) Custom widgets (Settings → Widgets) support
+      Export/Import to copy a built widget's entity list to another device, but Import replaces
+      that device's existing custom widgets and drops any entity reference whose server isn't set
+      up there. (4) Gate/garage relays (`switch.smart_switch_main_gate`/`_ped`/`_garage`) must
+      never be bound directly to a widget — only `cover.main_gate`/`cover.garage_door`/
+      `script.security_manual_gate_pedestrian` (security_access_control.yaml) carry the safety
+      guards; confirmed against that script's code this session. User reported (2026-10-04,
+      unconfirmed from this session) `sensor.mobile_gas_days`/`sensor.mobile_vacuum` not appearing
+      in their picker though both are live server-side (states confirmed) — likely the app's local
+      entity cache predating their 22:32 creation vs. the other 10 sensors' 21:12 creation; told
+      user to force-quit/reopen the app and recheck. **Not yet confirmed fixed.**
 
 - [x] **2026-09-29 — Water Cooler: one unlogged bottle swap reconciled (state
       correction only, no code change).** User reported 1 spare bottle left after the
