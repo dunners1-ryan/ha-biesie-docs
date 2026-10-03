@@ -79,6 +79,7 @@
       exclusion takes effect at the next HA restart; user must rebuild the widgets / CarPlay
       quick-access list / Mac menu bar on each device against the `*.mobile_*` entities.
       **Follow-up same day:** added `sensor.mobile_gas_days` (22.9 d — heater is the soonest; stove 84.8; `gas_low` on because spare bottle is empty) and `sensor.mobile_vacuum` (Docked; error code 0; consumables low). Now 12 sensors + 8 switches. Prepaid already reads `_safe` (the removed `sensor.prepaid_units_left` is unrelated).
+      **Groups added:** `mobile_groups.yaml` — `house_control_security` (8), `house_control_other` (12), `house_control_all` (20, flattened), `house_info` (12); 9 more light proxies (now 17 switches). `check_config` valid, template+group reload clean, none unavailable. `house_info` may sit at `unknown` (sensor-only group) — harmless.
 
 - [x] **2026-09-29 — Water Cooler: one unlogged bottle swap reconciled (state
       correction only, no code change).** User reported 1 spare bottle left after the

@@ -833,6 +833,7 @@ now bind to `*.mobile_*`; a future hardware rename is fixed in this file once.
 | `switch.mobile_pond_filter` | Pond Filter | `switch.pond_filter_pump_switch_1` | proxy |
 | `switch.mobile_geyser` | Geyser | `switch.geyser_heat_pump_switch` | proxy; geyser scheduling may re-assert |
 | `switch.mobile_pool_pump` | Pool Pump | `switch.pool_pump_switch` | proxy; pool target logic may re-assert |
+| `switch.mobile_carport_light` / `_laundry_light` / `_pool_light` / `_office_light` / `_office_entry` / `_office_bath` / `_entrance_down` / `_dining_light` / `_main_entrance` | Car Port Light … Main Entrance | `switch.car_port_security_light`, `switch.laundry_light`, `switch.pool_light_switch`, `switch.office_light`, `switch.office_entrance_light`, `switch.office_bathroom_light`, `switch.entrance_down_lights`, `switch.dining_room_light`, `switch.main_entrance_light` | proxies, added 2026-10-03 for the groups below |
 
 ### Rules
 - Proxies only forward `turn_on`/`turn_off` and mirror state; `availability` follows the real
@@ -843,6 +844,7 @@ now bind to `*.mobile_*`; a future hardware rename is fixed in this file once.
 - `sensor.mobile_*` / `switch.mobile_*` are excluded from the recorder (configuration.yaml
   entity_globs) — they duplicate recorded sources. No `state_class` → no statistics.
 - When a source entity is renamed, update this file and the table above; widgets need no change.
+- **Groups** (`packages/mobile/mobile_groups.yaml`): `group.house_control_security` (gate, garage, pedestrian script, street/front/back/car-port/garage lights — the CarPlay set), `group.house_control_other` (pool pump/light, geyser, pond, patio, entrance, dining, laundry, office lights), `group.house_control_all` (both, flattened — edit all three together), `group.house_info` (the 12 read-out sensors). Mixed-domain groups are lists only: a widget bound to one cannot toggle members together, so bind widgets to members.
 - Intended device split: **CarPlay** = `cover.main_gate`, `cover.garage_door`, `script.security_manual_gate_pedestrian` + a few `switch.mobile_*` lights (quick-access list, max ~4–6); **phone / Mac / tablets** share one widget set of the `sensor.mobile_*` read-outs + lights/pumps. Both are chosen on-device, not in HA.
 - Device-side setup (widgets, CarPlay quick-access list, Mac menu bar) is done in the Companion
   app — not server-side config.
