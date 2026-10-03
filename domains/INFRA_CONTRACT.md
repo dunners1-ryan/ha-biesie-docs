@@ -829,11 +829,11 @@ now bind to `*.mobile_*`; a future hardware rename is fixed in this file once.
 | `switch.mobile_street_light` | Street Light | `switch.boundary_street_light` | proxy; boundary watchdog may re-assert |
 | `switch.mobile_front_light` | Front Light | `switch.front_house_security_light` | proxy |
 | `switch.mobile_back_light` | Back Light | `switch.back_house_security_light` | proxy |
-| `switch.mobile_garage_light` | Garage Light | `switch.garage_light` | proxy |
+| `switch.mobile_garage_light` | Garage Lights (plural — avoids clashing with the real "Garage Light" in app pickers) | `switch.garage_light` | proxy |
 | `switch.mobile_pond_filter` | Pond Filter | `switch.pond_filter_pump_switch_1` | proxy |
 | `switch.mobile_geyser` | Geyser | `switch.geyser_heat_pump_switch` | proxy; geyser scheduling may re-assert |
 | `switch.mobile_pool_pump` | Pool Pump | `switch.pool_pump_switch` | proxy; pool target logic may re-assert |
-| `switch.mobile_carport_light` / `_laundry_light` / `_pool_light` / `_office_light` / `_office_entry` / `_office_bath` / `_entrance_down` / `_dining_light` / `_main_entrance` | Car Port Light … Main Entrance | `switch.car_port_security_light`, `switch.laundry_light`, `switch.pool_light_switch`, `switch.office_light`, `switch.office_entrance_light`, `switch.office_bathroom_light`, `switch.entrance_down_lights`, `switch.dining_room_light`, `switch.main_entrance_light` | proxies, added 2026-10-03 for the groups below |
+| `switch.mobile_carport_light` / `_laundry_light` / `_pool_light` / `_office_light` / `_office_entry` / `_office_bath` / `_entrance_down` / `_dining_light` / `_main_entrance` | Car Port Light … Main Entrance (Laundry Lights, Office Lights plural for the same reason) | `switch.car_port_security_light`, `switch.laundry_light`, `switch.pool_light_switch`, `switch.office_light`, `switch.office_entrance_light`, `switch.office_bathroom_light`, `switch.entrance_down_lights`, `switch.dining_room_light`, `switch.main_entrance_light` | proxies, added 2026-10-03 for the groups below |
 
 ### Rules
 - Proxies only forward `turn_on`/`turn_off` and mirror state; `availability` follows the real
