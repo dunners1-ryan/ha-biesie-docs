@@ -1,6 +1,6 @@
 ##########################################################
 # HABiesie — INFRASTRUCTURE CONTRACT
-# Covers: core/, backup/, admin/, office/, weather/,
+# Covers: core/, backup/, admin/, mobile/, office/, weather/,
 #         sensors/, integrations/, custom_components/
 # Generated: 2026-04-16
 # Updated: 2026-08-21 (deep drift sweep, 9th and final domain of this session's audit) —
@@ -795,6 +795,54 @@ is canonical for which use case (forecast vs nowcast vs historical).
 `packages/notifications/admin_notifications.yaml` (Part 6/7-adjacent, actually lives in
 `packages/notifications/`, not `packages/admin/`) separately handles admin-facing
 *notifications* (unknown AP, etc.) — unrelated to this file, no overlap.
+
+---
+
+## Part 9: mobile/ — Phone / Laptop / CarPlay Surface Layer
+
+**Added 2026-10-03.** `packages/mobile/mobile_templates.yaml` — short-named, rounded entities
+for iOS/macOS Companion widgets, the macOS menu bar, Watch complications and CarPlay.
+
+**Why it exists:** those surfaces bind to an `entity_id` stored *on the device* and truncate
+names at ~12–14 characters. The phone/Mac widgets had been set up against hardware ids that
+were later renamed (Sonoff/Tuya re-pairs), so they degraded to raw `switch.xxx` tiles, and the
+"Today Load Consumption" tile read one inverter only (15 kWh vs the 30 kWh house total). Devices
+now bind to `*.mobile_*`; a future hardware rename is fixed in this file once.
+
+### Entities
+
+| Entity | Name | Source | Notes |
+|---|---|---|---|
+| `sensor.mobile_battery` | Battery | `sensor.battery_soc` | int %; icon tracks level + charging; attrs `power_w` (**+ = charging**, flipped from Solarman's + = discharge), `runtime` |
+| `sensor.mobile_solar_today` | Solar Today | `sensor.inverter_today_production` | kWh 1 dp; attrs Solcast today/tomorrow |
+| `sensor.mobile_used_today` | Used Today | `sensor.inverter_today_load_consumption` | both inverters |
+| `sensor.mobile_charged_today` | Charged Today | `sensor.inverter_today_battery_charge` | both inverters |
+| `sensor.mobile_house_load` | House Load | `sensor.house_power` | kW 1 dp (rounding cuts state churn) |
+| `sensor.mobile_solar_now` | Solar Now | `sensor.inverter_pv_power` | kW 1 dp |
+| `sensor.mobile_grid` | Grid | `sensor.grid_state_health`, `binary_sensor.load_shedding_active` | On / At risk / Unstable / Off / Shedding Nm |
+| `sensor.mobile_prepaid` | Prepaid | `sensor.prepaid_units_left_safe` | int kWh; attr `days_left` |
+| `sensor.mobile_prepaid_days` | Prepaid Days | `sensor.prepaid_estimated_days_remaining` | alert icon at ≤ `prepaid_warning_days_remaining` |
+| `sensor.mobile_water_tank` | Water Tank | `sensor.water_tank_level` | int % |
+| `switch.mobile_patio_lights` | Patio Lights | `switch.pool_patio_down_lights` | proxy |
+| `switch.mobile_street_light` | Street Light | `switch.boundary_street_light` | proxy; boundary watchdog may re-assert |
+| `switch.mobile_front_light` | Front Light | `switch.front_house_security_light` | proxy |
+| `switch.mobile_back_light` | Back Light | `switch.back_house_security_light` | proxy |
+| `switch.mobile_garage_light` | Garage Light | `switch.garage_light` | proxy |
+| `switch.mobile_pond_filter` | Pond Filter | `switch.pond_filter_pump_switch_1` | proxy |
+| `switch.mobile_geyser` | Geyser | `switch.geyser_heat_pump_switch` | proxy; geyser scheduling may re-assert |
+| `switch.mobile_pool_pump` | Pool Pump | `switch.pool_pump_switch` | proxy; pool target logic may re-assert |
+
+### Rules
+- Proxies only forward `turn_on`/`turn_off` and mirror state; `availability` follows the real
+  switch so a tile never shows a stale "off". No automations, no logic in this package.
+- Nothing in other packages may reference `*.mobile_*` — consumers are devices only.
+- Gate / garage door control is **not** proxied: devices use `cover.main_gate`,
+  `cover.garage_door`, `script.security_manual_gate_pedestrian` (SECURITY_CONTRACT §3).
+- `sensor.mobile_*` / `switch.mobile_*` are excluded from the recorder (configuration.yaml
+  entity_globs) — they duplicate recorded sources. No `state_class` → no statistics.
+- When a source entity is renamed, update this file and the table above; widgets need no change.
+- Device-side setup (widgets, CarPlay quick-access list, Mac menu bar) is done in the Companion
+  app — not server-side config.
 
 ---
 

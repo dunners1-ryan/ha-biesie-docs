@@ -39,6 +39,24 @@
       NOTIFICATIONS_CONTRACT, ALERTS_CONTRACT, SYSTEM_CONTRACT, Context/SECURITY_CONTEXT,
       Alert_Test_Plan (Test 2 due), CLAUDE.md.
 
+- [ ] **2026-10-03 — Mobile surface layer: new `packages/mobile/` for phone / laptop / CarPlay
+      (INFRA_CONTRACT Part 9).** User's iOS/macOS widget showed raw `switch.pool_patio_light…`,
+      `switch.boundary_securit…`, `switch.out-side_house…`, `switch.out-side_back…` tiles: those ids
+      no longer exist (renamed in Sonoff/Tuya re-pairs; widgets store the id on the device). Its
+      "Today Load Consumption" tile read one inverter (15 kWh vs the 30 kWh house total) and long
+      names truncated ("Inverter Batter…"). **Built:** `packages/mobile/mobile_templates.yaml` — 10
+      short-named rounded `sensor.mobile_*` (Battery, Solar Today, Used Today, Charged Today, House
+      Load, Solar Now, Grid, Prepaid, Prepaid Days, Water Tank) + 8 `switch.mobile_*` pass-through
+      proxies (Patio Lights, Street Light, Front Light, Back Light, Garage Light, Pond Filter, Geyser,
+      Pool Pump). Battery `power_w` attr flipped so + = charging (Solarman is + = discharge; caught
+      live at 21:00 when the icon first said charging). Gate/garage not proxied — the parallel
+      access-control session owns `cover.main_gate`/`cover.garage_door`. Recorder exclude globs
+      `sensor.mobile_*`/`switch.mobile_*` added to `configuration.yaml`. **Verified:** `check_config`
+      valid; `template.reload` `[]`; all 18 entities live with expected values/icons. **Not
+      verified:** a real toggle through a proxy (not actuated from here). **Pending:** recorder
+      exclusion takes effect at the next HA restart; user must rebuild the widgets / CarPlay
+      quick-access list / Mac menu bar on each device against the `*.mobile_*` entities.
+
 - [x] **2026-09-29 — Water Cooler: one unlogged bottle swap reconciled (state
       correction only, no code change).** User reported 1 spare bottle left after the
       2026-09-28 16:03 swap, but HA showed 2. From `home-assistant_v2.db` history, the

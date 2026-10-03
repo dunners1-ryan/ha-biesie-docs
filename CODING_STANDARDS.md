@@ -37,6 +37,8 @@ This is the legacy UI-managed file. All new automations go in the appropriate pa
 
 If a new domain package is needed, add it to `PROJECT_STATE.md` and this file.
 
+> 2026-10-03: `packages/mobile/` added (phone/laptop/CarPlay surface layer — INFRA_CONTRACT Part 9). Devices bind to `*.mobile_*` proxies; other packages must never reference them.
+
 ### Rule 4 — Always check the entity registry before creating any new entity
 
 **Before creating any `input_boolean`, `utility_meter`, `sensor`, or helper in YAML:**
