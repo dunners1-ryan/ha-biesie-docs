@@ -57,6 +57,10 @@
       `lovelace.dashboard_operations.bak.20261003_arrivalgate`), registry entry now a tombstone in
       `deleted_entities`. `arrival_camera_capture_enabled` is also code-unused (dashboard only) —
       left, not asked. check_config valid; input_boolean reload clean; live state 404 as expected.
+      **Follow-up #3:** user asked to ensure a "didn't open" alert exists — it did (security_access_verify,
+      warning + snapshot + Close button, not quiet-hours-gated); hardened so an open counts as confirmed
+      if the sensor changed at all since the pulse (motor autoclose could otherwise cause a false alert).
+      Stop/follow-up pulses and wall-remote presses are not verified. Not live-tested.
       Docs: SECURITY_CONTRACT (Section 3 Access Control, file inventory, 10.4, BUG-S87),
       NOTIFICATIONS_CONTRACT, ALERTS_CONTRACT, SYSTEM_CONTRACT, Context/SECURITY_CONTEXT,
       Alert_Test_Plan (Test 2 due), CLAUDE.md.
