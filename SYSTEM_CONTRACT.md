@@ -228,6 +228,14 @@ sensor.security_correlation          family_arrival/visitor/service_visit/intrud
 sensor.security_movement_path        street/driveway/front_door/side_entry/rear_*/none
 sensor.security_lighting_intent      ignore/full/area/perimeter
 sensor.security_mode                 away/night/home
+script.security_access_operate       target gate|pedestrian|garage, command open|close|toggle
+                                      — the ONLY sanctioned way to pulse the gate/garage relays
+                                      (added 2026-10-03, security_access_control.yaml). Consumed by
+                                      alerts_doors.yaml + notify_security_event via notification buttons.
+cover.main_gate / cover.garage_door  open/closed (template covers over the same engine, 2026-10-03)
+input_boolean.security_gate_alert_control_enabled / security_garage_alert_control_enabled
+                                      read by notify_security_event (notifications domain) to decide
+                                      whether to attach gate/garage buttons (2026-10-03)
 ```
 
 ### Context Domain — Published Interface

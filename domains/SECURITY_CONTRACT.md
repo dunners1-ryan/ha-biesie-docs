@@ -297,7 +297,7 @@ Once `regionentrance` is primary:
 |------|---------|
 | `cameras_core.yaml` | Group definitions: security_perimeter_cameras, security_grounds_front_cameras, security_grounds_rear_cameras, security_inside_house_cameras |
 | `cameras_processing.yaml` | Debounce sensors (`camXX_motion_valid`), camera correlation binary sensors, per-camera last event timestamp sensors, trigger-based last_seen_seconds sensors (1-minute update), EZVIZ doorbell integration |
-| `security_helpers.yaml` | All input helpers: 4 input_boolean, 3 input_number, 5 input_datetime (5th = `security_alerts_morning_reset`, 2026-09-20), 22 input_text (per-camera images + history × 10 cams, plus event tracking) |
+| `security_helpers.yaml` | All input helpers (2026-10-03: + `security_gate_alert_control_enabled` / `security_garage_alert_control_enabled`, see Section 3 "Access Control"): 4 input_boolean, 3 input_number, 5 input_datetime (5th = `security_alerts_morning_reset`, 2026-09-20), 22 input_text (per-camera images + history × 10 cams, plus event tracking) |
 | `security_core.yaml` | Binary sensors for boundary_permissive_window, visibility/weather conditions, lighting state; Sensors for security_mode, trust_mode, lighting_intent. **2026-09-17 (see LIGHTING_CONTRACT.md BUG-L25):** `security_visibility_poor`/`security_weather_low_light` gained 10min `delay_on`/`delay_off` — previously an unsmoothed re-read of `weather.openweathermap`'s condition string, flapping on/off every ~10min poll near a condition boundary. **Also 2026-09-17 (BUG-S81):** new `binary_sensor.security_weather_corroborated_clear` — PV-output-vs-Solcast-forecast veto on those same two sensors, added after OpenWeatherMap was live-caught reporting 95% cloud cover during confirmed sun. **Same-session follow-up (BUG-S82):** that new sensor gained its own 2min `delay_on`/`delay_off` after raw PV-power jitter made it flap every 15-90s, reintroducing the exact flapping defect BUG-L25 fixed elsewhere, one layer downstream. |
 | `security_logic.yaml` | Core logic sensors: event classification, trigger camera selection, correlation engine, movement confidence/path, intruder level, threat score and threat level **+ 2026-09-20 (BUG-S85):** `binary_sensor.security_lounge_family_session`, classifier `camera` attribute, `grounds_ai` in RUNG 7. |
 | `security_zones.yaml` | Zone aggregation binary sensors: perimeter front/rear/combined, grounds, external, inside house |
@@ -306,7 +306,9 @@ Once `regionentrance` is primary:
 | `security_snapshot_retention.yaml` | **Added 2026-09-25 (ISSUE 10):** `shell_command.purge_www_snapshots` + `automation.security_snapshot_retention_purge` (daily 03:30, 14-day retention, skips helper-referenced files). Backing script: `scripts/purge_www_snapshots.sh` |
 | `security_history_cleanup.yaml` | `script.security_history_cleanup` — one-shot manual utility to purge stale bare-filename/`security_`-prefixed camera history `input_text` entries left over from a pre-2026-05-17 automation format. Run manually via Developer Tools; safe to delete once no longer needed. |
 
-*(10 files live as of 2026-09-25 with `security_snapshot_retention.yaml`.)*
+| `security_access_control.yaml` | **Added 2026-10-03 (Access Control):** `script.security_access_operate` (the only thing that pulses the gate/garage relays — state-aware, 8 s cooldown, inching fallback), `script.security_access_verify` (sensor confirmation → warning push), `script.security_manual_gate_pedestrian`, template `cover.main_gate` / `cover.garage_door`, `automation.security_access_control_from_notification`. See Section 3 "Access Control". |
+
+*(11 files live as of 2026-10-03 with `security_access_control.yaml`; 10 as of 2026-09-25 with `security_snapshot_retention.yaml`.)*
 
 *(Added 2026-08-21: both files existed already but were missing from this table —
 9 files live in `packages/security/`, this table previously listed only 7. Also note
@@ -509,6 +511,51 @@ No security-domain helpers were found to be UI-created. All are YAML-defined in
 | `binary_sensor.security_lounge_family_session` | ON while a lounge (cam14) walk started in the bedroom passage (cam15 fired first); latches while cam14 keeps firing, drops 5 min after the last cam14/cam15 activity | **New 2026-09-20 (BUG-S85)** (`security_logic.yaml`). Consumed by classifier RUNG 2.5 and threat_level rule 1b only — both already require family home, so it never affects the nobody-home path. Not "direction": NVR channels give no direction data. |
 
 ---
+
+### Access Control — Main Gate + Garage Door (added 2026-10-03)
+
+Sonoff smart switches (eWeLink custom integration, LAN+cloud) wired as dry-contact push
+buttons into the motor controllers. Relays carry no position — position comes from the
+contact sensors. **Every relay pulse goes through `script.security_access_operate`;
+never call the `switch.*` entities directly from new code.**
+
+| Entity | Role |
+|---|---|
+| `switch.smart_switch_main_gate` | Main gate trigger (CK-BL602-4SW-AY). Inching (auto-off ~0.2–1 s) confirmed from history 2026-10-03. WiFi RSSI −98 dBm — marginal. |
+| `switch.smart_switch_main_gate_ped` | Main gate pedestrian trigger (CK-BL602-4SW-HS). Inching confirmed. RSSI −92 dBm. |
+| `switch.smart_switch_garage` | Garage door trigger (CK-BL602-4SW-HS). Added 18:26 2026-10-03, **never pulsed yet** — inching unconfirmed (engine releases it after 1.5 s regardless). RSSI −44 dBm. |
+| `select.smart_switch_*`, `switch.smart_switch_*_detach`, `_led`, `sensor.smart_switch_*_{rssi,action,connection,host,bssid,stamac}` | Integration extras: power-on state (`off`/`on`/`stay` — keep `off`), relay-detach mode (`unknown`, unused), LED, diagnostics. Not used by logic except RSSI in the failure message. |
+| `binary_sensor.main_gate_sensor` / `binary_sensor.garage_door_sensor` | Position source (gate sensor flips ~0.1 s after a pulse; closes ~13 s later). |
+| `script.security_access_operate` | Fields `target` (gate/pedestrian/garage), `command` (open/close/toggle), `source`. Refuses: open when already open, close when already closed, relay unavailable, sensor not on/off, <8 s since either gate relay last changed (shared cooldown — stops a double tap from open-then-stopping). Pedestrian `close` uses the main trigger. Faults (relay offline, sensor unknown) push a warning; already-open/closed/cooldown are logbook only. mode: queued. |
+| `script.security_access_verify` | Fire-and-forget after each pulse: waits 20 s (gate open) / 45 s (gate close) / 30 s (garage open) / 60 s (garage close) for the sensor; on timeout snapshots (ipcam03 / cam04) and pushes "⚠️ … didn't open/close" with a Close button. A close sent while the motor is still opening usually stops it — the message says to send Close again. |
+| `script.security_manual_gate_pedestrian` | One-tap pedestrian open (dashboard / CarPlay / Siri). |
+| `cover.main_gate` (device_class gate), `cover.garage_door` (device_class garage) | Template covers — state from the sensor, open/close via the engine. Intended for the HA app, CarPlay, widgets, Watch, Assist. Unavailable if relay or sensor unavailable. |
+| `input_boolean.security_gate_alert_control_enabled` | "Allow Gate Control from Alerts" — gates the gate buttons on notifications AND refuses stale taps. No `initial:` (Rule 5b). Turned ON 2026-10-03. |
+| `input_boolean.security_garage_alert_control_enabled` | Same for garage. Left OFF 2026-10-03 until the garage relay has been tested once. |
+| `automation.security_access_control_from_notification` | Handles phone actions `OPEN_GATE`, `OPEN_GATE_PEDESTRIAN`, `CLOSE_GATE`, `OPEN_GARAGE`, `CLOSE_GARAGE` and Telegram `/open_gate`, `/open_gate_pedestrian`, `/close_gate`, `/open_garage`, `/close_garage`. Checks the permission toggle; refused taps get a warning push + Telegram callback answer. |
+
+**Where the buttons appear** (built by `script.notify_security_event` from live state at
+send time — field `access_controls`, or legacy `gate_control: true` = `["gate"]`):
+- Visitor at gate / Activity on front perimeter / Gate open — vehicle in driveway
+  (`security_event_router`, `gate_control: true`) → Open Gate + Pedestrian (gate closed) or
+  Close Gate (gate open).
+- Notify Gate Opened, Route Door Alert Repeat Reminder → Close Gate (while open).
+- Route Door Sustained-Open Escalation, House Secured Check (bedtime + everyone-left) →
+  Close Gate and/or Close Garage for whichever is open.
+- Buttons only on warning/critical pushes (info pushes carry no actions). iOS buttons set
+  `authenticationRequired: true` (Face ID before a lock-screen tap runs). Android tablets
+  show at most 3 buttons; caller buttons (Cancel Alert) come first.
+
+**Dashboard:** Operations → Security, cards "🚪 Access Control" (cover, Pedestrian Open,
+permission toggle, both gate-switch RSSI) and "🚗 Garage Control" (cover, permission toggle,
+RSSI) — replaced the "(Future)" placeholders 2026-10-03 (the old "Gate Control" toggle was
+bound to `input_boolean.arrival_detected`, the old gate row to the nonexistent
+`switch.smart_gate_switch`).
+
+**Not built (deliberately):** no auto-open on arrival and no auto-close on departure —
+both actuate a gate with nobody confirming the driveway is clear.
+`input_boolean.arrival_gate_control_enabled` (presence_helpers.yaml, on the Presence view)
+predates this and is read by nothing — not wired into access control.
 
 ## Section 4: Data Flow Map
 
@@ -3075,6 +3122,21 @@ one), and takes a fresh `camera.snapshot` of that same camera to `/config/www/se
 
 ---
 
+### BUG-S87 — "Open Gate" notification action targeted a switch that never existed — ✅ CLOSED 2026-10-03
+
+`automation.gate_open_from_notification` (security_automations.yaml) turned on
+`switch.smart_gate_switch` on `OPEN_GATE` — no such entity ever existed, and nothing ever
+sent an `OPEN_GATE` button anyway. `gate_control: true` only added Telegram text "Reply OPEN
+to open gate" with no handler. The dashboard "Access Control (Future)" card bound "Gate
+Control" to `input_boolean.arrival_detected` and showed "Entity not found" for the switch.
+**Fix:** removed the automation (registry entry deleted); replaced by
+`security_access_control.yaml` (Section 3 "Access Control") once the real Sonoff gate/garage
+switches were installed. Verified: `check_config` valid; input_boolean/script/template/
+automation reloads `[]`; covers report live state (gate closed, garage open); button and
+engine decision templates rendered against live state for all 8 target/command cases.
+**Not yet exercised:** a real pulse through the engine, a real notification button tap,
+the verify-timeout warning, and the garage relay at all.
+
 ## Section 7: Active Log Errors
 
 **⚠️ Stale snapshot (flagged 2026-07-08):** this section pre-dates Sprint 1 (2026-04-15)
@@ -3939,6 +4001,11 @@ and can be cleaned up.
 All security notifications go through `script.notify_security_event` with fields:
 `severity`, `title`, `message`, `image`, `source`, `gate_control`. Do not bypass this
 with direct `notify.*` calls.
+
+`access_controls` field added 2026-10-03 (Access Control, Section 3): list of `gate`,
+`gate_close`, `garage`, `garage_close` — adds state-aware Open/Close buttons (phone +
+Telegram). `gate_control: true` is now shorthand for `["gate"]`; its old "Reply OPEN to
+open gate" Telegram text (never had a handler) was removed.
 
 `camera_override` field added 2026-07-27 (BUG-S71): optional explicit `camera.xxx`
 entity_id whose `friendly_name` wins the "Camera:" field outright, above every other

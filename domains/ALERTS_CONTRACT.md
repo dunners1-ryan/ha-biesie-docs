@@ -7,7 +7,10 @@
 #
 # Scope: All 16 packages/alerts/*.yaml files
 #        Plus cross-domain aggregation in alerts_summary.yaml
-# Last updated: 2026-09-17 — BUG-A26: `security_alert_repeat_reminder`'s notify call
+# Last updated: 2026-10-03 — alerts_doors.yaml: notify_gate_opened + route_door_alert_repeat_reminder
+# pass access_controls ["gate_close"]; route_door_sustained_open_escalation + house_secured_check
+# (bedtime + everyone-left) pass ["gate_close","garage_close"] → Close Gate / Close Garage buttons
+# for whatever is open (SECURITY_CONTRACT.md "Access Control"). Previously 2026-09-17 — BUG-A26: `security_alert_repeat_reminder`'s notify call
 # never carried an `image:` field, unlike every other notify_security_event caller in the
 # repo — now sources `input_text.security_last_motion_image` (guarded against
 # unknown/unavailable/empty). File Inventory line count corrected: alerts_security.yaml
@@ -197,7 +200,7 @@ fully correct. All domains route through the central notification script.
 |---|---|---|---|
 | `alerts_helper.yaml` | 140 | ✅ Active | `active_alert_entities` sensor |
 | `alerts_summary.yaml` | 772 | ✅ Active | `alert_device_entities`, `global_alert_context`, all count sensors |
-| `alerts_doors.yaml` | 1413 | ✅ Active | Door/gate tiered severity, `alert.door_alert`, `automation.house_secured_check` (2026-08-23), laundry door+gate mute `input_boolean.laundry_door_alert_notify` (2026-09-02), garage door critical restricted to nobody-home (2026-09-17) |
+| `alerts_doors.yaml` | 1432 | ✅ Active | Door/gate tiered severity, `alert.door_alert`, `automation.house_secured_check` (2026-08-23), laundry door+gate mute `input_boolean.laundry_door_alert_notify` (2026-09-02), garage door critical restricted to nobody-home (2026-09-17) |
 | `alerts_network.yaml` | 1392 | ✅ Active | WAN/LAN/device down, degraded, restart |
 | `alerts_power.yaml` | 503 | ✅ Active | Grid offline, battery low, excess load, prepaid drift |
 | `alerts_temperature.yaml` | 1563 | ✅ Active | WAN/LAN/device/storage temps |
@@ -373,7 +376,7 @@ say so. Only this one table cell had never been updated.)*
 | Sonoff recovery watchdog | `binary_sensor.garage_door_stale` → `automation.recover_sonoff_if_stale` (`homeassistant.reload_config_entry` on the garage door sensor's Sonoff config entry) | ✅ fixed 2026-08-05, see BUG-A17 — was firing ~every 6 min 24/7 (false "stale" on a sensor that just hadn't toggled), now requires genuine unavailable/unknown state |
 | New sensors onboarded (2026-08-23) | `binary_sensor.kitchen_door_sensor`, `laundry_door_sensor`, `laundry_security_gate_sensor`, `garage_security_gate_sensor` → Tier 2 (entry); `reading_room_door_sensor` → Tier 3 (house control) | ✅ wired into `group:` block AND the real severity engine (trigger list, rank computation, duration, devices attribute) — inherit existing night/nobody-home escalation + Cancel Alert automatically |
 | Garage door split-out (2026-08-23) | `binary_sensor.garage_door_sensor` moved out of the shared Tier 2 loop into its own condition block — away/nobody-home unchanged, but the home-branch now requires `binary_sensor.security_lighting_required` (dusk/dark, NOT the generic night flag) AND `binary_sensor.all_family_home` both on, instead of just `night` | ✅ per user request — garage sits open most of the day regardless of who's home, old logic was too noisy |
-| House Secured Check (2026-08-23) | `automation.house_secured_check` — sweeps all 11 doors/gates (every tier, incl. garage), fires at bedtime (`input_datetime.house_secured_check_time`, default 21:30) and on everyone-leaving (`anyone_connected_home` on→off), suppressed by `low_trust_present` (covers maid/gardener) | ✅ new, silent when all-clear, warning at bedtime / critical on everyone-left |
+| House Secured Check (2026-08-23) | `automation.house_secured_check` — sweeps all 11 doors/gates (every tier, incl. garage), fires at bedtime (`input_datetime.house_secured_check_time`, default 21:30) and on everyone-leaving (`anyone_connected_home` on→off), suppressed by `low_trust_present` (covers maid/gardener) | ✅ new, silent when all-clear, warning at bedtime / critical on everyone-left. **2026-10-03:** carries Close Gate / Close Garage buttons when the main gate / garage door is among the open items (gated by the Allow-… toggles, SECURITY_CONTRACT "Access Control") |
 | Laundry door + gate mute (2026-09-02) | `binary_sensor.laundry_door_sensor` AND `binary_sensor.laundry_security_gate_sensor` split out of the shared Tier 2 loop into one gated block (same thresholds), both gated together on `input_boolean.laundry_door_alert_notify` — same pattern as `camera_alert_notify`, but auto-reset to `on` at 00:00:00 by `automation.laundry_door_alert_midnight_reset` so a mute can't outlive the day it was set. Excluded from `sensor.door_alert_context`'s severity rank and `devices` attribute while muted; still counted in the `duration` attribute (same as garage door — descriptive only, not an alert). Does NOT gate `house_secured_check` — that bedtime/everyone-left sweep still reports a genuinely open laundry door/gate regardless of this mute. Toggle added to the Operations → Security dashboard's "Door Control" card. | ✅ new, per user request |
 | Garage door critical restricted to nobody-home (2026-09-17) | Critical severity for `garage_door_sensor` moved from the home branch to the `nobody` branch (nobody-home, `door_warn_esc` min) — the home branch (`boundary_lights_on AND all_home`) is now capped at warning after `entry_esc` min and can never reach critical. `nobody` (`binary_sensor.security_nobody_home`) already excludes `binary_sensor.staff_on_site`, so garage-open critical alerts now fire only when truly nobody (no family, no staff) is on site — not while someone is home, and not while staff are on site with the family away. Applied in both the rank computation and the `devices` attribute display-severity block. | ✅ per user request |
 

@@ -5,6 +5,40 @@
 
 ## ⚠️ OPEN TODO
 
+- [ ] **2026-10-03 — Security: Access Control for the new Sonoff main gate + garage smart switches
+      (BUG-S87 closed).** User installed `switch.smart_switch_main_gate`, `_main_gate_ped`
+      (pedestrian) and `switch.smart_switch_garage`; asked for them in visitor alerts, the
+      everyone-left and bedtime alerts, a dashboard permission toggle, and CarPlay/phone control.
+      **Found:** gate relays already in inching mode (0.2–1 s pulses in today's history) but WiFi is
+      −98/−92 dBm; garage relay added 18:26 today and never pulsed; existing
+      `gate_open_from_notification` targeted a nonexistent `switch.smart_gate_switch` and nothing
+      ever sent its button; `gate_control: true` only printed "Reply OPEN" on Telegram with no
+      handler; dashboard "Access Control (Future)" bound "Gate Control" to `input_boolean.
+      arrival_detected`. **Built:** new `packages/security/security_access_control.yaml` —
+      `script.security_access_operate` (only path to the relays: state-aware open/close, 8 s
+      shared gate cooldown, 1.5 s release fallback), `script.security_access_verify` (sensor
+      confirmation, warning + snapshot on timeout), `script.security_manual_gate_pedestrian`,
+      `cover.main_gate`/`cover.garage_door`, `automation.security_access_control_from_notification`
+      (phone + Telegram). New helpers `input_boolean.security_gate_alert_control_enabled` (turned
+      ON) / `security_garage_alert_control_enabled` (left OFF until the garage relay is tested).
+      `notify_security_event` gained `access_controls` → live-state Open Gate/Pedestrian/Close
+      Gate/Open-Close Garage buttons (iOS `authenticationRequired`), Telegram rows. Wired into the
+      router's visitor/perimeter/gate-activity pushes (existing `gate_control: true`),
+      `notify_gate_opened`, door repeat reminder + sustained escalation, `house_secured_check`
+      (bedtime + everyone-left). Old automation removed + registry entry deleted. Dashboard
+      Operations → Security cards 4/5 replaced via `lovelace/config/save` (live==disk checked
+      first, read back from API and disk; backup `.storage/lovelace.dashboard_operations.bak.
+      20261003_accesscontrol`). **Verified:** `check_config` valid; input_boolean/script/template/
+      automation reloads `[]`; all 9 new entities live; covers show gate closed / garage open;
+      button + engine decision templates rendered against live state for all target/command cases.
+      **NOT verified (needs the user on site):** any real pulse through the engine (a live dry-run
+      call was blocked as a real-world actuation), a real notification tap, the verify-timeout
+      warning, the garage relay at all (inching unknown). **Open:** CarPlay/widgets are configured
+      in the Companion app on the phone (not server-side); gate switch WiFi signal is marginal.
+      Docs: SECURITY_CONTRACT (Section 3 Access Control, file inventory, 10.4, BUG-S87),
+      NOTIFICATIONS_CONTRACT, ALERTS_CONTRACT, SYSTEM_CONTRACT, Context/SECURITY_CONTEXT,
+      Alert_Test_Plan (Test 2 due), CLAUDE.md.
+
 - [x] **2026-09-29 — Water Cooler: one unlogged bottle swap reconciled (state
       correction only, no code change).** User reported 1 spare bottle left after the
       2026-09-28 16:03 swap, but HA showed 2. From `home-assistant_v2.db` history, the
@@ -5484,9 +5518,10 @@ packages/
   alerts/         # 16 files — see ALERTS_CONTRACT.md for actual file list (alerts_batteries.yaml added 2026-05-27, alerts_device_batteries.yaml added 2026-08-21)
   lighting/       # 14 files — presence-aware and time-based scenes
   notifications/  # 12 files — routing, quiet hours, severity (includes water/power/presence/security/system scripts)
-  security/       # 7 files  — cameras_core, cameras_processing, security_helpers,
+  security/       # 11 files — cameras_core, cameras_processing, security_helpers,
                  #             security_core, security_logic, security_zones,
-                 #             security_automations
+                 #             security_automations, security_alarm, security_history_cleanup,
+                 #             security_snapshot_retention, security_access_control (2026-10-03)
   presence/       # 6 files  — presence_helpers, presence_core, presence_confidence,
                  #             presence_boundary, presence_validation, presence_trust (migrated from context/ 2026-04-30)
   context/        # 2 files  — context_global, context_night (context_presence + context_schedules deleted 2026-04-30/28)
@@ -5594,6 +5629,14 @@ check those (and this file's 2026-06-17 session log entry) before editing this b
 - WAN Router: ASUS ZenWiFi XD6 (192.168.1.3) | Gateway: UniFi Dream Machine (downstream LAN routing) | APs: 5x UniFi
 - ASUS ROG router (192.168.1.1) — NOT a WAN router; provides dual-LAG bonded LAN connectivity for the Synology NAS only (corrected 2026-07-13, was previously mislabeled "WAN Router: ASUS ROG" here)
 
+### Gate / Garage Smart Switches (Sonoff, added 2026-10-03)
+- `switch.smart_switch_main_gate` (CK-BL602-4SW-AY, area Main Gate), `switch.smart_switch_main_gate_ped`
+  (CK-BL602-4SW-HS, pedestrian input), `switch.smart_switch_garage` (CK-BL602-4SW-HS, area Garage) —
+  eWeLink `sonoff` custom integration, dry-contact triggers into the motor controllers. Gate relays
+  set to inching (auto-off) — confirmed from history; garage relay never pulsed as of 2026-10-03.
+- WiFi: main gate −98 dBm, pedestrian −92 dBm (marginal — lost commands possible), garage −44 dBm.
+- Driven only via `script.security_access_operate` — see SECURITY_CONTRACT.md Section 3 "Access Control".
+
 ### Zigbee Door/Gate Sensors (SNZB-04P, added 2026-08-23)
 - Hub: SONOFF Dongle-M (zha), 21 devices / 233 entities on the Zigbee network as of this
   writing.
@@ -5654,6 +5697,22 @@ input_boolean.security_visitor_alerts_suppressed ← added 2026-08-31 (BUG-S77),
                                                     dashboard — Operations → Security → "Camera System Control" card)
 binary_sensor.security_weather_corroborated_clear ← added 2026-09-17 (BUG-S81) — PV-output-vs-Solcast-forecast veto on
                                                      security_visibility_poor/security_weather_low_light (security_core.yaml)
+```
+
+### Access Control — Gate + Garage (added 2026-10-03, security_access_control.yaml)
+```
+script.security_access_operate                   # ONLY sanctioned relay pulser (target/command/source)
+script.security_access_verify                    # post-pulse sensor confirmation → warning push
+script.security_manual_gate_pedestrian           # one-tap pedestrian open (CarPlay/app)
+cover.main_gate                                  # template cover, device_class gate
+cover.garage_door                                # template cover, device_class garage
+automation.security_access_control_from_notification  # OPEN_GATE / OPEN_GATE_PEDESTRIAN / CLOSE_GATE /
+                                                 # OPEN_GARAGE / CLOSE_GARAGE + Telegram equivalents
+input_boolean.security_gate_alert_control_enabled    # security_helpers.yaml — no initial:
+input_boolean.security_garage_alert_control_enabled  # security_helpers.yaml — no initial:
+switch.smart_switch_main_gate / _main_gate_ped / smart_switch_garage   # integration-provided relays
+# REMOVED 2026-10-03: automation.gate_open_from_notification (targeted nonexistent
+# switch.smart_gate_switch — BUG-S87). Do not reintroduce switch.smart_gate_switch.
 ```
 
 ### Boundary Lighting (added 2026-09-15)

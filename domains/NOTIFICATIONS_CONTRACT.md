@@ -2,7 +2,9 @@
 # NOTIFICATIONS CONTRACT
 # HABiesie — Notifications Domain
 # Generated: 2026-04-13
-# Last updated: 2026-09-11 — all 6 notify_*_event scripts gained `click_url` (variable
+# Last updated: 2026-10-03 — notify_security_event gained `access_controls` (gate/garage
+# Open/Close buttons from live state, phone + Telegram; see Extended Fields). Previously
+# 2026-09-11 — all 6 notify_*_event scripts gained `click_url` (variable
 # `link`, per-domain default) and now send `clickAction: "{{ link }}"` in every
 # notify.mobile_app_* call's nested data: block (warning/critical everywhere, plus
 # security/system's info branch — the only two that also use the legacy per-device
@@ -283,6 +285,19 @@ Warning and Critical notifications bypass quiet hours in all scripts (correct be
 ### script.notify_security_event — Extended Fields (2026-06-14; actions/telegram_action added 2026-07-17)
 
 Standard fields: `severity`, `title`, `message`, `image`, `source`, `gate_control`
+
+**`access_controls` (list, optional) — added 2026-10-03 (SECURITY_CONTRACT.md "Access Control"):**
+Entries `gate` (Open Gate + Pedestrian when the gate is closed, Close Gate when open),
+`gate_close` (Close Gate, only while open), `garage` (Open/Close Garage by state),
+`garage_close` (Close Garage, only while open). The script builds the buttons from live
+`binary_sensor.main_gate_sensor` / `binary_sensor.garage_door_sensor` state at send time and
+only when `input_boolean.security_gate_alert_control_enabled` / `security_garage_alert_control_enabled`
+is on. Appended AFTER the caller's own `actions` (Android shows 3 max); iOS buttons carry
+`authenticationRequired: true`. Mirrored as extra Telegram inline rows (`🚪 Open Gate:/open_gate`,
+etc.). `gate_control: true` = `["gate"]` — its old "Reply OPEN to open gate" Telegram text
+(no handler ever existed) was removed. Taps handled by
+`automation.security_access_control_from_notification`. Only warning/critical phone pushes
+carry buttons.
 
 **`dogs_inside_prompt` (bool, default false) — added 2026-06-14:**
 Marks the notification as the dogs-home-alone prompt: bypasses quiet hours at every severity

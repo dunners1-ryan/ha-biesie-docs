@@ -105,6 +105,14 @@
 > `security_visitor_alerts_suppressed` off) and sends one information push; (4) nothing re-arms between
 > mute-time and 06:00. Only (3) has been exercised so far (manual trigger, 2026-09-20). See SECURITY_CONTRACT.md BUG-S85.
 >
+> **⚠️ 2026-10-03: TEST 2 (Door/Gate Alerts) due for re-run — gate/garage action buttons added.**
+> `notify_gate_opened`, `route_door_alert_repeat_reminder`, `route_door_sustained_open_escalation`
+> and `house_secured_check` now attach Close Gate / Close Garage buttons (live-state, gated by
+> `input_boolean.security_gate_alert_control_enabled` / `security_garage_alert_control_enabled`);
+> visitor/perimeter/gate-activity security pushes attach Open Gate + Pedestrian. Check: buttons appear
+> only for what's open, a tap moves the gate and `script.security_access_verify` stays silent, a tap
+> with the toggle off is refused with a warning, Telegram buttons answer the callback. None exercised yet.
+>
 > **⚠️ 2026-09-02: TEST 2 (Door/Gate Alerts) doesn't cover the new laundry door+gate mute**
 > — `input_boolean.laundry_door_alert_notify` (`alerts_doors.yaml`) mutes BOTH
 > `binary_sensor.laundry_door_sensor` and `binary_sensor.laundry_security_gate_sensor`

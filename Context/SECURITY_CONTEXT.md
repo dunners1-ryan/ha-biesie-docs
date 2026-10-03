@@ -43,7 +43,7 @@ missing 2 files in SECURITY_CONTRACT.md's own table until this session — see t
 contract's File Inventory for full descriptions).**
 
 ```
-packages/security/  (9 files)
+packages/security/  (11 files)
   cameras_core.yaml           # group definitions (perimeter/grounds/inside cameras)
   cameras_processing.yaml     # debounce sensors, correlation, last-event timestamps
   security_helpers.yaml       # input_boolean/input_number/input_datetime/input_text helpers
@@ -53,6 +53,7 @@ packages/security/  (9 files)
   security_automations.yaml   # snapshot capture, event lifecycle, event router
   security_alarm.yaml         # IDS Hyyp interface stub (not yet wired)
   security_history_cleanup.yaml # one-shot manual camera-history cleanup script
+  security_access_control.yaml # gate/garage relay engine + covers + notification-button handler (2026-10-03)
   security_snapshot_retention.yaml # daily 03:30 www/ snapshot purge (14d, skips helper-referenced files) — scripts/purge_www_snapshots.sh
 ```
 
