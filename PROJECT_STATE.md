@@ -5,6 +5,46 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-10-16 — Lighting: morning routine had no reliable "off" for entrance downlights/
+      dining room/laundry; added 08:00 unconditional backstop cleanup.** User asked to verify
+      whether the morning run (`morning_wake_lights_on`, `lighting_morning.yaml`) ever turns off
+      the lights it turns on at 05:00. **Found:** it doesn't — the only existing auto-off,
+      `morning_wake_wfh_cleanup`, needs `binary_sensor.bedrooms_occupied` to go off→on between
+      `morning_sleep_longer_time` and 08:00 (i.e. Ryan re-entering the bedrooms after the rest of
+      the family leaves — by design, per user). Live history 2026-10-12→16 confirmed: entrance
+      downlights get an *incidental* off each morning (05:44–05:48) via
+      `entrance_down_lights_daytime_low_light`'s `night_early`-off branch in `lighting_boundary.yaml`
+      (works by accident, not design); dining room and laundry had no attributed automation
+      turning them off at all on any of the 5 mornings checked (logbook context empty — manual/
+      physical switch). The ~04:58 on/off blips seen on the 14th/16th are Vicky's gym departure,
+      not a bug — left alone. **Fix:** new `morning_wake_backstop_cleanup` automation
+      (`lighting_morning.yaml`) fires daily at 08:00, gated only on
+      `input_boolean.morning_routine_ran_today`=on (no bedroom/presence check, by design — catches
+      whatever the bedroom-occupancy-gated cleanup missed), applies `scene.scene_morning_routine_off`
+      (entrance_down_lights, laundry, dining_room, pool_patio_down_lights off). Config validated
+      (`check_config`), `automation.reload` done, new automation confirmed live
+      (`automation.lighting_morning_wake_off_08_00_backstop`, state on) — not yet functionally
+      verified against a real 08:00 firing. LIGHTING_CONTRACT.md Section 2 (file inventory, line
+      count 257→287) and Section 4 (Morning Routine automation table, new row) updated.
+
+- [x] **2026-10-16 — Ops → Network Control: temperature overheating card + threshold config added (dashboard only).**
+      Alerts screen's Temperature Thresholds lived only on the System dashboard, and its markdown
+      alert card never showed temperature (`sensor.alert_device_entities` has no Temperature domain).
+      Added to `dashboard-operations` › `network-control` (WAN section, below the WAN Router markdown):
+      a live markdown card (WAN/LAN/NAS device/NAS drive temps vs limit, headroom, alert state, pulses
+      red/amber) built straight from the `group.*_temp` groups + `input_number.*_temp_high_trigger`,
+      and a `custom:expander-card` "Temperature Alert Config" with the 4 notify toggles + 4 limits.
+      Pushed via `lovelace/config/save` (no restart). System-dashboard copy left in place.
+
+- [ ] **2026-10-06 — Water Cooler: Mon 2026-10-05 delivery logged incompletely, corrected live (data only,
+      no YAML change).** Confirm Delivery was pressed 2026-10-06 22:47 SAST with `delivery_empties_taken`
+      still 0, so empties never decremented, and `last_delivery_time` was stamped "now" (the automation
+      always uses `now()`; there is no backdate for Confirm Delivery, unlike Log Bottle Changed).
+      Real delivery: Mon 08:30, 8 bottles in, 7 empties out (1 half-full bottle stayed mounted).
+      Set via API: `empties_on_hand` 7→0, `month_empties_returned` 0→7, `last_delivery_time`
+      →2026-10-05 08:30:00. Stock stayed 8 (confirm had already applied it). `net_deposit_exposure`
+      now R72.45. **Open idea:** a delivery-time field/backdate toggle on Confirm Delivery.
+
 - [ ] **2026-10-03 — Security: Access Control for the new Sonoff main gate + garage smart switches
       (BUG-S87 closed).** User installed `switch.smart_switch_main_gate`, `_main_gate_ped`
       (pedestrian) and `switch.smart_switch_garage`; asked for them in visitor alerts, the

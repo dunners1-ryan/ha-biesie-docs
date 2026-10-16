@@ -140,7 +140,7 @@ person.*                             ← HA mobile geo — UNRELIABLE for local 
 |---|---|---|
 | `lighting_helpers.yaml` | 97 | All input_datetime, input_boolean, input_button helpers (2026-09-15, BUG-L23: +`boundary_security_lights_enabled`) |
 | `lighting_scenes.yaml` | 85 | All scene definitions |
-| `lighting_morning.yaml` | 257 | Morning wake routine (presence + time triggered) |
+| `lighting_morning.yaml` | 287 | Morning wake routine (presence + time triggered) |
 | `lighting_evening.yaml` | 127 | Evening routine (civil night triggered) |
 | `lighting_arrival_night.yaml` | 269 | Night arrival scenarios (3 modes; garage_light door-gated in all three, 2026-09-15, BUG-L24) |
 | `lighting_departure.yaml` | 91 | Departure light cleanup (day + night) |
@@ -209,6 +209,7 @@ lights) and only turns off via the morning wake routine. Nothing to fix here.
 | `morning_wake_lights_on` | living_areas_occupied ON | morning_routine_ran_today=off, after weekday/weekend start time AND before noon (BUG-L11 fix) | scene_morning_routine_on + optional back security if after second_wake_time, clears bedtime_mode |
 | `morning_wake_lights_on_manual` | input_button.morning_routine_on | — | scene_morning_routine_on |
 | `morning_wake_wfh_cleanup` | bedrooms_occupied ON | anyone_connected_home=on, hour<8, after sleep_longer_time, morning_routine_ran_today=on | scene_morning_routine_off |
+| `morning_wake_backstop_cleanup` | 08:00 daily (added 2026-10-16) | morning_routine_ran_today=on; no presence/bedroom check | scene_morning_routine_off — catches lights the WFH cleanup missed (dining room/laundry previously stayed on until manually switched off; entrance downlights only went off incidentally via entrance_down_lights_daytime_low_light at dawn) |
 | `morning_routine_daily_reset` | 00:05:00 | — | morning_routine_ran_today = OFF |
 | `morning_wake_lights_off_manual` | input_button.morning_routine_off | — | scene_morning_routine_off |
 

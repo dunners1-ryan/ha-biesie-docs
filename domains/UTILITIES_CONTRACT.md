@@ -1417,3 +1417,11 @@ full HA restart to activate (same disclaimer as every other domain).
   similar edit for the dust-bag dropdown needed the same treatment.
 
 *Last updated: 2026-09-25 — Rule 5b repo-wide audit: further Water Cooler helpers had `initial:` removed — `watercooler_order_in_progress`, `watercooler_delivery_confirmed_qty` (order lifecycle spans days), `watercooler_month_bottles_delivered`, `watercooler_month_empties_returned` (running monthly totals), `watercooler_alert_snoozed`. `watercooler_empties_on_hand` confirmed correct at 4 by the user (the 2026-09-14 deferred manual correction is closed). Gas and vacuum-consumables order-form fields (cost/qty/price/vendor/select, reset to idle by their automations) deliberately keep `initial:`.*
+
+### Session Log — 2026-10-06 (Water Cooler delivery correction)
+
+Mon 2026-10-05 08:30 delivery (8 in, 7 empties out) was confirmed a day late with
+`delivery_empties_taken` unset and `last_delivery_time` stamped `now()`. Corrected by direct
+`set_value`/`set_datetime`: `empties_on_hand` 7→0, `month_empties_returned` 0→7,
+`last_delivery_time` 2026-10-05 08:30:00. Gap noted: Confirm Delivery (Section 4, step 3) has no
+backdate path; fill in `_delivery_empties_taken` *before* pressing it. No YAML changed.
