@@ -847,7 +847,45 @@ was 139ms vs. 2ms for CF/Google, confirming Microsoft as the actual cause of a 7
 the time — this investigation is what surfaced BUG-NET08 (Section 6).
 **⚠️ Requires a full HA restart** (`.storage/lovelace` rule, same as above).
 
+### `network-control` — temperature overheating card + threshold config (2026-10-16)
+
+User reported the Alerts page's "Temperature Thresholds" entities card (the 4 notify
+toggles + 4 `input_number.*_temp_high_trigger` limits, `lovelace.dashboard_system`) had
+no counterpart showing live device temperatures on `network-control`, and the Alerts
+page's own alert-device markdown card never surfaces temperature either —
+`sensor.alert_device_entities` (consumed by that card) has no Temperature domain entries,
+so a WAN/LAN/NAS overheat never renders there regardless of dashboard.
+
+Added to `network-control`'s WAN section, directly below the existing WAN Router markdown
+line (between it and the two trend graphs):
+- A `markdown` card ("🌡️ Network Temperatures", flips to "🔥 Overheating (N)" when any
+  device is at/over its limit) built straight from `group.wan_devices_temp` /
+  `group.lan_devices_temp` / `group.device_temp` / `group.storage_temp` and the matching
+  `input_number.*_temp_high_trigger`, independent of `sensor.alert_device_entities`. Per
+  device: 🟢/🟠/🔴 dot, current °C, and headroom or degrees-over; per group: the limit, the
+  `alert.*_temp` state (ACTIVE/clear), and a 🔕 marker when that group's notify toggle is
+  off. `card_mod` pulses the card red when any `sensor.*_temp_alert_severity` is `critical`,
+  amber for any other non-`normal` severity — same `pulseCritical` keyframe as the Alerts
+  page card (see CODING_STANDARDS.md CSS pattern).
+- A `custom:expander-card` "🌡️ Temperature Alert Config" holding the same 8 entities as
+  the Alerts page's "Temperature Thresholds" card (4 notify toggles, 4 limits) — a second
+  location for the same control, not a move; the Alerts page copy is untouched.
+
+Both cards read live NAS/NAS-drive and network device temperatures; at time of writing all
+were green except `sensor.guardians_drive_3_temperature` (53°C, amber against the 55°C
+storage limit).
+
+Pushed via `lovelace/config/save` over the WebSocket API (see CODING_STANDARDS.md) —
+**no restart required**, unlike every prior entry in this section. Template and
+`card_mod` style both validated against live state via `POST /api/template` before
+pushing; live config re-read and diffed against the pushed config after.
+
 ---
+
+*Last updated: 2026-10-16 — Section 11: added a temperature-overheating markdown card +
+"Temperature Alert Config" expander to `network-control`'s WAN section (second location
+for the existing Alerts-page toggles/limits, not a move), pushed live via
+`lovelace/config/save` with no restart required. See Section 11's new dated subsection.*
 
 *Last updated: 2026-08-29 — BUG-NET10 score-display follow-up: re-verified the
 2026-08-27 CRITICAL fix (high_count>=2, no score path) is live and correct — no change.
