@@ -5,6 +5,39 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-10-19 — `/update-docs` sweep for the 2026-10-18 iron/vacuum shared-plug split
+      (code had already been swept into the 05:00 daily-backup commit under a generic
+      message before this ran).** Step 3a secondary-drift sweep: grepped `iron_plug`/
+      `vacuum_dock`/`iron_power` across all `docs/domains/*.md`, `SYSTEM_CONTRACT.md`,
+      `Context/*.md`, `Testing/*.md` — only the two already-updated contracts (POWER_CONTRACT
+      Plug Device Change Log, SMART_CLEANING_CONTRACT gaps list) mention it, both consistent,
+      no stale copies found elsewhere. Added the missed pieces: PROJECT_STATE Locked Entity
+      Names new subsection "Iron / Vacuum Dock Shared Plug Split"; POWER_CONTRACT File
+      Inventory `power_state.yaml` row annotated. Checked and found not applicable: no
+      SYSTEM_CONTRACT cross-domain interface entry (informational doc cross-reference only —
+      no automation in either domain reads these two sensors, so it doesn't meet the
+      published-interface bar in Section 3); no Context/POWER_CONTEXT.md file-list change (no
+      file added/renamed); no Alert_Test_Plan.md item (not alert/notification-pipeline
+      mechanics); no open backlog item in either contract that this satisfies; no stale
+      `power_state.yaml` line-count elsewhere to correct. Corrected the prior entry's
+      "Not committed" note below — it was in fact committed via the generic daily-backup
+      commit before this pass ran.
+
+- [x] **2026-10-18 — Power/Appliances: robot vacuum dock now shares the iron's smart plug
+      (since Fri 2026-10-16 PM); power split by signature.** User: moved the Deebot to the
+      iron plug to monitor its consumption; asked for power to be allocated incl. Monday iron use; refined to
+      a history-based split. `sensor.iron_plug_power` kept as the combined reading (entity IDs, energy
+      meters, Energy Dashboard untouched; still in `known_power_loads`). New in
+      `power_state.yaml`: `sensor.iron_power` / `sensor.vacuum_dock_power`: plug ≥1100 W →
+      iron=min(plug,1250 W), vacuum=remainder; <1100 W → all vacuum (iron ~1250 W cycle per
+      statistics, dock max ~950 W) — in no group, so no double-counting.
+      Observed dock draw 25–350 W, ~950 W briefly (likely hot-air dry); Iron off-cycle reads as vacuum. Per-device kWh not integrated (combined UI meters
+      remain). Docs: POWER_CONTRACT Plug Device Change Log + File Inventory row, SMART_CLEANING_CONTRACT
+      gaps, Locked Entity Names (new subsection). Committed under the 2026-10-19 05:00 daily
+      backup commit (generic message — code+docs landed before the explicit `/update-docs`
+      pass; see 2026-10-19 entry below for that follow-up). Needs template reload / `ha core
+      check` + functional check to confirm live (not yet verified against the running instance).
+
 - [x] **2026-10-16 — Lighting: morning routine had no reliable "off" for entrance downlights/
       dining room/laundry; added 08:00 unconditional backstop cleanup.** User asked to verify
       whether the morning run (`morning_wake_lights_on`, `lighting_morning.yaml`) ever turns off
@@ -6341,6 +6374,20 @@ automation.pool_manual_run               ← timed run via script.pool_manual_ru
 input_number.season_spring_grace_days    d   days into spring before it joins the summer
                                               bucket (default: 15 = 0.5 month)
 sensor.season_bucket                     —   "summer" or "winter"
+```
+
+### Iron / Vacuum Dock Shared Plug Split (power_state.yaml — added 2026-10-18)
+```
+# switch.iron_plug relocated 2026-10-16 PM to also power the Deebot T80S Omni
+# dock (vacuum has no native power sensor — SMART_CLEANING_CONTRACT). The
+# underlying plug entity is UNCHANGED (sensor.iron_plug_power keeps its name —
+# energy integral/utility meters/Energy Dashboard are bound to it); these two
+# are a power-signature split layered on top, in no group (no double-count):
+sensor.iron_power          W  min(plug, 1250) when plug ≥ 1100 W, else 0
+sensor.vacuum_dock_power   W  plug − iron_power when plug ≥ 1100 W, else plug
+# Per-device kWh NOT integrated — plug's existing combined meters still apply.
+# See POWER_CONTRACT.md Plug Device Change Log (2026-10-16 row) for the
+# power-signature rationale (iron = ~1250 W on/off cycle from statistics).
 ```
 
 ### Tuya Cloud Health Entities (core/tuya_health.yaml — added 2026-08-04, BUG-INFRA-TUYA01)

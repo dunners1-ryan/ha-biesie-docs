@@ -162,7 +162,7 @@ Full ROI/payback analysis for both line items: `private_docs/POWER_SYSTEM_AUDIT_
 | `power_core.yaml` | Dual-inverter aggregation — all unified sensors | Aggregation |
 | `power_helpers.yaml` | `input_boolean`/`input_select`/`input_number`/`input_datetime` helpers only | Helpers |
 | `power_templates.yaml` | Per-inverter PV, battery, grid sub-sensors | Derived |
-| `power_state.yaml` | house_power_health, power_state, inverter health, freq/temp | State |
+| `power_state.yaml` | house_power_health, power_state, inverter health, freq/temp; iron/vacuum-dock shared-plug power-signature split (2026-10-18, see Plug Device Change Log) | State |
 | `power_statistics.yaml` | Rolling average sensors + solar forecast accuracy + 4-state weather correlation + season factor (P6 2026-06-14) | Derived |
 | `power_strategy.yaml` | power_strategy, power_strategy_status, severity | Decision |
 | `power_automations.yaml` | Power domain automations — migrated from automations.yaml; includes `pool_pump_solar_control` + `automation.pool_manual_run`/`script.pool_manual_run` (added 2026-09-11, mirrors geyser's manual run) | Automation |
@@ -528,6 +528,7 @@ sensor.house_outdoor_power_throttled W  10s debounce version of outdoor
 | Date | Old Device / Entity | New Device / Entity | Reason |
 |------|---------------------|---------------------|--------|
 | 2026-05-25 | Water Cooler Plug (`switch.water_cooler_plug`) | LG Combo Washer Plug (`switch.lg_combo_washer_plug`) | Plug relocated to LG combo washer for energy tracking; higher consumption load. ZHA device renamed, all `water_cooler_plug_*` entities renamed to `lg_combo_washer_plug_*`. Config: added `sensor.lg_combo_washer_plug_power` to `known_power_loads`, `flexible_power_loads`, `house_laundry_power_sensors` in `power_templates.yaml`. UI: integral sensor source + utility meters + Energy Dashboard updated manually. |
+| 2026-10-16 (Fri PM) | Iron Plug (`switch.iron_plug`) — iron only | Same plug, now **shared: Iron + Deebot T80S Omni dock** | Robot vacuum moved onto the iron's plug so its consumption is monitored (Deebot has no native power sensor — SMART_CLEANING_CONTRACT). Entity IDs unchanged (`sensor.iron_plug_power`, its integral/utility meters, Energy Dashboard) so history stays continuous; the plug total stays in `known_power_loads` / `house_living_areas_power_sensors`. Allocation (`power_state.yaml`, power-signature split, any weekday — iron also used on non-Mondays): iron element is a ~1250 W on/off cycle (statistics peaks 1196–1306 W), dock peaks ~950 W. Plug ≥ 1100 W → `sensor.iron_power` = min(plug, 1250), `sensor.vacuum_dock_power` = plug − iron; plug < 1100 W → all vacuum. Always sums to the plug total; neither sensor is in a group (no double-count). Observed dock draw ~25–350 W typical, ~950 W briefly (likely hot-air dry). Caveat: iron off-cycle reads as vacuum. Per-device kWh not integrated (UI integral/utility meters on the plug remain the combined total). |
 
 ---
 

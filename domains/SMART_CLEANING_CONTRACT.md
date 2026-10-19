@@ -580,7 +580,7 @@ genuinely off, not a config gap).
 
 **Known integration gaps** (not fixable from this repo, see
 INFRA_CONTRACT.md-style Known Integration Issues table in PROJECT_STATE.md):
-no power-consumption sensor, no charge-time/ETA sensor, no per-room clean
+no native power-consumption sensor (workaround since 2026-10-16: dock shares the iron's smart plug — `sensor.vacuum_dock_power`, power-signature split, see POWER_CONTRACT Plug Device Change Log), no charge-time/ETA sensor, no per-room clean
 duration, no mop-wash timer, no clean/dirty water level, no dust-bag level,
 no camera entity of any kind.
 
