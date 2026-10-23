@@ -36,7 +36,9 @@ packages/presence/
   presence_core.yaml          # AP→room map, per-person location, RAW occupancy, groups
   presence_confidence.yaml    # confidence scoring, binary occupied per room,
                                # family_arriving/departing/all_family_home
-  presence_boundary.yaml      # boundary resolver (gate-based arrival/departure)
+  presence_boundary.yaml      # boundary resolver (gate-based arrival/departure), kitchen/study
+                               # door events + study boundary resolver (2026-10-23)
+  presence_templates.yaml     # study_presence_recent, study_session_active (2026-10-23)
   presence_validation.yaml    # unknown AP detection, AP sanity sensors
   presence_trust.yaml         # trust model: booleans, derived binary sensors,
                                # maid/gardener schedules, startup state sync

@@ -67,14 +67,15 @@ correlation, threat scoring) silently ignore staff presence.
 
 ## Section 2: File Inventory
 
-### packages/presence/ (6 files)
+### packages/presence/ (7 files)
 
 | File | Lines | Purpose |
 |---|---|---|
-| `presence_helpers.yaml` | 106 | Arrival/departure booleans, last-event timestamps (2026-10-03: unused `arrival_gate_control_enabled` deleted) |
+| `presence_helpers.yaml` | 125 | Arrival/departure booleans, last-event timestamps (2026-10-03: unused `arrival_gate_control_enabled` deleted; 2026-10-23: + `service_entry_event`, `study_entry_event`, `study_exit_event`) |
+| `presence_templates.yaml` | 54 | **New 2026-10-23.** `binary_sensor.study_presence_recent` (office_occupied, 10 min delay_off) + `binary_sensor.study_session_active` (recent presence OR AP-confirmed study entry) — consumed by `alerts_doors.yaml` |
 | `presence_core.yaml` | 264 | AP→room map, per-person location, RAW occupancy, groups |
 | `presence_confidence.yaml` | 276 | Confidence scoring + binary occupied (per room) + `family_arriving`, `family_departing`, `all_family_home` (added S2 2026-05-17; `family_arriving`/`departing` logic updated S8 2026-05-19 — snapshot-delta replaces recency-only) |
-| `presence_boundary.yaml` | 798 | Boundary resolver (gate-based arrival/departure), `presence_clear_arrival_flag` auto-clear (added S1.4 2026-05-17), `presence_snapshot_who_home` rolling snapshot (added S8 2026-05-19), `laundry_entry_event`/`laundry_departure_event` (added 2026-08-23, mirror house_entry_event/house_departure_event) |
+| `presence_boundary.yaml` | 1011 | Boundary resolver (gate-based arrival/departure), `presence_clear_arrival_flag` auto-clear (added S1.4 2026-05-17), `presence_snapshot_who_home` rolling snapshot (added S8 2026-05-19), `presence_kitchen_service_entry`, `presence_study_entry_event`, `presence_study_exit_event`, `presence_study_boundary_resolver` (2026-10-23; replaced `laundry_entry_event`/`laundry_departure_event` of 2026-08-23) |
 | `presence_validation.yaml` | 115 | Unknown AP detection, AP sanity sensors |
 | `presence_trust.yaml` | 279 | Trust model: all trust input_booleans, derived binary sensors, maid/gardener schedule automations, **startup state sync** (`sync_staff_state_on_startup` — restores maid + gardener booleans on HA restart). Migrated from `context/context_presence.yaml` 2026-04-30 (BUG-CTX01/P11 fix). |
 
@@ -83,8 +84,8 @@ stale/approximate, corrected to live exact values.*
 
 **Startup sync owner:** `presence_trust.yaml` — `sync_staff_state_on_startup` automation. Do NOT look in `presence_boundary.yaml` for trust-state restoration logic.
 
-**Note:** PRESENCE_CONTEXT.md documents `presence_templates.yaml`,
-`presence_state.yaml`, and `presence_automations.yaml` — none of these exist.
+**Note:** PRESENCE_CONTEXT.md documented `presence_templates.yaml`,
+`presence_state.yaml`, and `presence_automations.yaml` — only `presence_templates.yaml` exists now (created 2026-10-23 for the study sensors, not the old design); the other two never did.
 The domain was reorganised; the context document is out of date.
 
 **Orphan helpers (harmless, future cleanup):**

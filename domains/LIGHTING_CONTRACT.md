@@ -143,7 +143,7 @@ person.*                             ← HA mobile geo — UNRELIABLE for local 
 | `lighting_morning.yaml` | 287 | Morning wake routine (presence + time triggered) |
 | `lighting_evening.yaml` | 127 | Evening routine (civil night triggered) |
 | `lighting_arrival_night.yaml` | 269 | Night arrival scenarios (3 modes; garage_light door-gated in all three, 2026-09-15, BUG-L24) |
-| `lighting_departure.yaml` | 91 | Departure light cleanup (day + night) |
+| `lighting_departure.yaml` | 97 | Departure light cleanup (day + night) |
 | `lighting_bedtime.yaml` | 217 | Kids + full bedtime routines |
 | `lighting_boundary.yaml` | 529 | Boundary/street security lighting + gate-open assist (2026-08-03) + watchdog (2026-09-06, BUG-L21) + daytime entrance-down-lights weather rule (2026-09-07, BUG-L22) + master enable toggle (2026-09-15, BUG-L23) + reason-in-notification (2026-09-17, BUG-S84) + reload-safety `not_from`/`not_to` guards on the entrance-down-lights automation (2026-09-17, BUG-N18, another concurrent session — see NOTIFICATIONS_CONTRACT.md) + bedtime_mode gate on boundary_security_on/watchdog's front/back/carport/office rule (2026-09-22, BUG-L26) |
 | `lighting_security.yaml` | 161 | Security event lighting engine (2026-09-15, BUG-L23: AREA branch night-gated) |
@@ -263,7 +263,7 @@ sequence*, so gate (a) failing (bar still occupied) would silently skip gate (b)
 | Day + no maid | night=off, low_trust_present=off | scene_morning_routine_off |
 | Night | night=on | scene_night_away |
 
-**Trigger:** `input_boolean.full_departure_detected` to: "on" (missing from: "off" guard).
+**Trigger:** `input_boolean.full_departure_detected` `from: "off"` to: "on". *(2026-10-23: `anyone_connected_home = off` is now an `if/then` around the lighting actions, not a top-level condition, so the flag is always cleared — see the stuck-flag fix entry at the end of this contract.)*
 **Bug:** Neither day nor night scene turns off entrance_down_lights + main_entrance_light
 when turned on by evening_routine. See BUG-L01 and BUG-L02.
 
@@ -1126,7 +1126,7 @@ conflict with the security engine reset logic.
 
 ### 9.4 — Departure relies on full_departure_detected boolean
 Lighting does not detect departure independently. It reads
-`input_boolean.full_departure_detected` set by the presence/boundary system.
+`input_boolean.full_departure_detected` set by the presence/boundary system (main-gate path: `security_departure_stage2_confirm`; laundry/study exit: `presence_study_boundary_resolver`, 2026-10-23).
 If AP disconnect is unreliable, departure lighting may not fire — this is
 a presence system problem, not a lighting problem.
 

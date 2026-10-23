@@ -205,6 +205,8 @@ Issues found:
 
 ## 🔒 TEST 2 — Door/Gate Alerts
 
+> ⚠️ **DUE FOR RE-RUN (2026-10-23):** non-perimeter doors now push via `route_door_entry_alert` / `alert.door_entry_alert` (45 s delay), kitchen + laundry door/gate have their own rules (study session / exit window), and `route_door_sustained_open_escalation` dedupes against it. Not yet exercised with a real door event — add cases: kitchen at night, laundry gate at night with/without study session.
+
 **Trigger: Open main gate or leave it open past escalation threshold**
 
 ### Method A — Physical test

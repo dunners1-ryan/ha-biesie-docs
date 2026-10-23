@@ -5,8 +5,8 @@
 
 ## ⚠️ OPEN TODO
 
-- [ ] **2026-10-23 — Kitchen / laundry door model (built + render/scenario-tested live;
-      one restart still owed).** Kitchen door = maid washing-line access only (NOT a
+- [x] **2026-10-23 — Kitchen / laundry door model (built, render/scenario-tested live,
+      HA restarted + verified, committed `42db7c18`).** Kitchen door = maid washing-line access only (NOT a
       house entry/exit); laundry door + gate = study access (used all day WFH).
       **Presence:** new helpers `input_boolean.service_entry_event` / `study_entry_event` /
       `study_exit_event` (presence_helpers.yaml); new `presence_templates.yaml` with
@@ -28,8 +28,8 @@
       `automation.route_door_entry_alert` (sole delivery path), `alert.door_entry_alert`
       (display only, no notifiers). `route_door_sustained_open_escalation` now skips if
       route_door_entry_alert ran <2 min ago. No kitchen security gate exists in the
-      registry (placeholder dropped). **⚠️ OWED: HA restart** (new `alert:` entity) —
-      verify `alert.door_entry_alert` exists afterwards. Main-gate departures already set
+      registry (placeholder dropped). **Restart done** (new `alert:` entity) —
+      `alert.door_entry_alert` verified present/idle afterwards. Main-gate departures already set
       `full_departure_detected` via `security_departure_stage2_confirm` (not changed).
       **Fixed same day (user-approved, lighting_departure.yaml):** `lighting_on_full_departure`
       last triggered 2026-03-02 because `full_departure_detected` was stuck ON — the
@@ -37,8 +37,11 @@
       turn_off, so no off→on edge ever recurred. The check now gates only the lighting
       actions (`if/then`); the flag is always cleared. Verified live: stuck flag cleared,
       test on→off with family home ran the automation, no lighting changed.
-      Orphan entity `automation.laundry_entry_event` / `_departure_event` (unavailable)
-      can be deleted from Settings → Entities.
+      Orphan entities `automation.laundry_entry_event` / `_departure_event` (unavailable)
+      deleted from the entity registry by the user the same day. Not yet run live: a real
+      push from `route_door_entry_alert` and a real full departure through the fixed
+      `lighting_on_full_departure` (both verified by render/logic only). Alert_Test_Plan
+      Test 2 (Door/Gate Alerts) is due a re-run to cover non-perimeter doors.
 - [ ] **2026-10-23 — Power: pool target now 4 seasons + solar-aware (pool >85,000L,
       2h runs weren't cleaning the pool).** User asked for spring to sit just under
       summer (75–85% of the summer target), autumn the same on the way to winter, and
