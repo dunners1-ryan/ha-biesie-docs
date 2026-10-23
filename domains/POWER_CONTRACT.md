@@ -1000,14 +1000,37 @@ Switch entity: `switch.pool_pump_switch` (renamed from `switch.pool_pump_switch_
 ```
 input_number.pool_minimum_run_minutes       min  min run time before turn-off allowed (default: 45)
 input_number.pool_pre_shed_battery_threshold %   SOC threshold for pre-shed gate (default: 80)
-input_number.pool_target_hours_summer       h    daily run target — summer bucket (default: 4)
-input_number.pool_target_hours_winter       h    daily run target — winter bucket (default: 1.5)
+input_number.pool_target_hours_summer       h    daily run target — summer (default: 5, max 8)
+input_number.pool_target_hours_winter       h    daily run target — winter (default: 1.5)
+input_number.pool_shoulder_pct_normal       %    spring/autumn target as % of summer (default: 75)
+input_number.pool_shoulder_pct_good_solar   %    spring/autumn % on a good-solar day (default: 85)
+input_number.pool_good_solar_forecast_kwh   kWh  Solcast today >= this = good-solar day (default: 25)
+input_number.pool_good_solar_min_hours      h    target floor on a good-solar day, any season (default: 4)
+input_number.pool_weather_pv_poor_ratio     %    live PV below this % of forecast-now = real cloud (default: 50)
 input_datetime.pool_pump_last_on                 time-only — set by automation on pump start
 input_boolean.pool_manual_run_active             ON while manual run in progress
 input_select.pool_manual_run_duration            "30"/"60"/"90"/"120" minutes for manual run
 ```
-(`pool_target_hours_winter` now also covers spring until it ages past
-`season_spring_grace_days` — see Season Bucket note below.)
+**Pool target — 4 seasons + solar (reworked 2026-10-23):** pool is >85,000L, so a 2h run
+does not turn the water over. `sensor.pool_target_run_hours_today` reads `sensor.season`
+directly (no longer `season_bucket`):
+- summer → `pool_target_hours_summer`
+- spring / autumn → summer × `pool_shoulder_pct_normal`, or × `pool_shoulder_pct_good_solar`
+  on a good-solar day; never below `pool_target_hours_winter`
+- winter → `pool_target_hours_winter`
+- good-solar day (`sensor.solcast_pv_forecast_forecast_today` >= `pool_good_solar_forecast_kwh`
+  AND `binary_sensor.pool_weather_poor` off) → target floored at `pool_good_solar_min_hours`
+  in every season
+- `binary_sensor.pool_weather_poor` (15-min delay each way): ON when OWM condition is
+  cloudy/rainy/pouring/lightning/lightning-rainy/fog/hail/snowy (vetoed when live PV > 60% of
+  `solcast_pv_forecast_power_now`; skipped when OWM API limited/stale), OR live PV <
+  `pool_weather_pv_poor_ratio` of forecast-now while forecast-now > 1000W and SOC < 97%.
+  Attributes: `owm_condition`, `pv_vs_forecast_now_pct`.
+- forecast unavailable → `float(0)` → normal day (fails safe to the lower target)
+
+Defaults give: summer 5h · spring/autumn 3.75h (4.25h good day) · winter 1.5h (4h good day).
+The target is a ceiling only; every Branch 5 gate still applies. Attributes: `season`,
+`forecast_today_kwh`, `good_solar_day`, `weather_poor`, `reason`.
 
 **Runtime sensors:**
 ```
@@ -1018,7 +1041,7 @@ sensor.pool_pump_run_hours_today          h (float)  UI Helper — History Stats
                                                        Entity: switch.pool_pump_switch, State: on,
                                                        Type: Time, Start: midnight today, End: now
 sensor.pool_pump_continuous_run_minutes   min         elapsed time since last pump start
-sensor.pool_target_run_hours_today        h           bucket-aware target (summer vs winter bucket)
+sensor.pool_target_run_hours_today        h           season + solar-aware target (see note above)
 sensor.pool_pump_control_status           string      human-readable reason why pump is/isn't running
 ```
 
@@ -1047,9 +1070,16 @@ but only after a grace period at the start of spring (the first couple of weeks 
 still be cool), since going straight to summer targets on day 1 of spring would be too
 aggressive. Autumn is unchanged (stays in the winter bucket); only spring's
 classification moved.
+**Update 2026-10-23:** `pool_target_run_hours_today` no longer uses the bucket (own
+4-season + solar logic above). **Bug fixed same day:** the grace period read
+`states.sensor.season.last_changed`, which resets to HA start time on every restart, so
+any restart in spring dropped back to the winter bucket for `season_spring_grace_days`.
+Season integration is `type: meteorological` → spring always starts 1 Sep; grace now
+counts days since 1 Sep. Revisit if the Season type changes.
 ```
 input_number.season_spring_grace_days   d   days into spring before it joins the
-                                             summer bucket (default: 15 = 0.5 month)
+                                             summer bucket (default: 15 = 0.5 month;
+                                             counted from 1 Sep — meteorological)
 sensor.season_bucket                    —   "summer" or "winter" — summer when
                                              sensor.season == summer, OR season ==
                                              spring and days-in-state >= grace period;
@@ -1078,7 +1108,7 @@ WATER_CONTRACT.md update was needed.
 - **Turn off (Branch 3 — conserve / solar dropped)**: `energy_orchestrator_state == conserve` OR `solar_available_surplus < 800W` (hysteresis floor). Enforces minimum run time. Replaces raw battery_state_health low/critical + headroom checks.
 - **Turn off (target met — Branch 4)**: daily run hours >= season target — enforces minimum run time.
 - Minimum run time guards prevent short cycles (pump must run `pool_minimum_run_minutes` before most turn-offs). Does NOT apply to 16:00 hard stop, grid-offline, last-sun, or loadshedding_critical branches.
-- Season logic: `sensor.season_bucket == 'summer'` → summer target; otherwise → winter target (see Season Bucket note above — spring joins summer after a grace period).
+- Season logic (2026-10-23): 4-season + good-solar target — see "Pool target — 4 seasons + solar" above. Pool no longer reads `sensor.season_bucket`.
 - **Manual run (added 2026-09-11 — mirrors geyser's manual run):** `script.pool_manual_run` (dashboard button "Run Pool Now", `appliance-control` view) sets `input_boolean.pool_manual_run_active` on, which triggers `automation.pool_manual_run` (power_automations.yaml). Turns the pump on immediately via `switch.turn_on`, waits up to `input_select.pool_manual_run_duration` (30/60/90/120 min) for the switch to go off on its own, then force-turns it off and clears the active flag. Runs independently of `load_control_pool_enabled` and every gate above — an explicit "run it anyway" request. Branch 5 (turn-on) additionally checks `pool_manual_run_active == off` so the scheduled solar logic doesn't fight a run already in progress, but none of `pool_pump_solar_control`'s turn-off branches (grid-offline protection, `loadshedding_critical`, daily target reached, etc.) are bypassed — if one of them turns the pump off early, `pool_manual_run`'s own wait just sees the switch go off and completes gracefully instead of timing out. Same pattern as `automation.geyser_manual_run` below, except pool has no verified-turn-on/off wrapper (uses plain `switch.turn_on`/`switch.turn_off` with `continue_on_error: true`, matching this automation's existing convention — see BUG-INFRA-TUYA01 in the bug catalog below).
 - `sensor.pool_pump_control_status` updated E3: reads orchestrator state as primary reason string (priority 1→11 ordered display).
 - `sensor.solar_available_surplus` (power_state.yaml) is the canonical solar headroom sensor — Watts (pv_power − load_power). Note: `sensor.solar_surplus_available` (solar_core.yaml) is a boolean string True/False — NOT a Watts value. Use `solar_available_surplus` in all appliance automations.

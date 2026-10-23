@@ -5,6 +5,60 @@
 
 ## ⚠️ OPEN TODO
 
+- [ ] **2026-10-23 — Power: pool target now 4 seasons + solar-aware (pool >85,000L,
+      2h runs weren't cleaning the pool).** User asked for spring to sit just under
+      summer (75–85% of the summer target), autumn the same on the way to winter, and
+      for the pool to push to 4h+ when weather/solar is good.
+      `sensor.pool_target_run_hours_today` (power_state.yaml) now reads `sensor.season`
+      directly: summer → `pool_target_hours_summer` (initial raised 4h → **5h**, max
+      6 → 8); spring/autumn → summer × `pool_shoulder_pct_normal` (75%), or ×
+      `pool_shoulder_pct_good_solar` (85%) on a good-solar day, never below the winter
+      target; winter → `pool_target_hours_winter` (1.5h, unchanged). Good-solar day =
+      `sensor.solcast_pv_forecast_forecast_today` >= `pool_good_solar_forecast_kwh`
+      (25 kWh); on those days the target is floored at `pool_good_solar_min_hours` (4h)
+      in every season. Forecast unavailable → treated as a normal day. With defaults:
+      summer 5h · spring/autumn 3.75h (4.25h good day) · winter 1.5h (4h good day).
+      The target is a ceiling only — Branch 5 still needs >1200W surplus, orchestrator
+      surplus/normal, last-sun SOC, grid-offline SOC, winter 10:00 hold, 16:00 stop.
+      New attributes on the target sensor: `season`, `forecast_today_kwh`,
+      `good_solar_day`, `reason` (also shown in the "daily target reached" notification).
+      4 new helpers in power_helpers.yaml (see Locked Entity Names → Pool section).
+      **Pool no longer uses `sensor.season_bucket`.**
+      **Follow-up same day (user request) — weather-aware boost:** a good Solcast
+      forecast no longer counts on its own. New `binary_sensor.pool_weather_poor`
+      (power_state.yaml, 15-min delay_on/off) is ON when OWM reports cloudy/rain/storm/
+      fog (vetoed if live PV > 60% of `solcast_pv_forecast_power_now` — OWM false-cloudy,
+      BUG-S81; ignored when OWM API limited/stale), OR live PV < 
+      `input_number.pool_weather_pv_poor_ratio` (50%, new) of forecast-now while
+      forecast-now > 1000W and SOC < 97% (full battery throttles PV). Good-solar day =
+      forecast >= threshold AND weather not poor; target `reason` attr shows "good
+      forecast but weather poor — boost off". New attrs: `weather_poor`; on the weather
+      sensor: `owm_condition`, `pv_vs_forecast_now_pct`.
+      **season_bucket restart bug FIXED:** spring grace read
+      `states.sensor.season.last_changed`, which resets to HA start time on every
+      restart — any restart in spring dropped back to the winter bucket for another
+      15 days (geyser target + last-sun SOC target). Season integration confirmed
+      `type: meteorological` (core.config_entries), so spring = 1 Sep; grace now counts
+      days since 1 Sep. Revisit if the Season type ever changes.
+      **Dashboard** (`appliance-control` view, `.storage/lovelace.dashboard_operations`,
+      git-ignored): Pool "Daily Target" tile now shows reason + forecast + weather
+      (amber border = good-solar day, green = summer/shoulder, blue = winter); new
+      "Pool Target — Season & Weather" entities card under Pool Pump Status; 5 new
+      helpers added to Pool Controls → Detailed Thresholds fold; `sensor.season_bucket`
+      added to the Borehole column's Power State card; `pool_weather_poor` added to the
+      shared PV/SOC/pump history graph.
+      **Deployed 2026-10-23:** Check Configuration passed, HA restarted, dashboard
+      swapped (backup `.storage/lovelace.dashboard_operations.bak.20261023_poolseason`).
+      Live-verified: target 4.25h ("Spring — 85% of summer · good solar day (min 4.0h)"),
+      Solcast today 65.8 kWh, `pool_weather_poor` unknown until its 15-min delay
+      settles (treated as off), `season_bucket` = summer (date-based grace, survives
+      restarts).
+      Still pending: confirm a sunny day actually reaches 4h+ runtime, and that a
+      cloudy afternoon turns the boost off.
+      Files: `packages/power/power_helpers.yaml`, `packages/power/power_state.yaml`,
+      `packages/power/power_automations.yaml`, `docs/domains/POWER_CONTRACT.md`,
+      `.storage/lovelace.dashboard_operations`.
+
 - [x] **2026-10-19 — `/update-docs` sweep for the 2026-10-18 iron/vacuum shared-plug split
       (code had already been swept into the 05:00 daily-backup commit under a generic
       message before this ran).** Step 3a secondary-drift sweep: grepped `iron_plug`/
@@ -6368,12 +6422,22 @@ automation.pool_manual_run               ← timed run via script.pool_manual_ru
                                             bypass pool_pump_solar_control's safety/target
                                             turn-off branches (see POWER_CONTRACT.md)
 
-# Season bucket — binary summer/winter rollup consumed by pool_target_run_hours_today,
-# geyser_target_run_hours_today, and last_sun_soc_target (spring joins the summer bucket
-# after a grace period; autumn unchanged, stays in the winter bucket)
+# Season bucket — binary summer/winter rollup consumed by geyser_target_run_hours_today
+# and last_sun_soc_target (spring joins the summer bucket after a grace period; autumn
+# unchanged, stays in the winter bucket). Pool target no longer uses it (2026-10-23).
 input_number.season_spring_grace_days    d   days into spring before it joins the summer
                                               bucket (default: 15 = 0.5 month)
 sensor.season_bucket                     —   "summer" or "winter"
+
+# Pool shoulder seasons + good-solar boost (added 2026-10-23) — feed
+# sensor.pool_target_run_hours_today (attrs: season, forecast_today_kwh,
+# good_solar_day, reason)
+input_number.pool_shoulder_pct_normal       %    spring/autumn % of summer target (75)
+input_number.pool_shoulder_pct_good_solar   %    spring/autumn % on good-solar day (85)
+input_number.pool_good_solar_forecast_kwh   kWh  Solcast today >= this = good day (25)
+input_number.pool_good_solar_min_hours      h    target floor on good-solar day (4)
+input_number.pool_weather_pv_poor_ratio     %    PV < this % of forecast-now = cloud (50)
+binary_sensor.pool_weather_poor             —    live cloud/rain veto on good-solar boost
 ```
 
 ### Iron / Vacuum Dock Shared Plug Split (power_state.yaml — added 2026-10-18)
