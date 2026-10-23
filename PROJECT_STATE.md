@@ -34,7 +34,8 @@
       forecast >= threshold AND weather not poor; target `reason` attr shows "good
       forecast but weather poor — boost off". New attrs: `weather_poor`; on the weather
       sensor: `owm_condition`, `pv_vs_forecast_now_pct`.
-      **season_bucket restart bug FIXED:** spring grace read
+      **season_bucket restart bug FIXED (POWER_CONTRACT.md Issue 39, BUG-PWR-SEASONBUCKET01):**
+      spring grace read
       `states.sensor.season.last_changed`, which resets to HA start time on every
       restart — any restart in spring dropped back to the winter bucket for another
       15 days (geyser target + last-sun SOC target). Season integration confirmed

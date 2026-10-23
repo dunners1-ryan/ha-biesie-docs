@@ -3232,6 +3232,34 @@ the UI helpers (live: 35 / 28 kWh, "High Solar"), so `initial: 25 / 10 / Medium`
 dead config and misleading. Cleanup (delete the 3 YAML blocks + orphan registry entries) is
 optional and unscheduled.
 
+### Issue 39 — ✅ FIXED 2026-10-23: BUG-PWR-SEASONBUCKET01 — `season_bucket`'s spring grace
+period reset on every HA restart, re-dropping pool/geyser/last-sun targets to the winter bucket
+**Files:** `power_state.yaml` (`sensor.season_bucket`).
+**Found by:** Claude Code, while reworking `pool_target_run_hours_today` into its own 4-season +
+solar logic (same session) — not user-reported.
+
+**Root cause:** the spring-grace calculation read `states.sensor.season.last_changed`, meaning
+"days since the Season integration's `sensor.season` entity last changed state." That attribute
+resets to HA's own startup time on **every Core restart**, regardless of how long `sensor.season`
+has actually held its current state. Any restart that happened to land during spring's grace
+window (first `season_spring_grace_days`, default 15, after `sensor.season` → `spring`) made
+`season_bucket` read as freshly-entered spring again, dropping `pool_target_run_hours_today`
+(pre-rework), `sensor.last_sun_soc_target`, and `sensor.geyser_target_run_hours_today` back to the
+winter bucket for another full grace period — silently, with no error, no alert, and no record
+other than the targets being lower than expected that day.
+
+**Fix:** the Season integration's config entry (`core.config_entries`) confirmed `type:
+meteorological` (Southern Hemisphere), under which spring always starts 1 September — so the
+grace calculation now counts days since 1 Sep directly (`now() - now().replace(month=9, day=1,
+...)`) instead of off `last_changed`. Immune to restarts; revisit only if the Season integration's
+type is ever changed away from `meteorological`.
+**Deployed:** `ha core check` passed; HA Core restarted (same session, for the unrelated new
+`input_number` helpers); live-confirmed `sensor.season_bucket` = `summer` post-restart while
+`sensor.season` = `spring`, 2026-10-23 is >15 days past 1 Sep.
+**Note:** `pool_target_run_hours_today` stopped reading `season_bucket` entirely in the same
+session (see "Pool target — 4 seasons + solar", Section 8 above) — this fix's practical scope is
+now `last_sun_soc_target` and `geyser_target_run_hours_today`, which still read `season_bucket`.
+
 ---
 
 ## 12. Error Signatures (Watchman-Confirmed)
@@ -3678,6 +3706,11 @@ and its two corrected same-fact references above in Sections 3/6); zoom-button
 snap-back and y-axis over-scale bugs root-caused and fixed on 4 cards; 14d/60d/90d range
 buttons added across 4 cards. New "`custom:plotly-graph` Card Gotchas" subsection added
 above capturing the three underlying card-behavior bugs for future sessions.*
+*Last updated: 2026-10-23 — Pool target reworked to 4-season + solar/weather-aware logic
+(own `pool_shoulder_pct_normal`/`_good_solar`, `pool_good_solar_forecast_kwh`/`_min_hours`,
+`binary_sensor.pool_weather_poor`); pool no longer reads `sensor.season_bucket`. Issue 39
+(BUG-PWR-SEASONBUCKET01) closed: `season_bucket`'s spring-grace calc now counts days since
+1 Sep instead of `sensor.season.last_changed`, which reset on every HA restart.*
 *Last updated: 2026-09-25 — Issue 32 closed (`in_midday` window 11–15); Issue 37 (alerts_power/grid_risk aggregate SOC, SYSTEM_CONTRACT IV-04) fixed; Issue 38 (repo-wide `initial:` audit, 8 power helpers de-seeded, 3 shadowed solar helpers documented).*
 *Last updated: 2026-08-21 — Issue 7 closed (sensor.inverter_today_energy_import removed as
 confirmed dead code, not fixed with detection logic); Issue 8 confirmed (group has 1 real
