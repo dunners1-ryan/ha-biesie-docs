@@ -926,6 +926,43 @@ derivative — both left as-is.
 
 ---
 
+### Issue 22 — ✅ FIXED 2026-10-23: false "Battery Floor" hard-stop from a momentary `sensor.battery_soc` glitch (BUG-W03)
+
+**Priority: MEDIUM | Status: deployed, Reload Automations required**
+
+**Reported by:** user — "Borehole Stopped — Battery Floor" push (SOC = 100.0%, limit = 40.0%) plus a
+knock-on CRITICAL "[SYSTEM] Water Safety Abort" push, both at 15:24–15:25 on 2026-10-23 while SOC was
+actually 100%.
+
+**Root cause:** `sensor.battery_soc` is a derived/template sensor. During a template reload it briefly
+read `0` then `unavailable` for ~3 seconds (15:24:08–15:24:11 in the recorder) before settling back to
+`100.0`. `water_safety_battery_hard_stop` (`water_safety.yaml`) triggers on a bare `numeric_state` below
+`input_number.water_battery_soc_hard_stop` (40%) with no debounce and no sanity check on the reading, so
+the `0` reading tripped it: pump killed, `water_refill_aborted_due_to_safety` set (true fault flag), and
+the warning notification sent. The abort flag then flipped the existing water alert
+(`alerts_water.yaml`, `route_water_tank_alert`/`alert.water_alert`) to its "Water Safety Abort" / critical
+title, producing the second, unrelated-looking push. Pump self-recovered within ~1 minute (back on at
+15:25:00) once SOC reported correctly again.
+
+**Fix:** `water_safety_battery_hard_stop` (`water_safety.yaml`) now:
+- Trigger: `for: "00:00:30"` added — SOC must stay below the floor for 30s, not just the single reading
+  that happens to coincide with a poll.
+- Condition: added `{{ states('sensor.battery_soc') | float(-1) > 0 }}` — a `0`, `unavailable`, or
+  `unknown` reading can never satisfy the condition, regardless of trigger timing.
+
+A genuine SOC crash still stops the pump, just ~30s later than before — not a safety-relevant delay at
+this trigger's threshold (40%, well above cell-damage territory).
+
+**Not fixed as part of this issue:** the knock-on "Water Safety Abort" alert is not a bug — it is the
+alert pipeline correctly reflecting the abort flag that Issue 22's root cause set. No change needed there
+once the hard-stop no longer false-trips. If the abort flag is left on after a false trip, it must be
+cleared manually (`input_boolean.water_refill_aborted_due_to_safety` → off) or it will keep the alert's
+repeat schedule (10/30/60 min) going under the "Safety Abort" title.
+
+**Files:** `water_safety.yaml`.
+
+---
+
 ## 7. Error Signatures (Watchman-Confirmed)
 
 | Entity | Status | File | Issue |
@@ -1141,7 +1178,8 @@ Five protections listed in `WATER_CONTEXT.md`. Each audited independently.
 - **Trigger:** `sensor.battery_soc` below `input_number.water_battery_soc_hard_stop`
 - **Threshold:** 40% (temporary — current battery cells unreliable below 40%). Lower to 20% after new battery installation end of week 2026-05-25.
 - **Coverage:** No SAFETY-state exemption — applies even to emergency refills (unlike `water_borehole_mid_run_shutdown`). Sets `water_refill_aborted_due_to_safety`.
-- **Verdict:** ✅ IMPLEMENTED. See Issue 6 for full coverage details.
+- **Debounced 2026-10-23 (Issue 22 / BUG-W03):** trigger now requires 30s below the floor, plus a condition rejecting non-positive/`unavailable`/`unknown` readings — a momentary `sensor.battery_soc` glitch (template reload dropping it to `0` for ~3s) previously false-tripped the stop at real SOC 100%.
+- **Verdict:** ✅ IMPLEMENTED. See Issue 6 for full coverage details, Issue 22 for the debounce fix.
 
 ### Protection 5: Degraded Rise Rate Protection (redesigned 2026-08-21, was "Max Runtime Cutoff")
 - **Original spec:** Pump on > `water_refill_max_runtime_minutes` → Stop pump
@@ -1168,7 +1206,7 @@ Five protections listed in `WATER_CONTEXT.md`. Each audited independently.
 | Dry run (power-based) | ❌ Disabled | Medium — 15min exposure |
 | No-rise protection | ✅ Implemented — net-rise test since 2026-09-25 (Issue 21) | Low |
 | Fill-target stop | ✅ 60 s confirm-then-stop since 2026-09-25 (Issue 21) | Low |
-| Battery hard stop (reactive) | ✅ Implemented 2026-05-25 — `water_safety_battery_hard_stop` in `water_safety.yaml` | Low — floor set at 40% (temp; lower to 20% after new battery install) |
+| Battery hard stop (reactive) | ✅ Implemented 2026-05-25 — `water_safety_battery_hard_stop` in `water_safety.yaml`; debounced + glitch-guarded 2026-10-23 (Issue 22) | Low — floor set at 40% (temp; lower to 20% after new battery install) |
 | Max runtime cutoff | ❌ Missing | Medium — runaway possible |
 
 **One of five protections missing.** Battery hard stop now implemented. Max runtime cutoff (Issue 5) is the remaining gap.

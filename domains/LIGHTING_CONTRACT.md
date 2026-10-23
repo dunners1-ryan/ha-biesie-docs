@@ -1335,3 +1335,10 @@ Section 4 table, Section 9.6, and the File Inventory line count (502→529) upda
 *Next review: After new AI cameras installed (cam motion valid sensors change)*
 
 *Last updated: 2026-09-25 — Rule 5b audit: `initial: false` removed from `input_boolean.bedtime_mode` (`lighting_helpers.yaml`). It is written by 5 bedtime/wake automations and gates the boundary-security watchdog (BUG-L26), so a restart after bedtime previously reset it to off and re-enabled the security-light watchdog overnight.*
+
+### 2026-10-23 — `lighting_on_full_departure` stuck-flag fix
+`input_boolean.full_departure_detected` was stuck ON (automation last ran 2026-03-02): the
+`anyone_connected_home = off` check was a top-level `condition:`, so a failing check aborted
+the run before the closing `turn_off`, and no later off→on edge could fire it. The check is now
+an `if/then` around the lighting actions only; the flag is always cleared at the end. Rule for
+any edge-triggered flag automation: never put a condition ahead of the flag's own reset.

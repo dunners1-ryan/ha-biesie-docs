@@ -35,6 +35,16 @@
 # while auditing this, and checked HA's admin/public dashboard settings (no mismatch —
 # every dashboard is require_admin: false). See NOTIFICATIONS_CONTRACT.md "Alert
 # Click-Through" for the full field/default/override table.
+# Last updated: 2026-10-23 — kitchen/laundry door model in `sensor.door_alert_context`:
+# kitchen door = maid service access (day + anyone on site silent; night critical;
+# nobody-home info→warning after entry_esc); laundry door/gate = study access (study
+# session or 5-min exit window → info at night / silent by day; otherwise night or
+# nobody-home → critical; day+home silent; `laundry_door_alert_notify` mute kept).
+# Both removed from the shared Tier 2 loop. New `binary_sensor.door_alert_push_active`
+# (non-perimeter door driving warning/critical, 45 s delay_on), `automation.route_door_
+# entry_alert` (sole delivery path) and `alert.door_entry_alert` (display only, needs
+# restart). `route_door_sustained_open_escalation` skips if route_door_entry_alert ran
+# <2 min ago. Tested via template render against mocked states (18 scenarios).
 # Last updated: 2026-09-02 — New per-door mute: `input_boolean.laundry_door_alert_notify`
 # (alerts_doors.yaml), same pattern as `input_boolean.camera_alert_notify` (manual
 # dashboard toggle gating an alert without touching the domain-wide

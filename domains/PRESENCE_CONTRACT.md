@@ -22,6 +22,11 @@
 # missing BUG-P14/P18 (both already Fixed in Section 10) — added, count corrected 15→17.
 # Scope line above corrected 5→6 files. No code changes — presence pipeline needed none,
 # this was 100% doc drift (the Bug Catalog itself, Section 10, was already accurate).
+# Last updated: 2026-10-23 — kitchen/laundry door model: laundry_entry_event/
+# laundry_departure_event REPLACED by presence_kitchen_service_entry, presence_study_entry_event,
+# presence_study_exit_event, presence_study_boundary_resolver; new presence_templates.yaml
+# (study_presence_recent, study_session_active); new helpers service_entry_event,
+# study_entry_event, study_exit_event. See PROJECT_STATE.md 2026-10-23.
 # Last updated: 2026-08-23 — new laundry_entry_event/laundry_departure_event automations
 # (presence_boundary.yaml, mirror house_entry_event/house_departure_event for the new
 # laundry_door_sensor/laundry_security_gate_sensor Zigbee pair). Section 5 (Door
@@ -275,8 +280,10 @@ Two additional automations provide entry/departure event flags:
 |---|---|---|---|
 | `house_entry_event` | `front_door_sensor → on` | `front_security_gate_sensor` changed < 30s ago | `house_entry_event = on` (5 min); `input_boolean.arrival_detected = on` (BUG-P17, 2026-07-08) |
 | `house_departure_event` | `front_security_gate_sensor → on` | `front_door_sensor` changed < 30s ago | `house_departure_event = on` (5 min) |
-| `laundry_entry_event` (added 2026-08-23) | `laundry_door_sensor → on` | `laundry_security_gate_sensor` changed < 30s ago | Exact mirror of `house_entry_event`, writing the SAME shared `house_entry_event`/`arrival_detected` booleans — laundry inherits front door's arrival-lighting behavior for free |
-| `laundry_departure_event` (added 2026-08-23) | `laundry_security_gate_sensor → on` | `laundry_door_sensor` changed < 30s ago | Exact mirror of `house_departure_event`, same shared `house_departure_event` boolean |
+| `presence_kitchen_service_entry` (2026-10-23) | `kitchen_door_sensor off → on` | None | `service_entry_event` (5 min). Day = silent (no resolver, no lights). Night or `security_nobody_home` also sets `house_entry_event` + `arrival_detected` (same as front door). No kitchen security gate exists. |
+| `presence_study_entry_event` (2026-10-23, replaces `laundry_entry_event`) | `laundry_door_sensor off → on` | `laundry_security_gate_sensor` on and changed < 30s ago | `study_entry_event` (5 min). Does NOT set `house_entry_event`. |
+| `presence_study_exit_event` (2026-10-23, replaces `laundry_departure_event`) | `laundry_security_gate_sensor off → on` | `laundry_door_sensor` changed < 30s ago AND `binary_sensor.study_presence_recent` on | `study_exit_event` (5 min). |
+| `presence_study_boundary_resolver` (2026-10-23) | `study_entry_event` / `study_exit_event` off → on | None | Entry: after 25s, people home now but not in the trigger-time `who_was_home_snapshot` → `last_arrival_*` + `arrival_detected`. Exit: waits ≤8 min for `anyone_connected_home` off, then snapshot people now Away → `last_departure_*` + `full_departure_detected` (skipped if `last_departure_time` < 10 min old — main-gate path already recorded it). |
 
 *(Doc-drift correction 2026-08-23: the line below describing `house_departure_event`'s
 logbook message as a live copy-paste bug was stale — that was BUG-P09, fixed 2026-07-10
@@ -458,8 +465,7 @@ family members. See BUG-P08 in Section 10 for the fix writeup.
 | `property_entry_event` | `main_gate_sensor → on` | None | Low (gate sensor rarely unavailable) |
 | `house_entry_event` | `front_door_sensor → on` | None | Low |
 | `house_departure_event` | `front_security_gate_sensor → on` | None | Low |
-| `laundry_entry_event` (2026-08-23) | `laundry_door_sensor → on` | None | Low — mirrors house_entry_event |
-| `laundry_departure_event` (2026-08-23) | `laundry_security_gate_sensor → on` | None | Low — mirrors house_departure_event |
+| `presence_kitchen_service_entry`, `presence_study_entry_event`, `presence_study_exit_event` (2026-10-23) | door/gate sensors `off → on` | `from: "off"` set | Low |
 | `presence_boundary_resolver` | `main_gate_sensor → on` | None | Low |
 | `gate_open_too_long_permissive` | `main_gate_sensor → on for 5m` | None | Low |
 | `maid_schedule_start` | `time at: input_datetime.maid_start` | N/A | ✅ Time trigger. **`maid_start` changed 09:00→10:00 (2026-06-29, live via API)** — recorder showed first actual maid camera activity (ipcam01/ipcam03 entrance) at 09:47–09:59 on 2026-06-29, ~50min after the old 09:00 schedule; `maid_end` unchanged at 17:45. |

@@ -5,6 +5,40 @@
 
 ## ⚠️ OPEN TODO
 
+- [ ] **2026-10-23 — Kitchen / laundry door model (built + render/scenario-tested live;
+      one restart still owed).** Kitchen door = maid washing-line access only (NOT a
+      house entry/exit); laundry door + gate = study access (used all day WFH).
+      **Presence:** new helpers `input_boolean.service_entry_event` / `study_entry_event` /
+      `study_exit_event` (presence_helpers.yaml); new `presence_templates.yaml` with
+      `binary_sensor.study_presence_recent` (office_occupied, 10 min delay_off) and
+      `binary_sensor.study_session_active` (presence_recent OR AP-confirmed entry);
+      presence_boundary.yaml: `presence_kitchen_service_entry` (day = silent
+      service_entry_event only; night/nobody-home also sets house_entry_event +
+      arrival_detected), `presence_study_entry_event` (gate→door <30s),
+      `presence_study_exit_event` (door→gate <30s AND study_presence_recent),
+      `presence_study_boundary_resolver` (confirms via UniFi AP vs the 60s who-was-home
+      snapshot; sets arrival_detected / full_departure_detected). **Replaced**
+      `laundry_entry_event` / `laundry_departure_event` (they fed house_entry_event for
+      every laundry open). **Alerts (alerts_doors.yaml):** `sensor.door_alert_context`
+      — kitchen: day+anyone on site silent, night critical, nobody-home info→warning;
+      laundry door/gate: session or 5-min exit window → info (night) / silent (day),
+      otherwise night or nobody-home → critical, day+home silent;
+      `laundry_door_alert_notify` mute kept. New `binary_sensor.door_alert_push_active`
+      (non-perimeter door driving warning/critical, 45 s delay_on),
+      `automation.route_door_entry_alert` (sole delivery path), `alert.door_entry_alert`
+      (display only, no notifiers). `route_door_sustained_open_escalation` now skips if
+      route_door_entry_alert ran <2 min ago. No kitchen security gate exists in the
+      registry (placeholder dropped). **⚠️ OWED: HA restart** (new `alert:` entity) —
+      verify `alert.door_entry_alert` exists afterwards. Main-gate departures already set
+      `full_departure_detected` via `security_departure_stage2_confirm` (not changed).
+      **Fixed same day (user-approved, lighting_departure.yaml):** `lighting_on_full_departure`
+      last triggered 2026-03-02 because `full_departure_detected` was stuck ON — the
+      `anyone_connected_home = off` top-level condition aborted the run before the final
+      turn_off, so no off→on edge ever recurred. The check now gates only the lighting
+      actions (`if/then`); the flag is always cleared. Verified live: stuck flag cleared,
+      test on→off with family home ran the automation, no lighting changed.
+      Orphan entity `automation.laundry_entry_event` / `_departure_event` (unavailable)
+      can be deleted from Settings → Entities.
 - [ ] **2026-10-23 — Power: pool target now 4 seasons + solar-aware (pool >85,000L,
       2h runs weren't cleaning the pool).** User asked for spring to sit just under
       summer (75–85% of the summer target), autumn the same on the way to winter, and
@@ -59,6 +93,25 @@
       Files: `packages/power/power_helpers.yaml`, `packages/power/power_state.yaml`,
       `packages/power/power_automations.yaml`, `docs/domains/POWER_CONTRACT.md`,
       `.storage/lovelace.dashboard_operations`.
+
+- [x] **2026-10-23 — Water: false "Battery Floor" hard-stop from a `sensor.battery_soc`
+      glitch (WATER_CONTRACT Issue 22, BUG-W03).** User reported a CRITICAL "[SYSTEM]
+      Water Safety Abort" push plus a "Borehole Stopped — Battery Floor" push
+      (SOC = 100.0%, limit = 40.0%) at 15:24–15:25 while SOC was genuinely 100%.
+      Recorder confirmed `sensor.battery_soc` read `0` then `unavailable` for ~3s
+      (15:24:08–15:24:11, consistent with a template reload) before settling back to
+      100.0 — `water_safety_battery_hard_stop` (`water_safety.yaml`) has a bare
+      `numeric_state` trigger with no debounce and no sanity check, so the `0` tripped
+      it: pump killed, `water_refill_aborted_due_to_safety` set, warning sent; the abort
+      flag then flipped the existing `alerts_water.yaml` alert to its critical
+      "Water Safety Abort" title (second push, same root cause — alert pipeline itself
+      not changed). Pump self-recovered ~1 min later. **Fix:** trigger now requires
+      `for: "00:00:30"` below the floor; added condition
+      `{{ states('sensor.battery_soc') | float(-1) > 0 }}` to reject non-positive/
+      unavailable/unknown readings regardless of timing. A real SOC crash still stops
+      the pump, ~30s later than before. File: `packages/water/water_safety.yaml`.
+      Check Configuration not yet re-run by the user after this edit — reload
+      automations (no restart needed, no new entities).
 
 - [x] **2026-10-19 — `/update-docs` sweep for the 2026-10-18 iron/vacuum shared-plug split
       (code had already been swept into the 05:00 daily-backup commit under a generic
@@ -5962,8 +6015,19 @@ binary_sensor.laundry_door_sensor               # entity_id was already clean, n
 # All 4 renames: doubled-prefix bug from Area not being set before HA auto-named the
 # entity at creation. unique_id untouched on all 4 — only entity_id changed.
 # DO NOT reintroduce the doubled-prefix names above.
-automation.laundry_entry_event                  # presence_boundary.yaml, mirrors house_entry_event
-automation.laundry_departure_event              # presence_boundary.yaml, mirrors house_departure_event
+# automation.laundry_entry_event / laundry_departure_event — REMOVED 2026-10-23, replaced by:
+automation.presence_kitchen_service_entry       # presence_boundary.yaml, kitchen = service access
+automation.presence_study_entry_event           # presence_boundary.yaml, laundry gate->door
+automation.presence_study_exit_event            # presence_boundary.yaml, laundry door->gate (needs study_presence_recent)
+automation.presence_study_boundary_resolver     # presence_boundary.yaml, AP-confirmed study arrival/full departure
+automation.route_door_entry_alert               # alerts_doors.yaml, push for non-perimeter doors
+input_boolean.service_entry_event               # presence_helpers.yaml
+input_boolean.study_entry_event                 # presence_helpers.yaml
+input_boolean.study_exit_event                  # presence_helpers.yaml
+binary_sensor.study_presence_recent             # presence_templates.yaml
+binary_sensor.study_session_active              # presence_templates.yaml
+binary_sensor.door_alert_push_active            # alerts_doors.yaml (45 s delay_on)
+alert.door_entry_alert                          # alerts_doors.yaml (needs restart; display only)
 automation.house_secured_check                  # alerts_doors.yaml, bedtime + everyone-left sweep
 input_datetime.house_secured_check_time         # default 21:30, dashboard-adjustable
 ```
