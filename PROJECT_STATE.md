@@ -6507,6 +6507,14 @@ automation.pool_manual_run               ← timed run via script.pool_manual_ru
                                             bypass pool_pump_solar_control's safety/target
                                             turn-off branches (see POWER_CONTRACT.md)
 
+# Stale manual-run flag watchdog (added 2026-10-26, BUG-PWR-POOLMANUAL01) — covers
+# BOTH pool_manual_run_active and geyser_manual_run_active; lives in power_automations.yaml
+# alongside the pool entities above, not duplicated under Geyser Entities.
+automation.manual_run_stale_flag_watchdog_pool_geyser  ← id: manual_run_stale_flag_watchdog;
+                                            clears pool/geyser manual-run flag if ON with no
+                                            run in progress (restart/reload casualty); runs on
+                                            HA start, automation_reloaded, and every 5 min
+
 # Season bucket — binary summer/winter rollup consumed by geyser_target_run_hours_today
 # and last_sun_soc_target (spring joins the summer bucket after a grace period; autumn
 # unchanged, stays in the winter bucket). Pool target no longer uses it (2026-10-23).
