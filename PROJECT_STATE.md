@@ -5,6 +5,23 @@
 
 ## ⚠️ OPEN TODO
 
+- [ ] **2026-10-26 — Power: pool hadn't run since 23 Oct — stuck manual-run flag (POWER_CONTRACT
+      Issue 40, BUG-PWR-POOLMANUAL01).** `input_boolean.pool_manual_run_active` was ON since
+      2026-10-23 10:49 SAST: a "Run Pool Now" run was killed mid-wait by that day's reloads/restart,
+      so it never cleared the flag. Branch 5 of `pool_pump_solar_control` needs the flag off → no
+      solar runs 24–26 Oct (25 Oct only by hand); re-pressing the button (23 Oct 14:07, 26 Oct
+      14:18) was a silent no-op (automation triggers on off→on only); status sensor showed
+      "Waiting for solar surplus". **Fixed (user-approved):** flag cleared live 14:19, pump on
+      14:20. New `automation.manual_run_stale_flag_watchdog` (pool + geyser; start / reload /
+      5-min) clears a flag left ON with no run in progress. `script.pool_manual_run` now
+      pre-flights (stale flag / already running / automation disabled / switch unavailable) and
+      verifies the pump is ON within 90s — on failure notifies a warning with the cause.
+      `automation.pool_manual_run` aborts + clears the flag if the pump isn't ON within 60s.
+      `sensor.pool_pump_control_status` shows manual-run / stuck-flag states. Config valid;
+      automations/scripts/templates reloaded (no restart). Still pending: a real failed start to
+      confirm the cause notification; geyser's script has no equivalent start verification (watchdog
+      covers its stuck flag only). Files: `packages/power/power_automations.yaml`,
+      `packages/power/power_state.yaml`, `docs/domains/POWER_CONTRACT.md`.
 - [x] **2026-10-23 — Kitchen / laundry door model (built, render/scenario-tested live,
       HA restarted + verified, committed `42db7c18`).** Kitchen door = maid washing-line access only (NOT a
       house entry/exit); laundry door + gate = study access (used all day WFH).
