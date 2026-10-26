@@ -22,6 +22,17 @@
       confirm the cause notification; geyser's script has no equivalent start verification (watchdog
       covers its stuck flag only). Files: `packages/power/power_automations.yaml`,
       `packages/power/power_state.yaml`, `docs/domains/POWER_CONTRACT.md`.
+- [x] **2026-10-26 — Utilities: four gas gauge readings logged via `/log-gas-reading`**
+      (`packages/utilities/gas_gauge_history.json`, `record_count` 1→4). One live reading
+      today (2026-10-26, "Gas, green zone, lower end, just above the Low Gas boundary") plus
+      two backdated from photo EXIF — 2026-09-21 ("Gas, upper-middle") and 2026-10-13 ("Gas,
+      lower end, just above Low Gas") — filling the gap after the 2026-09-02 first reading.
+      All four on the Swap bottle (matches live `input_select.gas_stove_bottle_identity`).
+      Trend: steady decline through September, plateaued at the bottom of green for the two
+      most recent readings (13 days apart) — purely informational per UTILITIES_CONTRACT
+      Section 8f's "not fed into the EMA" rule, not reconciled against
+      `sensor.gas_stove_fraction_remaining` (0.64 live). No code/entity changes.
+      UTILITIES_CONTRACT.md Section 8f updated with the current trend summary.
 - [x] **2026-10-23 — Kitchen / laundry door model (built, render/scenario-tested live,
       HA restarted + verified, committed `42db7c18`).** Kitchen door = maid washing-line access only (NOT a
       house entry/exit); laundry door + gate = study access (used all day WFH).

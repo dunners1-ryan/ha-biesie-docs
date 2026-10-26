@@ -676,6 +676,15 @@ the user to press the reset button in its own completion notification
 whenever the just-completed refill/exchange is for whichever bottle is
 currently on the stove — the only appliance this gauge is fitted to.
 
+**Trend as of 2026-10-26** (`record_count: 4`): `Gas (green, near top edge)`
+2026-09-02 → `Gas (green, upper-middle)` 2026-09-21 → `Gas (green, lower
+end, just above Low Gas)` 2026-10-13 → same zone, unchanged, 2026-10-26. A
+steady decline through September that's plateaued at the bottom of green
+for the two most recent readings (13 days apart) — purely informational,
+not reconciled against `sensor.gas_stove_fraction_remaining`'s independent
+EMA estimate (0.64 as of 2026-10-26) per this section's own "not fed into
+the EMA" rule above.
+
 ### 8g. Alert Pipeline
 
 Exact structural copy of Water Cooler's (Section 6), `route_gas_alert` /
