@@ -5,6 +5,14 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-10-27 — Utilities: Water Cooler stock/timestamps corrected (data fix, no code).**
+      HA showed 3 spare bottles vs 1 real. Cause: backdate toggle never turned on, so the
+      26 Oct 09:00 swap was logged as 27 Oct 12:42 (second press ignored by the duplicate
+      guard), and at least one earlier swap (~19-20 Oct) was never logged. Fixed live via
+      helper writes: `watercooler_bottles_in_stock` 3→1, `watercooler_last_bottle_change_time`
+      → 2026-10-26 09:00, `watercooler_avg_days_per_bottle` 4.76→4.0. `empties_on_hand` still 5,
+      awaiting a physical count. Mounted bottle ~80% vs sensor 0.66 (left as is; no seasonal
+      factor — EMA adapts). Documented in UTILITIES_CONTRACT.md (water cooler section).
 - [ ] **2026-10-26 — Power: pool hadn't run since 23 Oct — stuck manual-run flag (POWER_CONTRACT
       Issue 40, BUG-PWR-POOLMANUAL01).** `input_boolean.pool_manual_run_active` was ON since
       2026-10-23 10:49 SAST: a "Run Pool Now" run was killed mid-wait by that day's reloads/restart,

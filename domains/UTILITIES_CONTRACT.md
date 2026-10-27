@@ -116,6 +116,16 @@ calibrating estimate.
   calls instead: stock −1, empties +1, and `avg_days_per_bottle` recomputed by
   replaying the EMA with the missed swap inserted (4.39→3.75). See
   `docs/PROJECT_STATE.md`'s 2026-09-29 entry.
+- **Backdate toggle forgotten → press logged as "now" (2026-10-27)**: the user set
+  `watercooler_backdate_time` several times but never turned
+  `watercooler_backdate_entry` ON, so the press used `now()` (swap of 26 Oct 09:00
+  logged as 27 Oct 12:42) and an immediate second press was swallowed by the
+  <20 min duplicate guard. Two swaps (one ~19-20 Oct, one more unexplained) were also
+  never logged, so HA showed 3 spares against 1 real. Corrected by direct helper
+  writes: `bottles_in_stock` 3→1, `last_bottle_change_time` 2026-10-26 09:00,
+  `avg_days_per_bottle` 4.76→4.0. Empties left at 5 pending a physical count.
+  No YAML changed. The backdate time must be set AND the toggle turned on BEFORE
+  pressing Log Bottle Changed. The EMA is left to self-adjust to summer usage.
 - **Restore-state gap after an HA Core update (added 2026-09-06, real
   incident, different mechanism from the debounce bug above)**: an HA Core
   update (2026.8.3 → 2026.9.1) restarted Core at 13:01 SAST on 2026-09-06 —
