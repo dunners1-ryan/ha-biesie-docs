@@ -433,7 +433,7 @@ Doors Domain section instead; nothing to list here.
 
 | Entity | File | Status |
 |---|---|---|
-| `binary_sensor.staff_on_site` | geyser_automations.yaml (Branch 2b midday forced minutes; evening-early threshold boost; morning-extend 9:00/10:00 cap + matching Branch 1b condition), power_state.yaml (`sensor.geyser_daily_status` `midday_adequacy`) | ✅ Uses derived binary_sensor. Since 2026-09-23 this is the sole "high hot-water-demand day" signal (Mon/Thu maid + Sat gardener) — replaced hardcoded `weekday() in [0, 3]`. Changing the maid/gardener schedule weekdays in `presence_trust.yaml` now changes geyser behaviour too. |
+| `binary_sensor.staff_on_site` | geyser_automations.yaml (Branch 2b midday forced minutes; evening-early threshold boost; morning-extend 9:00/10:00 cap + matching Branch 1b condition; Branch 3 midday-reached-temp early-start skip, added 2026-10-27 — skip is OFF on staff-on-site days), power_state.yaml (`sensor.geyser_daily_status` `midday_adequacy`) | ✅ Uses derived binary_sensor. Since 2026-09-23 this is the sole "high hot-water-demand day" signal (Mon/Thu maid + Sat gardener) — replaced hardcoded `weekday() in [0, 3]`. Changing the maid/gardener schedule weekdays in `presence_trust.yaml` now changes geyser behaviour too. |
 
 ---
 
