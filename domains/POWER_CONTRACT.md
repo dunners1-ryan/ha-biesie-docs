@@ -1592,7 +1592,13 @@ input_select.geyser_manual_run_duration        ← "30" or "60" minutes for manu
 # E10 2026-08-29 (BUG-PWR-GEYSER04): weekday bucket is Mon–Fri only; Sat+Sun now
 # share the weekend bucket (was Sun-only — Saturday used to get the weekday
 # times, so an early-cutoff geyser left the tank cold for a ~10am Sat shower).
-input_number.geyser_morning_start_weekday  h  4.5  (Mon–Fri trigger 04:30 non-winter, 04:00 winter)
+input_number.geyser_morning_start_weekday  h  4.5  WINTER weekday start only, via − winter offset (04:00).
+                                                Was also the non-winter start (04:30) until 2026-10-27.
+input_number.geyser_morning_start_weekday_summer h 5.0  summer Mon–Fri start (added 2026-10-27; trigger 05:00,
+                                                shared with winter weekend — never two triggers at one time)
+input_number.geyser_shoulder_start_pct     %  85   spring/autumn Mon–Fri start = winter + 85% of the winter→summer
+                                                gap, rounded to 5 min → 04:50 (trigger 04:50; added 2026-10-27,
+                                                same shoulder idea as pool_shoulder_pct_*)
 input_number.geyser_morning_start_weekend  h  5.5  (Sat–Sun trigger 05:30 non-winter, 05:00 winter)
 input_number.geyser_morning_end_weekday    h  7.5  (trigger 07:30 non-winter, 08:00 winter)
 input_number.geyser_morning_end_weekend    h  9.5  (Sat–Sun trigger 09:30 non-winter, 10:30 winter)
@@ -1668,15 +1674,22 @@ input_boolean.holiday_mode                     (presence_trust.yaml) — alterna
 
 **Derived sensors (power_state.yaml):**
 ```
-sensor.geyser_control_status         13-state priority display
+sensor.geyser_morning_start_today    h  today's morning-window start (attr start_time, season) — single source
+                                     for the window maths in control_status / morning_backstop / emergency-off
+                                     (added 2026-10-27; turn-on itself is still fixed triggers)
+sensor.geyser_control_status         13-state priority display. Evening window 17:00 winter / 17:30 other →
+                                     hard-off 21:00/20:30 (sports 22:00/21:30) — fixed 2026-10-27 (Issue 41),
+                                     was 19:30/20:00 → 22:00/21:30, showing "Outside active windows" while heating
 binary_sensor.geyser_at_temperature  ON after 5 min sustained geyser_heat_pump_power < 50W while switch on
 sensor.geyser_daily_status           reached_temp / heating / low_energy / no_run  (added 2026-06-17)
                                      Attributes: energy_today_kwh, morning/midday/evening_kwh,
                                      reached_temp_today, at_temperature_now, min_energy_kwh,
                                      midday_adequacy (added 2026-07-01):
                                        Before 15:00: "In progress — X.X kWh (need Y.Y)"
-                                       After 15:00, adequate: "Adequate (X.XX / Y.Y kWh) — early start 17:00/17:30"
-                                       After 15:00, low: "Low (X.XX / Y.Y kWh) — 18:30 fallback"
+                                       After 15:00, adequate: "Adequate (X.XX / Y.Y kWh) — 18:30 fallback"
+                                       Reached temp 11:00–15:00 (not staff day): "Adequate — reached temp at midday (X kWh) — 18:30 fallback" (shown as soon as it happens)
+                                       After 15:00, low: "Low (X.XX / Y.Y kWh) — early start 17:00/17:30"
+                                       (labels were swapped until 2026-10-27 — Issue 41)
                                        Season-aware: winter early = 17:00, non-winter = 17:30.
                                        Threshold: input_number.geyser_adequate_daily_energy_by_midday (3.0 kWh).
 ```
@@ -1689,6 +1702,9 @@ Evening turn-on — ADAPTIVE + SEASON-AWARE (updated 2026-06-24):
     exceeded threshold → 17:00/17:30 never fired. Now compares midday-window DELTA only.
     THRESHOLD RAISED 2026-06-24: 1.25→3.0 kWh — grounded in real heat-up cost (see helper note above).
 
+  (2026-10-27, Issue 41) Both early branches also require geyser_midday_reached_temp_today OFF —
+  a tank that reached temp during 11:00–15:00 had a good midday even on low kWh (a hot tank draws
+  little). Ignored on staff_on_site days (afternoon use drains it — 2026-07-02 incident).
   17:00 (evening_early_winter)  WINTER only: if NOT at_temperature AND midday delta < threshold
                                 → extra time needed: showers at 19:30 require 2.5h heat-up
   17:30 (evening_early)         NON-WINTER: if NOT at_temperature AND midday delta < threshold
@@ -1706,11 +1722,13 @@ Evening hard-off:
 **Full schedule (all windows):**
 ```
 Morning  Mon–Fri winter    : 04:00 on / 08:00 off
-         Mon–Fri non-winter: 04:30 on / 07:30 off
+         Mon–Fri spring/autumn: 04:50 on / 07:30 off   (was 04:30 — 2026-10-27, Issue 41)
+         Mon–Fri summer    : 05:00 on / 07:30 off      (was 04:30 — 2026-10-27, Issue 41)
          Sat–Sun winter    : 05:00 on / 10:30 off
          Sat–Sun non-winter: 05:30 on / 09:30 off
-Midday   (solar-gated)     : 12:00/13:00/14:00 on → 15:00 off
-Evening  (adaptive)        : 17:00 winter / 17:30 non-winter / 18:30 fallback → hard-off varies by season/sports
+Midday   (solar-gated)     : 11:00/12:00/13:00/14:00 on → 15:00 off
+Evening  (adaptive)        : 17:00 winter / 17:30 non-winter (poor midday, not reached temp at midday)
+                             / 18:30 fallback → hard-off varies by season/sports
 ```
 
 **Automations (geyser_automations.yaml):**
@@ -3260,6 +3278,61 @@ type is ever changed away from `meteorological`.
 session (see "Pool target — 4 seasons + solar", Section 8 above) — this fix's practical scope is
 now `last_sun_soc_target` and `geyser_target_run_hours_today`, which still read `season_bucket`.
 
+### Issue 40 — ✅ FIXED 2026-10-26: BUG-PWR-POOLMANUAL01 — stuck `pool_manual_run_active` flag silently blocked all solar pool runs for 3 days and made "Run Pool Now" a no-op
+**Files:** `power_automations.yaml` (`automation.pool_manual_run`, `script.pool_manual_run`, new
+`automation.manual_run_stale_flag_watchdog`), `power_state.yaml` (`sensor.pool_pump_control_status`).
+**Found by:** user ("why hasn't the pool run today?") 2026-10-26.
+(Entry inserted 2026-10-27 — the 2026-10-26 insert silently missed its anchor; only the inline
+references above landed that day.)
+
+**Symptom:** 0.0h pool runtime 24–26 Oct on clear days (25 Oct only by hand); status sensor said
+"Waiting for solar surplus" with 3.9 kW surplus, orchestrator `normal`, 4.25h target.
+
+**Root cause:** "Run Pool Now" pressed 2026-10-23 10:49 SAST → `pool_manual_run` turned the pump on
+and entered its `wait_for_trigger`. That day's automation reloads / HA restart killed the run
+mid-wait, so its final `input_boolean.turn_off` never ran; the flag was restored ON at each restart.
+(1) Branch 5 of `pool_pump_solar_control` requires the flag off → no solar turn-on; (2)
+`pool_manual_run` triggers only on off→on, so re-pressing (23 Oct 14:07, 26 Oct 14:18) did nothing;
+(3) the status sensor didn't read the flag. Geyser's manual run has the identical shape.
+
+**Fix:** `automation.manual_run_stale_flag_watchdog` (entity
+`automation.manual_run_stale_flag_watchdog_pool_geyser`; HA start / `automation_reloaded` / 5-min)
+clears a pool or geyser flag ON with its manual-run automation `current == 0` (age > 2 min on the
+periodic path) + warning. `script.pool_manual_run` pre-flights (stale flag cleared; refuses with a
+notified reason if already running / automation disabled / switch unavailable) and verifies the
+pump is ON within 90s, else warns with the diagnosed cause (switch went unavailable · automation
+never triggered · Tuya command not delivered, BUG-INFRA-TUYA01) and clears any orphan flag.
+`automation.pool_manual_run` aborts + clears the flag if the pump isn't ON within 60s.
+`sensor.pool_pump_control_status` gained priority-0 manual-run / stuck-flag states.
+**Deployed:** config valid; automations/scripts/templates reloaded. Flag cleared 14:19, pump on 14:20.
+Failure-diagnosis path not yet exercised by a real failed start.
+
+### Issue 41 — ✅ FIXED 2026-10-27: geyser evening early start fired every day on a hot tank; status display bugs; seasonal weekday start
+**Files:** `geyser_automations.yaml` (`geyser_turn_on` Branch 3 + morning triggers, `geyser_morning_backstop`
+triggers, `geyser_period_energy_snapshot` log text), `power_state.yaml` (`geyser_control_status`,
+`geyser_daily_status.midday_adequacy`, new `sensor.geyser_morning_start_today`), `power_helpers.yaml`
+(2 new helpers). **Found by:** sanity check after Issue 40 + user requests, 2026-10-27.
+
+**Findings (14–27 Oct):** the 17:30 early start fired **every day**; on most days the tank was at
+temp again within 5–30 min — already nearly full. Branch 3 judged midday only by kWh delta (< 3.0),
+but a tank that reaches temp at midday then draws little (27 Oct: hot 11:56, 1.3 kWh).
+`geyser_midday_reached_temp_today` (Issue 35) existed but only fed the 15:00 alert. Display:
+`midday_adequacy` labels swapped (Low said "18:30 fallback", Adequate said "early start");
+`geyser_control_status` evening window 19:30/20:00→22:00/21:30 (stale since 2026-06-17), so
+17:30–20:00 heating read "Outside active windows".
+
+**Fix:** Branch 3 also requires `geyser_midday_reached_temp_today` off (unless `staff_on_site`); the
+15:00 safety net still tops up a tank that cooled by 15:00 and 18:30 covers later cooling.
+`midday_adequacy` labels corrected + reach-temp case shown live. Status evening window =
+17:00/17:30 → 21:00/20:30 (sports 22:00/21:30).
+**Seasonal weekday start (user request):** summer Mon–Fri 04:30 → **05:00**, spring/autumn → **04:50**
+(85% of the 04:00→05:00 winter→summer gap), winter 04:00 + weekends unchanged. 04:30 trigger
+removed, 04:50 added; the existing 05:00 trigger (renamed `morning_0500`) serves winter weekend AND
+summer weekday (no coincident triggers — 2026-07-27 incident). Backstop 04:45 → 05:05. Basis:
+weekday heat-up from 04:30 took 36–102 min (median ~60). All 8 season × weekday/weekend cases
+render-verified to match exactly one trigger. **Not yet live-exercised:** first 04:50 start
+(28 Oct); a non-staff day skipping 17:30 after a midday reach.
+
 ---
 
 ## 12. Error Signatures (Watchman-Confirmed)
@@ -3706,6 +3779,7 @@ and its two corrected same-fact references above in Sections 3/6); zoom-button
 snap-back and y-axis over-scale bugs root-caused and fixed on 4 cards; 14d/60d/90d range
 buttons added across 4 cards. New "`custom:plotly-graph` Card Gotchas" subsection added
 above capturing the three underlying card-behavior bugs for future sessions.*
+*Last updated: 2026-10-27 — Issue 41: geyser 17:30 early start skipped when tank reached temp at midday (not staff days); status/midday_adequacy display fixes; weekday start 3-tier (summer 05:00 / spring+autumn 04:50 / winter 04:00) via new sensor.geyser_morning_start_today + 2 helpers. Issue 40 entry inserted (missed its anchor on 2026-10-26).*
 *Last updated: 2026-10-26 — Issue 40 (BUG-PWR-POOLMANUAL01) closed: stuck pool manual-run flag (killed mid-run by a reload) blocked solar pool runs 23–26 Oct; stale-flag watchdog (pool+geyser), Run Pool Now pre-flight + start verification with cause diagnosis, status sensor shows manual-run states.*
 *Last updated: 2026-10-23 — Pool target reworked to 4-season + solar/weather-aware logic
 (own `pool_shoulder_pct_normal`/`_good_solar`, `pool_good_solar_forecast_kwh`/`_min_hours`,

@@ -5,6 +5,23 @@
 
 ## ⚠️ OPEN TODO
 
+- [ ] **2026-10-27 — Power: geyser sanity check after Issue 40 + fixes (POWER_CONTRACT Issue 41).**
+      Today ran as designed: 04:30–07:30, 11:00–15:00, sports night set 17:00, 17:30 early
+      start, 21:30 sports hard-off; `geyser_manual_run_active` never on (watchdog idle, correct).
+      Found the 17:30 early start fired every day for 14 days on an already-hot tank (midday judged
+      by kWh only). **Fixed (user-approved):** `geyser_turn_on` Branch 3 skips the early start when
+      `geyser_midday_reached_temp_today` is on (not on `staff_on_site` days); `midday_adequacy`
+      labels un-swapped + reach-temp shown live; `geyser_control_status` evening window corrected
+      (17:00/17:30 → 21:00/20:30, sports 22:00/21:30). **Seasonal weekday start (user request):**
+      summer 05:00, spring/autumn 04:50 (85% of the winter→summer gap), winter 04:00, weekends
+      unchanged — new `sensor.geyser_morning_start_today`, helpers
+      `geyser_morning_start_weekday_summer` (5.0) / `geyser_shoulder_start_pct` (85); triggers
+      04:30 → 04:50 + shared 05:00 (`morning_0500`); backstop 04:45 → 05:05. Config valid; reloaded
+      input_number / automations / templates (no restart). Also inserted the POWER_CONTRACT Issue 40
+      entry, which silently missed its anchor on 2026-10-26. Pending: confirm the first 04:50 start
+      (28 Oct) is hot in time for showers, and a non-staff day skipping 17:30 after a midday reach.
+      Files: `packages/power/geyser_automations.yaml`, `power_state.yaml`, `power_helpers.yaml`,
+      `docs/domains/POWER_CONTRACT.md`.
 - [x] **2026-10-27 — Utilities: Water Cooler stock/timestamps corrected (data fix, no code).**
       HA showed 3 spare bottles vs 1 real. Cause: backdate toggle never turned on, so the
       26 Oct 09:00 swap was logged as 27 Oct 12:42 (second press ignored by the duplicate
@@ -6491,7 +6508,9 @@ input_boolean.geyser_manual_run_active         ← ON while manual run in progre
 input_boolean.geyser_reached_temp_today        ← set on at_temperature → on; reset midnight (2026-06-17)
 
 # Window timing helpers
-input_number.geyser_morning_start_weekday      h  4.5  Mon–Sat
+input_number.geyser_morning_start_weekday      h  4.5  Mon–Sat  (2026-10-27: now WINTER weekday base only, − offset = 04:00)
+input_number.geyser_morning_start_weekday_summer h 5.0  summer Mon–Fri start (2026-10-27)
+input_number.geyser_shoulder_start_pct         %  85   spring/autumn start = winter + 85% of gap → 04:50 (2026-10-27)
 input_number.geyser_morning_start_weekend      h  5.5  Sunday
 input_number.geyser_morning_end_weekday        h  7.5  Mon–Sat (triggers 07:30/08:00)
 input_number.geyser_morning_end_weekend        h  8.5  Sunday (trigger 09:00)
@@ -6507,6 +6526,7 @@ input_number.geyser_energy_at_midday_end             kWh      snapshot at 15:00
 input_number.geyser_grid_offline_critical_soc  %  20   critical window SOC floor when grid offline
 
 # Sensors
+sensor.geyser_morning_start_today    ← today's morning start, h (attr start_time) — window maths source (2026-10-27)
 sensor.geyser_control_status         ← 13-state priority display (power_state.yaml)
 binary_sensor.geyser_at_temperature  ← ON when power < 50W sustained 5 min while switch on
 sensor.geyser_daily_status           ← reached_temp/heating/low_energy/no_run (added 2026-06-17)
