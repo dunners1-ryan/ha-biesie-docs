@@ -142,7 +142,7 @@ person.*                             ← HA mobile geo — UNRELIABLE for local 
 | `lighting_scenes.yaml` | 85 | All scene definitions |
 | `lighting_morning.yaml` | 287 | Morning wake routine (presence + time triggered) |
 | `lighting_evening.yaml` | 127 | Evening routine (civil night triggered) |
-| `lighting_arrival_night.yaml` | 269 | Night arrival scenarios (3 modes; garage_light door-gated in all three, 2026-09-15, BUG-L24) |
+| `lighting_arrival_night.yaml` | 331 | Night arrival scenarios (3 modes; garage_light door-gated in all three, 2026-09-15, BUG-L24; auto-off clock starts once front_door_sensor + main_gate_sensor both close, patio no longer lit after bedtime, quiet-mode entrance_down included in auto-off, nobody-home 10min auto-off added — 2026-10-28, BUG-L27) |
 | `lighting_departure.yaml` | 97 | Departure light cleanup (day + night) |
 | `lighting_bedtime.yaml` | 217 | Kids + full bedtime routines |
 | `lighting_boundary.yaml` | 529 | Boundary/street security lighting + gate-open assist (2026-08-03) + watchdog (2026-09-06, BUG-L21) + daytime entrance-down-lights weather rule (2026-09-07, BUG-L22) + master enable toggle (2026-09-15, BUG-L23) + reason-in-notification (2026-09-17, BUG-S84) + reload-safety `not_from`/`not_to` guards on the entrance-down-lights automation (2026-09-17, BUG-N18, another concurrent session — see NOTIFICATIONS_CONTRACT.md) + bedtime_mode gate on boundary_security_on/watchdog's front/back/carport/office rule (2026-09-22, BUG-L26) |
@@ -230,9 +230,16 @@ Always-on (all scenarios): boundary_street_light, back_house_security_light
 
 | Scenario | Condition | Lights ON |
 |---|---|---|
-| Quiet mode | quiet_arrival_mode=on | garage_light (**door-gated, 2026-09-15 BUG-L24 — see below**), main_entrance, entrance_down_lights, laundry, front_house_security (2026-07-17) → front_house_security OFF after **5min if after bedtime** (`bedtime_mode`=on **or** clock ≥21:30, incl. after midnight), else **10min** (2026-08-29) |
-| Someone home | anyone_connected_home=on, not quiet | garage_light (**door-gated, 2026-09-15 BUG-L24 — see below**), main_entrance, entrance_down_lights, dining_room, pool_patio, front_security, laundry → after 5min, two independent gates: (a) pool_patio + front_security OFF if bar not occupied AND bedtime_mode=on; (b) entrance_down + dining_room + laundry OFF if bedtime_mode=off, **skipping any of the three that were already on before the arrival** (2026-08-29) |
-| Nobody home | anyone_connected_home=off | garage_light (**door-gated, 2026-09-15 BUG-L24 — see below**), main_entrance, entrance_down_lights, front_house_security, pool_patio, dining_room, laundry |
+| Quiet mode | quiet_arrival_mode=on | garage_light (**door-gated, 2026-09-15 BUG-L24 — see below**), main_entrance, entrance_down_lights, laundry, front_house_security (2026-07-17) → front_house_security **+ entrance_down_lights** (2026-10-28, BUG-L27; entrance_down skipped if already on before arrival) OFF after **5min if after bedtime** (`bedtime_mode`=on **or** clock ≥21:30, incl. after midnight), else **10min** (2026-08-29) |
+| Someone home | anyone_connected_home=on, not quiet | garage_light (**door-gated, 2026-09-15 BUG-L24 — see below**), main_entrance, entrance_down_lights, dining_room, front_security, laundry; pool_patio **only if `bedtime_mode`=off (2026-10-28, BUG-L27 — previously always turned on, then relied on the 5min gate to take it back off after bedtime)** → after 5min, two independent gates: (a) front_security OFF if bar not occupied AND bedtime_mode=on **(pool_patio dropped from this gate 2026-10-28, BUG-L27 — it's never turned on after bedtime in the first place, so it needs no auto-off)**; (b) entrance_down + dining_room + laundry OFF if bedtime_mode=off, **skipping any of the three that were already on before the arrival** (2026-08-29) |
+| Nobody home | anyone_connected_home=off | garage_light (**door-gated, 2026-09-15 BUG-L24 — see below**), main_entrance, entrance_down_lights, front_house_security, pool_patio, dining_room, laundry → **entrance_down, front_security, pool_patio, dining_room, laundry OFF after 10min (2026-10-28, BUG-L27 — previously no auto-off at all), skipping any already on before the arrival; main_entrance and garage_light left to their own owners (boundary routine / `lighting_garage.yaml`)** |
+
+**Auto-off clock starts at door/gate close, not at arrival (2026-10-28, BUG-L27).** All
+three scenarios' auto-off delays are now preceded by a `wait_template` for
+`binary_sensor.front_door_sensor` = off (closed) AND `binary_sensor.main_gate_sensor` = off
+(closed), 30min timeout with `continue_on_timeout: true` so a stuck-open sensor can't hold
+the lights on indefinitely. Previously the delay started the instant `arrival_detected`
+fired, which could begin counting down before the person had actually finished arriving.
 
 **Garage light is door-gated in all three scenarios above (2026-09-15, BUG-L24).** Each
 scenario's `switch.turn_on` list no longer includes `switch.garage_light` directly — it's
@@ -1073,6 +1080,55 @@ recur the moment that edge fires mid-bedtime (e.g. weather clearing and returnin
 Automations. Not yet live-verified — next bedtime should confirm front/back security
 lights stay off once the bedtime scene sets them, and the next manual override overnight
 should confirm it isn't undone by the watchdog.
+
+---
+
+### BUG-L27 [MEDIUM] — Entrance downlights missing from arrival auto-off paths; patio lit (then clawed back off) after bedtime; nobody-home scenario had no auto-off at all; auto-off clock started at arrival instead of door/gate close
+
+**File:** `packages/lighting/lighting_arrival_night.yaml`
+**Status:** ✅ FIXED 2026-10-28
+
+**Reported by:** user — noticed entrance downlights weren't behaving consistently on
+arrival, then asked for three related corrections.
+
+**Root cause / gaps (four separate, in the same automation):**
+1. Quiet mode's 5/10min auto-off only ever released `front_house_security_light`.
+   `entrance_down_lights` was turned on by the same scenario but never turned back off.
+2. Someone-home scenario turned `pool_patio_down_lights` on unconditionally, then relied
+   on gate (a) of the 5min auto-off (`bar_occupied`=off AND `bedtime_mode`=on) to turn it
+   back off. If an arrival landed after bedtime had already started, the light visibly lit
+   for up to 5 minutes before being clawed back off — and if the bar was occupied at that
+   moment, it never got clawed back at all, since gate (a) would never run.
+3. Nobody-home scenario had no auto-off whatsoever — every light it turned on
+   (`entrance_down`, `front_security`, `pool_patio`, `dining_room`, `laundry`) stayed on
+   until something else (next morning's departure/morning routine) touched it.
+4. All three scenarios' auto-off delays started counting down from the
+   `arrival_detected` edge itself, not from the person actually finishing their arrival
+   (front door and main gate both closed). A slow arrival (gate open, walking in, pausing
+   at the door) could eat into the auto-off window before the light was even needed.
+
+**Fix:**
+1. Quiet mode now turns `entrance_down_lights` off alongside `front_house_security_light`
+   in the same 5/10min auto-off, skipping it if it was already on before the arrival (same
+   pre-state pattern as Scenario 2's existing entrance/dining/laundry guard).
+2. `pool_patio_down_lights` is now turned on only when `bedtime_mode`=off at arrival time —
+   it is never lit after bedtime, so it needs no auto-off. Gate (a) of the 5min auto-off now
+   only covers `front_house_security_light`.
+3. Nobody-home scenario gained its own 10min auto-off for `entrance_down`, `front_security`,
+   `pool_patio`, and `dining_room`/`laundry`, skipping any that were already on before the
+   arrival (pre-state captured the same way as the other two scenarios).
+   `main_entrance_light` (boundary routine) and `garage_light` (`lighting_garage.yaml`,
+   door-gated) are deliberately left out — they already have their own owning automation.
+4. All three scenarios' auto-off delay is now preceded by a `wait_template` for
+   `binary_sensor.front_door_sensor`=off AND `binary_sensor.main_gate_sensor`=off (both
+   "on" = open), 30min timeout with `continue_on_timeout: true` so a stuck-open door/gate
+   sensor can't hold the lights on indefinitely.
+
+**Deployed:** YAML-only (one file, `lighting_arrival_night.yaml` 269→331 lines) — needs
+`ha core check` + Reload Automations. Not yet live-verified — next few arrivals in each of
+the three scenarios (quiet/someone-home/nobody-home), at least one after bedtime and one
+with the door/gate left open for a while, should confirm the auto-off timing and skip-if-
+already-on behaviour.
 
 ---
 

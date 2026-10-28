@@ -5,6 +5,25 @@
 
 ## ⚠️ OPEN TODO
 
+- [ ] **2026-10-28 — Lighting: arrival night auto-off gaps fixed (LIGHTING_CONTRACT BUG-L27).**
+      User noticed entrance downlights missing from arrival auto-off, then asked for three
+      related fixes, all in `lighting_arrival_night.yaml`: (1) Quiet mode's 5/10min auto-off now
+      also releases `entrance_down_lights` alongside `front_house_security_light` (skipped if
+      already on before arrival); (2) Someone-home scenario only turns `pool_patio_down_lights`
+      on when `bedtime_mode`=off at arrival (previously always turned on, then relied on the
+      5min gate — bar-not-occupied AND bedtime-on — to claw it back, so it could stay lit
+      indefinitely if the bar was occupied at that moment); that gate now covers only
+      `front_house_security_light`; (3) Nobody-home scenario gained its own 10min auto-off for
+      entrance_down/front_security/pool_patio/dining_room/laundry (previously none at all),
+      skipping any already on before arrival; main_entrance and garage_light left to their own
+      owning automations. All three scenarios' auto-off delay now starts only once
+      `binary_sensor.front_door_sensor` AND `binary_sensor.main_gate_sensor` are both closed
+      (was: counting down from `arrival_detected` itself), 30min `wait_template` timeout so a
+      stuck-open sensor can't hold lights on forever. No new entities — all existing switches/
+      sensors reused. Config YAML-valid; not yet live-verified (pending: next arrival in each of
+      the three scenarios, at least one after bedtime and one with door/gate left open a while).
+      Files: `packages/lighting/lighting_arrival_night.yaml` (269→331 lines),
+      `docs/domains/LIGHTING_CONTRACT.md`.
 - [ ] **2026-10-27 — Power: geyser sanity check after Issue 40 + fixes (POWER_CONTRACT Issue 41).**
       Today ran as designed: 04:30–07:30, 11:00–15:00, sports night set 17:00, 17:30 early
       start, 21:30 sports hard-off; `geyser_manual_run_active` never on (watchdog idle, correct).
