@@ -253,6 +253,19 @@ security gate behavior above is unaffected.
 
 > ⚠️ **Re-run due (2026-09-25):** `route_water_tank_alert` dedupe (`escalate` trigger now requires `water_alert_active` on) and `water_alert_active` / `water_alert_context` no longer treating "refilling + pump on" as bad changed alert-delivery behaviour (ALERTS_CONTRACT BUG-A27, WATER_CONTRACT Issue 21). Confirm one push per event, not two.
 
+> ⚠️ **Re-run due (2026-11-01):** the no-rise warning notification (`script.notify_water_event`
+> call inside `water_borehole_no_rise_protection`) gained three mobile action buttons —
+> "Pool filling" (`WATER_DRAIN_POOL`), "Other known drain" (`WATER_DRAIN_OTHER`), "Unknown"
+> (`WATER_DRAIN_UNKNOWN`) — handled by new automation `water_known_drain_response`
+> (WATER_CONTRACT Issue 23, BUG-W04). Not yet tested live: pressing Pool/Other actually sets
+> `input_boolean.water_known_drain_active` + `input_text.water_known_drain_reason`, clears
+> `water_refill_aborted_due_to_safety`, and lets the control automation resume the fill;
+> pressing Unknown leaves the abort flag set and logs it. Also confirm all 3 buttons render
+> on each of the 4 mobile targets (no prior test of a 3-button push in this codebase to
+> compare against) and that the Telegram mirror (which only carries a single
+> inline-keyboard button via `telegram_action` — not wired up for this notification) simply
+> has no buttons, rather than failing.
+
 **Two test paths — threshold and state override**
 
 ### Method A — Lower depth threshold

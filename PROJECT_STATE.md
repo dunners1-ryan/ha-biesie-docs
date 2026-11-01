@@ -5,6 +5,49 @@
 
 ## ⚠️ OPEN TODO
 
+- [ ] **2026-11-01 — Water: no-rise/degraded-rate stop reasons fixed + known-drain override
+      (WATER_CONTRACT Issue 23, BUG-W04).** User asked why the borehole pump stopped twice
+      (14:01 and 14:17), then after re-pushing it on, found the pool was being filled —
+      the slow/no-rise tank behaviour was the pool draining the same water the pump was
+      adding, not a fault, but the fault-protection notifications and logs read like one.
+      **Root cause of the 14:01 stop:** `binary_sensor.water_refill_allowed`'s last-sun-slot
+      gate (SOC 67% < 80% overnight target) closed at 14:00; `sensor.water_refill_blocked_
+      reason` (`water_templates.yaml`) had no branch for that gate (or for orchestrator-
+      protective-state / borehole-disabled / grid-offline), so it would have fallen through
+      to "Refill blocked — reason unknown". Added branches 3c (last-sun slot, with the actual
+      SOC/target numbers), 3d (orchestrator critical/loadshedding), 3e (borehole load control
+      off), 3f (grid offline). `water_tank_refill_control.yaml`'s mid-run-shutdown logbook
+      entry now includes this reason instead of just the trigger id.
+      **14:17 stop:** `water_borehole_no_rise_protection` tripped correctly (no net rise while
+      drawing ~865W) but its logbook/notification text ("no measurable tank increase
+      detected") read as a dry-borehole fault. Reworded (and the same wording on
+      `water_borehole_degraded_rise_rate_protection`) to name pump wattage and say a
+      concurrent draw (pool fill, irrigation) is a likely cause, not necessarily dry.
+      **New known-drain override (user request, same session):** new
+      `input_boolean.water_known_drain_active` + `input_text.water_known_drain_reason`
+      (`water_helpers.yaml`) gate both `water_borehole_no_rise_protection` and
+      `water_borehole_degraded_rise_rate_protection` — while ON, neither protection trips.
+      The no-rise notification gained three mobile action buttons (`WATER_DRAIN_POOL` /
+      `WATER_DRAIN_OTHER` / `WATER_DRAIN_UNKNOWN`); new automation
+      `water_known_drain_response` (`water_protection_automations.yaml`) sets the flag +
+      reason and clears `water_refill_aborted_due_to_safety` on Pool/Other so the normal
+      control automation resumes the fill, or leaves protections active and logs it on
+      Unknown. New `water_known_drain_auto_clear` clears the flag after 3h or at midnight,
+      whichever first, logged either way. Can also be set by hand on the dashboard before
+      a known pool fill to pre-empt the trip entirely.
+      **Caveat:** the known-drain override does not affect the last-sun-slot gate above —
+      after 14:00 with SOC below the overnight target, the control automation still won't
+      restart the pump on its own; a manual push is still needed, as today.
+      **Not yet live-verified:** `ha core check` passed and all four edited files parse
+      (PyYAML) with the two new automation IDs present, but the Pool/Other/Unknown buttons,
+      the auto-clear timer, and the new blocked-reason branches have not been exercised
+      against a real pump run — pending: next no-rise trip (real or provoked) to confirm
+      the notification buttons actually clear the abort flag and resume the fill, and next
+      14:00 last-sun-slot transition to confirm the new reason text renders correctly.
+      Reload only (Helpers / Template Entities / Automations) — no restart needed, no new
+      `alert:` entity. Files: `packages/water/water_helpers.yaml`,
+      `water_protection_automations.yaml`, `water_templates.yaml`,
+      `water_tank_refill_control.yaml`, `docs/domains/WATER_CONTRACT.md`.
 - [ ] **2026-10-28 — Lighting: arrival night auto-off gaps fixed (LIGHTING_CONTRACT BUG-L27).**
       User noticed entrance downlights missing from arrival auto-off, then asked for three
       related fixes, all in `lighting_arrival_night.yaml`: (1) Quiet mode's 5/10min auto-off now
@@ -6211,6 +6254,17 @@ counter.water_borehole_faults_today             # daily fault counter — YAML o
 counter.water_borehole_faults_this_week         # weekly fault counter — YAML only (storage duplicate removed 2026-04-21)
 alert.water_borehole_fault                      # level 2 fault alert
 alert.water_borehole_critical_fault             # level 3 fault alert
+```
+
+### Water — Known Drain Override (added 2026-11-01)
+```
+input_boolean.water_known_drain_active          # ON = known concurrent drain (pool fill, etc.)
+                                                 # declared; no-rise + degraded-rise-rate
+                                                 # protections stand down. Auto-clears after
+                                                 # 3h or at midnight (water_known_drain_auto_clear).
+input_text.water_known_drain_reason             # free text reason, set by the notification
+                                                 # buttons ("Pool filling" / "Other known drain")
+                                                 # or by hand on the dashboard.
 ```
 
 ### Presence Alert Entities (B1 — added 2026-04-16)

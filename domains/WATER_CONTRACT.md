@@ -144,16 +144,16 @@ deleted 2026-08-21, Issue 11; WATER_CONTEXT.md listed 8 — outdated)
 | File | Role | Layer |
 |---|---|---|
 | `a_water_lifecycle_contract.yaml` | Specification document — LOCKED hard rules | Contract |
-| `water_helpers.yaml` | Lifecycle flags, timestamps, depth thresholds, day demand selectors (7 input_select), degraded-rise-rate thresholds (added 2026-08-21), `water_pump_run_start_depth` (added 2026-09-25, Issue 21) | Helpers |
+| `water_helpers.yaml` | Lifecycle flags, timestamps, depth thresholds, day demand selectors (7 input_select), degraded-rise-rate thresholds (added 2026-08-21), `water_pump_run_start_depth` (added 2026-09-25, Issue 21), known-drain override flag + reason (added 2026-11-01, Issue 23) | Helpers |
 | ~~`water_policy_helpers.yaml`~~ | **Deleted 2026-08-21** (Issue 11) — orphaned duplicate threshold set, zero references anywhere, superseded by nothing (the real thresholds already lived in `water_helpers.yaml`) | — |
 | `water_sensor.yaml` | Derivative depth rate sensor (platform: derivative) | Core |
-| `water_templates.yaml` | Depth validation (physical rise-envelope filter, rewritten 2026-09-25 — Issue 21), tank level %, refill allowed, solar window, demand planning sensors | Templates |
+| `water_templates.yaml` | Depth validation (physical rise-envelope filter, rewritten 2026-09-25 — Issue 21), tank level %, refill allowed, solar window, demand planning sensors, `water_refill_blocked_reason` (gained last-sun/orchestrator/load-control/grid branches 2026-11-01, Issue 23) | Templates |
 | `water_state_extensions.yaml` | Derived cycle state mirror binary_sensor | State |
 | `water_refill_cycle.yaml` | Cycle state sensor, summary sensor, avg flow rate | State |
 | `water_refill_capture.yaml` | Automations that write start/end timestamps and depths | Automations |
-| `water_tank_refill_control.yaml` | Main control: demand-based pump on/off; water_stop_at_daily_target (60 s confirm-then-stop since 2026-09-25, Issue 21); mid-run shutdown | Automations |
+| `water_tank_refill_control.yaml` | Main control: demand-based pump on/off; water_stop_at_daily_target (60 s confirm-then-stop since 2026-09-25, Issue 21); mid-run shutdown (logbook now names the block reason, 2026-11-01, Issue 23) | Automations |
 | `water_safety.yaml` | Hard stops: max depth (1.95m) + battery SOC floor (water_safety_battery_hard_stop) | Safety |
-| `water_protection_automations.yaml` | No-rise protection (net-rise test since 2026-09-25), pump-run start-depth capture, untrusted-depth-sensor warning, spike logging (Issue 21) | Safety |
+| `water_protection_automations.yaml` | No-rise protection (net-rise test since 2026-09-25) + degraded-rise-rate protection, both gated on `water_known_drain_active` since 2026-11-01 (Issue 23); pump-run start-depth capture, untrusted-depth-sensor warning, spike logging (Issue 21); known-drain response + auto-clear automations (added 2026-11-01, Issue 23) | Safety |
 | `water_fault_logging.yaml` | Centralised fault logger (queued) | Logging |
 | `water_health.yaml` | Sensor health binary_sensors (healthy/stable) | Health |
 | `water_consume_cycle.yaml` | Consumption rate sensor (from depth rate) | Analytics |
@@ -195,6 +195,11 @@ sensor.water_demand_today                    string — today's demand type (das
 sensor.water_refill_blocked_reason           "none" OR human-readable reason string
                                              Compares against sensor.water_target_depth_tomorrow
                                              (was: water_target_depth_normal — updated 2026-05-25)
+                                             Priority order (2026-11-01, Issue 23): safety-abort >
+                                             grid-off+critical-SOC > SOC below minimum > conserve >
+                                             last-sun slot > orchestrator protective state >
+                                             load-control disabled > grid offline > outside solar
+                                             window > master switch off > unknown fallback.
 ```
 
 ### Demand Planning Helpers (added 2026-05-25)
@@ -259,6 +264,26 @@ input_boolean.water_refill_force_override        Force-start refill bypassing so
                                                  water_tank_refill_control.yaml) — no longer
                                                  relies solely on manual clear.
                                                  Added 2026-06-14 (water_helpers.yaml).
+input_boolean.water_known_drain_active           ON = a known concurrent drain (pool fill,
+                                                 irrigation, etc.) has been declared. While ON,
+                                                 water_borehole_no_rise_protection and
+                                                 water_borehole_degraded_rise_rate_protection
+                                                 both skip their stop condition — does NOT affect
+                                                 the max-depth stop, battery hard-stop, or the
+                                                 last-sun-slot/permission mid-run shutdown. Set
+                                                 via the no-rise notification's Pool/Other buttons
+                                                 (water_known_drain_response) or by hand on the
+                                                 dashboard. Auto-clears after 3h continuously ON
+                                                 or at midnight, whichever first
+                                                 (water_known_drain_auto_clear).
+                                                 Added 2026-11-01 (Issue 23, BUG-W04).
+```
+
+```
+input_text.water_known_drain_reason              Free-text reason for the known-drain override
+                                                 above — "Pool filling" / "Other known drain",
+                                                 set by the notification buttons, or by hand.
+                                                 Added 2026-11-01 (Issue 23, water_helpers.yaml).
 ```
 
 ### Binary Sensors
@@ -963,6 +988,78 @@ repeat schedule (10/30/60 min) going under the "Safety Abort" title.
 
 ---
 
+### Issue 23 — ✅ FIXED 2026-11-01: `water_refill_blocked_reason` missing branches + no-rise/degraded-rate messages read as a hardware fault (BUG-W04)
+
+**Priority: MEDIUM | Status: deployed, Reload Helpers/Template Entities/Automations required**
+
+**Reported by:** user — borehole pump stopped twice (14:01, then again at 14:17 after a manual
+restart) on 2026-11-01. The 14:01 stop had no clear explanation in the UI; the 14:17 stop's
+notification/logbook text read as a dry-borehole fault when the actual cause was the pool being
+filled from the same tank the pump was replenishing.
+
+**Root cause 1 (14:01 stop):** `binary_sensor.water_refill_allowed`'s last-sun-slot gate (SOC 67%
+< `sensor.last_sun_soc_target` 80%) closed at 14:00, which is correct per the Refill Permission
+Gate (Section 1) and triggered `water_borehole_mid_run_shutdown` as designed. But
+`sensor.water_refill_blocked_reason` (`water_templates.yaml`) had no branch covering the last-sun
+gate, the orchestrator-protective-state gate, `load_control_borehole_enabled`, or grid-offline —
+only the SOC-floor and solar-window branches existed. A stop caused by any of those four gates
+fell through to the generic "Refill blocked — reason unknown" fallback, and the mid-run-shutdown
+logbook entry (`water_tank_refill_control.yaml`) only logged the trigger id (`permission_revoked`),
+not which gate.
+
+**Root cause 2 (14:17 stop):** `water_borehole_no_rise_protection` tripped correctly — no net tank
+rise after 15 min of genuine pumping (pump drawing ~865 W) — but its logbook message and push
+notification both said "no measurable tank increase detected" with no context, reading as a dry
+borehole or pump fault rather than what it actually was: a concurrent draw (the pool filling)
+outpacing inflow. The same wording existed on `water_borehole_degraded_rise_rate_protection`.
+
+**Fix:**
+1. `sensor.water_refill_blocked_reason` (`water_templates.yaml`) gained four new priority
+   branches — 3c (last-sun slot, states the actual SOC and target), 3d (orchestrator in
+   critical/loadshedding/loadshedding_critical), 3e (`load_control_borehole_enabled` off), 3f
+   (grid offline) — ahead of the existing solar-window/master-switch/fallback branches.
+2. `water_borehole_mid_run_shutdown`'s logbook entry (`water_tank_refill_control.yaml`) now
+   includes `sensor.water_refill_blocked_reason` for the `permission_revoked` trigger (or "solar
+   window ended" for the other).
+3. `water_borehole_no_rise_protection` and `water_borehole_degraded_rise_rate_protection`
+   (`water_protection_automations.yaml`) both reworded their logbook/notification text to name the
+   pump's live wattage and state that a concurrent draw (pool fill, irrigation) is a likely cause,
+   not necessarily a dry borehole.
+4. **New known-drain override (user request, same session):** new
+   `input_boolean.water_known_drain_active` + `input_text.water_known_drain_reason`
+   (`water_helpers.yaml`) — while the boolean is ON, both `water_borehole_no_rise_protection` and
+   `water_borehole_degraded_rise_rate_protection` skip their stop condition entirely (new guard
+   condition added to each, ahead of the existing "tank not nearly full" check). The no-rise
+   notification (`script.notify_water_event`) gained three mobile action buttons —
+   `WATER_DRAIN_POOL` / `WATER_DRAIN_OTHER` / `WATER_DRAIN_UNKNOWN`. New automation
+   `water_known_drain_response` (`water_protection_automations.yaml`) handles all three: Pool/Other
+   set the reason text, turn the flag on, and clear `water_refill_aborted_due_to_safety` so the
+   normal control automation (branch re-evaluation every 5 min) resumes the fill on its own;
+   Unknown clears the flag (leaving protections active) and logs it for investigation. New
+   `water_known_drain_auto_clear` turns the flag off after 3h continuously ON, or at midnight,
+   whichever comes first — either path logged. The flag can also be set by hand on the dashboard
+   ahead of a known pool fill to avoid the trip altogether.
+
+**Caveat — not fixed by this issue:** the known-drain override does not touch the last-sun-slot
+gate (Root cause 1). After 14:00 with SOC below the overnight target, `water_refill_allowed` stays
+off and the control automation will not restart the pump by itself regardless of the known-drain
+flag — a manual push (as done on 2026-11-01) is still required. This is a separate gate from the
+no-rise/degraded-rate protections the override targets, by design (Section 1's permission gate is
+intentionally not overridden by anything except `water_refill_force_override` or a critical/safety
+water state).
+
+**Not yet live-verified:** `ha core check` passed and all four edited files parse, with both new
+automation IDs present in the automation list, but the Pool/Other/Unknown buttons, the 3h/midnight
+auto-clear, and the four new blocked-reason branches have not been exercised against a real pump
+run. Pending: next no-rise trip (real or provoked) to confirm a button press actually clears the
+abort flag and the control automation resumes the fill; next 14:00 last-sun-slot transition to
+confirm the new reason text renders correctly end-to-end (push + logbook).
+
+**Files:** `water_helpers.yaml`, `water_protection_automations.yaml`, `water_templates.yaml`,
+`water_tank_refill_control.yaml`.
+
+---
+
 ## 7. Error Signatures (Watchman-Confirmed)
 
 | Entity | Status | File | Issue |
@@ -1170,6 +1267,7 @@ Five protections listed in `WATER_CONTEXT.md`. Each audited independently.
 - **Amended 2026-09-25 (Issue 21):** now tests net rise of validated depth since pump start (< 0.02 m/15 min) vs `input_number.water_pump_run_start_depth`, and only when `binary_sensor.water_tank_depth_sensor_stable` is on. The Issue text below describes the old rate-based version.
 - **Issue (RESOLVED 2026-09-25, Issue 21 — historical):** Used `sensor.water_tank_depth_rate` which is a derivative of the RAW sensor. If a raw sensor spike occurs within the 15-minute window, the derivative shows a positive rate, resetting the effective timer. A spike could therefore mask a genuine dry-run.
 - **Auto-retry (added 2026-08-18, Issue 20):** a no-rise trip is a NET signal — it can't distinguish "borehole producing nothing" from "borehole producing slowly, outpaced by concurrent house consumption." Confirmed real on 2026-08-18: net depth -0.04m over the 15min run, but `sensor.water_tank_consumption_rate` read 0.24-0.48 m/h the entire window (never zero), sensors were healthy/stable throughout, and a manual restart refilled normally within seconds. The automation now auto-retries after a cooldown instead of requiring a manual restart every time — see Issue 20.
+- **Known-drain exemption (added 2026-11-01, Issue 23):** this automation's stop condition now also requires `input_boolean.water_known_drain_active` to be off — while a known concurrent drain (pool fill, irrigation) is declared, this protection does not fire at all. See Issue 23.
 - **Verdict:** IMPLEMENTED. Net-rise test replaced the rate test 2026-09-25 after a confirmed false trip (24-Sep 10:35:50). Not yet observed on a live fill.
 
 ### Protection 4: Battery Hard Stop
@@ -1195,6 +1293,8 @@ Five protections listed in `WATER_CONTEXT.md`. Each audited independently.
   `input_number.water_refill_max_runtime_minutes` helper was deleted, superseded by the two
   new rate-based helpers. Emergency case 3 still has its own hardcoded 10-minute limit,
   unaffected by this change.
+- **Known-drain exemption (added 2026-11-01, Issue 23):** same as Protection 3 — gated on
+  `input_boolean.water_known_drain_active` being off.
 - **Verdict:** ✅ IMPLEMENTED. Same noisy-sensor caveat as Protection 3 (untested at
   scale — flag if it proves too trigger-happy or too lax in practice).
 
@@ -1204,7 +1304,7 @@ Five protections listed in `WATER_CONTEXT.md`. Each audited independently.
 |---|---|---|
 | Max depth stop | ✅ Implemented; 1-min `for:` can still be reset by noise dips near full; cannot fire if the sensor is blind (Issue 21 residual) | Low–Medium |
 | Dry run (power-based) | ❌ Disabled | Medium — 15min exposure |
-| No-rise protection | ✅ Implemented — net-rise test since 2026-09-25 (Issue 21) | Low |
+| No-rise protection | ✅ Implemented — net-rise test since 2026-09-25 (Issue 21); exempt while `water_known_drain_active` is on (Issue 23) | Low |
 | Fill-target stop | ✅ 60 s confirm-then-stop since 2026-09-25 (Issue 21) | Low |
 | Battery hard stop (reactive) | ✅ Implemented 2026-05-25 — `water_safety_battery_hard_stop` in `water_safety.yaml`; debounced + glitch-guarded 2026-10-23 (Issue 22) | Low — floor set at 40% (temp; lower to 20% after new battery install) |
 | Max runtime cutoff | ❌ Missing | Medium — runaway possible |
@@ -1319,3 +1419,14 @@ see PROJECT_STATE.md 2026-08-21 session entry for full detail. Locked Design Dec
 
 *Last updated: 2026-09-25 (Issue 21) — depth filter → physical rise envelope; no-rise → net-rise test gated on sensor trust; `water_stop_at_daily_target` 60 s confirm-then-stop; new `input_number.water_pump_run_start_depth` + capture automation + untrusted-sensor warning; alert routing dedupe (ALERTS_CONTRACT BUG-A27). Sweep: File Inventory, entity list, Depth Truth Chain, Protections 1/3, Safety Summary, Sensor Reliability all reconciled.*
 *Last updated: 2026-09-25 — Rule 5b audit: `initial:` removed from all seven `input_select.water_demand_<day>` helpers (`water_helpers.yaml`) — the summer/winter profile scripts write them, so a restart used to silently revert the chosen demand profile to the YAML defaults; and from the water/borehole `*_snoozed` booleans. Counters keep `initial: 0` (counter restore-state wins over `initial`). `water_notifications.yaml` weekly summary now reads validated `sensor.water_tank_level` (SYSTEM_CONTRACT IV-06).*
+
+*Last updated: 2026-11-01 (Issue 23 / BUG-W04) — `sensor.water_refill_blocked_reason` gained
+last-sun-slot/orchestrator/load-control/grid branches; `water_borehole_mid_run_shutdown`
+logbook now names the block reason; no-rise + degraded-rise-rate protection messages reworded
+to name a likely concurrent-draw cause instead of implying a hardware fault; new
+`input_boolean.water_known_drain_active` + `input_text.water_known_drain_reason`
+(`water_helpers.yaml`) gate both protections off while a known drain (pool fill, irrigation)
+is declared via 3 new mobile action buttons or by hand; new automations
+`water_known_drain_response` + `water_known_drain_auto_clear` (3h / midnight). Sweep:
+Entity Reference (Lifecycle Flags, Counters), File Inventory (4 files), Protections 3/5 +
+Safety Summary table all reconciled. Not yet live-verified — see Issue 23.*

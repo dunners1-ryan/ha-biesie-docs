@@ -138,9 +138,16 @@ re-verified live same day):**
 |---|---|---|
 | Max depth stop | depth ≥ 1.95m (hardcoded, not `water_target_depth_full`) | Stop pump — debounced 1min |
 | ~~Dry run protection~~ | — | **❌ DISABLED**, not "in place" — deliberately replaced by no-rise protection (binary_sensor + automation both commented out) |
-| No-rise protection | pump running + depth rate < 0.01 m/h for 15 min | Stop pump, log fault, **auto-retries after cooldown** (2026-08-18) |
+| No-rise protection | pump running + depth rate < 0.01 m/h for 15 min, UNLESS `water_known_drain_active` is ON | Stop pump, log fault, **auto-retries after cooldown** (2026-08-18) |
 | Battery hard stop | SOC drops below `water_battery_soc_hard_stop` (40%) | Stop pump |
-| ~~Max runtime cutoff~~ | — | **Redesigned 2026-08-21** — `water_refill_max_runtime_minutes` deleted outright, replaced by `water_borehole_degraded_rise_rate_protection` (rate-based: stops if depth rate stays between 0.01-0.05 m/h for 60 min, not a flat wall-clock cutoff) |
+| ~~Max runtime cutoff~~ | — | **Redesigned 2026-08-21** — `water_refill_max_runtime_minutes` deleted outright, replaced by `water_borehole_degraded_rise_rate_protection` (rate-based: stops if depth rate stays between 0.01-0.05 m/h for 60 min, not a flat wall-clock cutoff), also exempt while `water_known_drain_active` is ON |
+
+**Known-drain override (added 2026-11-01, WATER_CONTRACT Issue 23):**
+`input_boolean.water_known_drain_active` pauses the two rows above (no-rise +
+degraded-rise-rate) when a known concurrent drain — pool fill, irrigation — is declared,
+either via buttons on the no-rise push notification or by hand on the dashboard.
+Does NOT affect max depth, battery hard stop, or the last-sun-slot permission gate.
+Auto-clears after 3h or at midnight. See WATER_CONTRACT.md Issue 23 for full detail.
 
 ---
 
