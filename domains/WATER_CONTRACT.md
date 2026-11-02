@@ -89,8 +89,13 @@ binary_sensor.water_refill_allowed = ON when:
     OR sensor.water_tank_level <= 20                               ← tank-critical override still applies
   )
 
-Last-sun-slot gate added 2026-05-25: during the last ~2h of peak sun (default 14:00 onwards),
-borehole is blocked unless SOC has reached the overnight charge target (80% summer / 90% winter).
+Last-sun-slot gate added 2026-05-25: during the last ~2h of peak sun, borehole is blocked
+unless SOC has reached the overnight charge target (80% summer / 90% winter).
+**Seasonal since 2026-11-02 (Issue 24, shared with POWER_CONTRACT Issue 42):**
+`last_sun_slot_start_hour` (above) is `sensor.last_sun_slot_start_hour`, not the old flat
+14:00 `input_number` — 14:00 winter, 14:45 spring/autumn, 15:00 summer. Shared with the pool
+pump's own last-sun shutdown (power domain) — see POWER_CONTRACT.md Issue 42 for the full
+cross-domain detail.
 
 Orchestrator gate added 2026-06-14 (Session E1): when the energy orchestrator enters critical,
 loadshedding, or loadshedding_critical state, normal refills are blocked. Emergency branches
@@ -324,9 +329,16 @@ input_number.water_depth_minimum_safety     m  (live: 0.35) — safety state flo
 input_number.water_battery_soc_sufficient   %  (initial: 50)  — min SOC to start refill
 input_number.water_battery_soc_hard_stop    %  (initial: 40)  — absolute SOC floor (temp; lower to 20% after new batteries)
 input_number.water_target_depth_normal      m  (initial: 1.00) — stop depth for Normal days
-input_number.water_target_depth_partial     m  (initial: 1.20) — stop depth for Wash/Clean days (entity_id unchanged)
-input_number.water_target_depth_irrigation  m  (initial: 1.25) — stop depth for Irrigation days (NEW)
-input_number.water_target_depth_full        m  (initial: 1.60) — stop depth for Pool days (entity_id unchanged)
+input_number.water_target_depth_partial     m  (initial: 1.30, was 1.20 — bumped 2026-11-02,
+                                                 Issue 24; ⚠️ LIVE value still 1.20 until the
+                                                 dashboard slider is bumped, `initial:` doesn't
+                                                 retroactively apply) — stop depth for Wash/Clean days
+input_number.water_target_depth_irrigation  m  (initial: 1.35, was 1.25 — bumped 2026-11-02,
+                                                 Issue 24; ⚠️ LIVE value still 1.25, same caveat)
+                                                 — stop depth for Irrigation days
+input_number.water_target_depth_full        m  (initial: 1.60) — stop depth for Pool days (entity_id
+                                                 unchanged; also the floor the surplus buffer fill
+                                                 (Issue 24) pushes past toward 1.95m)
 
 # Day demand selectors (NEW 2026-05-25):
 input_select.water_demand_monday … water_demand_sunday
@@ -503,10 +515,17 @@ sensor.water_daily_usage_mean            m  — 7-day rolling mean of water_usag
 ```
 sensor.water_effective_fill_target       m  — dynamic pump stop depth.
   Normal:           returns sensor.water_target_depth_tomorrow (demand-plan depth)
-  Predictive fill:  returns input_number.water_target_depth_full (1.6m) when
-                    water_predictive_fill_enabled=ON AND orchestrator='conserve'
+  Surplus buffer fill (REDESIGNED 2026-11-02, Issue 24 — was "Predictive fill",
+                    conserve-gated, dead code since 2026-06-21, see Issue 24):
+                    returns 1.95m (physical max — same hardcoded ceiling
+                    water_safety.yaml's max-depth stop enforces) when
+                    water_predictive_fill_enabled=ON AND orchestrator='surplus'
+                    AND water_tank_level < water_predictive_fill_threshold_percent.
+                    1.95 is a ceiling to push toward, not a fixed destination —
+                    the moment surplus ends or the tank crosses the threshold,
+                    this reverts to the demand target on the next re-evaluation.
   attributes:
-    source: demand_target | predictive_fill_full
+    source: demand_target | surplus_buffer_push
   Read by: water_stop_at_daily_target (above: trigger), Branch 4.7 log message
 ```
 
@@ -526,31 +545,46 @@ sensor.water_effective_fill_target       m  — dynamic pump stop depth.
 | 8 | `Ready to fill (X%)` | water_refill_allowed on AND water_state not ok |
 | 9 | `Monitoring (X%)` | default |
 
-### Predictive Fill Helpers (water_helpers.yaml — added E6 2026-06-14)
+### Surplus Buffer Fill Helpers (water_helpers.yaml — added E6 2026-06-14, redesigned 2026-11-02 Issue 24)
+
+> Named "Predictive Fill Helpers" before 2026-11-02 — kept the same `water_predictive_fill_*`
+> entity names (not renamed) since the feature is the same mechanism (enable toggle + tank-%
+> threshold), just retargeted from a dead `conserve` trigger to a live `surplus` one. See Issue 24.
 
 ```
-input_boolean.water_predictive_fill_enabled          ← default: false — enable after ≥7d of water_usage_today history
-input_number.water_predictive_fill_threshold_percent ← YAML initial: 75% (recalibrated 2026-07-17, was 50%)
-                                                         ⚠️ LIVE value still 50% as of 2026-07-17 — YAML `initial:`
-                                                         only seeds a helper on first creation, it does not retroactively
-                                                         update an already-existing input_number. Bump the Helpers
-                                                         dashboard slider to 75% to actually apply the recalibration.
+input_boolean.water_predictive_fill_enabled          ← default: false — LIVE: on. Gates the
+                                                         surplus buffer fill (Issue 24); was
+                                                         originally meant for the old conserve-
+                                                         gated predictive fill, which never fired.
+input_number.water_predictive_fill_threshold_percent ← YAML initial: 75%. LIVE value confirmed
+                                                         75% as of 2026-11-02 (the 2026-07-17
+                                                         recalibration caveat below — "live value
+                                                         unchanged until bumped" — is resolved;
+                                                         someone has since bumped the dashboard
+                                                         slider to match `initial:`).
 input_number.water_max_fill_hours_per_day            ← default: 2h — defined; NOT yet wired into automation (future V2)
 ```
 
-**Wired in E7 (2026-06-14)** — Branch 4.7 added to `water_tank_refill_control.yaml`. Fires when:
+**Redesigned 2026-11-02 (Issue 24)** — Branch 4.7 in `water_tank_refill_control.yaml`, renamed
+"Surplus Buffer Fill" (was "Predictive Fill"). Fires when:
 - `water_predictive_fill_enabled = on`
-- `energy_orchestrator_state == 'conserve'`
+- `energy_orchestrator_state == 'surplus'` (was `'conserve'` — see Issue 24 for why that was
+  dead code)
 - `water_tank_level < water_predictive_fill_threshold_percent`
 - `water_tank_depth_validated < water_effective_fill_target` (avoids immediate stop)
 - NOT critical/safety state
 - `water_solar_window_active = on` AND `water_refill_allowed = on`
 
-**Stop target**: `sensor.water_effective_fill_target` — returns `water_target_depth_full` (1.6m) in conserve+predictive mode; fills tank to maximum buffer capacity instead of demand-plan depth.
+**Stop target**: `sensor.water_effective_fill_target` — returns `1.95m` (physical max) in
+surplus+predictive mode, pushing past `water_target_depth_full` (1.6m) toward the physical
+ceiling instead of stopping there, for as long as surplus + the threshold condition hold.
 
-**Threshold calibration**: Default 50% (0.975m) is BELOW all current demand targets (≥1.0m Normal). This makes Branch 4.7 rarely fire independently of Branch 4. For genuine proactive pre-fill when tank is comfortable but solar is poor, **set threshold to 70-80%** via Helpers dashboard. Branch 4 handles fills when tank < demand target; Branch 4.7 handles fills when tank is above demand target but below the 70-80% buffer threshold during conserve mode.
-
-**UPDATE 2026-07-17**: `water_helpers.yaml` `initial:` recalibrated 50 → 75 per this recommendation. Live entity value unchanged (still 50%) until manually bumped on the dashboard — see caveat above.
+**Threshold calibration**: 75% (1.4625m) sits above all current demand targets (≤1.35m
+Irrigation as of Issue 24's bump, 1.6m Pool) except Pool day, so Branch 4.7 fires on most
+non-Pool days once the tank drops below 75% during a surplus period — exactly the "bank buffer
+on a good-sun day" behaviour Issue 24 was built for. Branch 4 handles fills when tank < demand
+target; Branch 4.7 handles fills when tank is above the demand target but below the 75% buffer
+threshold during a surplus period.
 
 **`water_max_fill_hours_per_day`** (daily pump runtime cap) remains unimplemented — deferred to V2 after data establishes typical fill duration.
 
@@ -1052,11 +1086,94 @@ water state).
 automation IDs present in the automation list, but the Pool/Other/Unknown buttons, the 3h/midnight
 auto-clear, and the four new blocked-reason branches have not been exercised against a real pump
 run. Pending: next no-rise trip (real or provoked) to confirm a button press actually clears the
-abort flag and the control automation resumes the fill; next 14:00 last-sun-slot transition to
-confirm the new reason text renders correctly end-to-end (push + logbook).
+abort flag and the control automation resumes the fill; next last-sun-slot transition (14:00
+winter / 14:45 spring-autumn / 15:00 summer as of Issue 24, was a flat 14:00 when this was
+written) to confirm the new reason text renders correctly end-to-end (push + logbook).
 
 **Files:** `water_helpers.yaml`, `water_protection_automations.yaml`, `water_templates.yaml`,
 `water_tank_refill_control.yaml`.
+
+---
+
+### Issue 24 — ✅ FIXED 2026-11-02: Surplus buffer fill redesign (dead "Predictive Fill" conserve-gate fixed), seasonal last-sun-slot, demand-target bump (BUG-W05)
+
+**Priority: MEDIUM | Status: deployed, Reload Helpers/Template Entities/Automations required
+on both repos (water + power)**
+
+**Reported by:** user — "seems every day we filling a large percentage and if sun is available
+then do move to then do a smaller fill next day?" Also separately: "did add an evening water
+additional to the morning garden water about month or 2 back" — asked whether the demand
+targets still account for that.
+
+**Finding 1 — the existing "Predictive Fill" feature was dead code since 2026-06-21.** It
+returned `water_target_depth_full` (1.6m) as the stop target when
+`water_predictive_fill_enabled` was on AND the orchestrator was in `'conserve'` state. But
+`water_refill_allowed`'s own conserve gate (added 2026-06-21, i.e. *after* this feature) already
+blocks refill during conserve unless the tank is critical (≤20%) — and at that tank level,
+Branch 2/3 (critical-state branches) already fire first in `water_tank_refill_control.yaml`'s
+`choose:`, so this branch's own start condition (`refill_allowed=on AND orchestrator=='conserve'`)
+could only ever be true in a state another, earlier branch already owned. Recorder-confirmed:
+`'conserve'` occurred for 2 state-ticks out of ~1600 sampled over 10 days, never alongside
+`refill_allowed=on`. Likely never fired once in the ~4.5 months since 2026-06-21.
+
+**Fix 1:** Flipped the trigger to the mirror-image, actually-common case: `'surplus'` (abundant
+solar — confirmed present roughly half of daytime ticks on a typical day in the same sample).
+`sensor.water_effective_fill_target` (`water_templates.yaml`) now returns **1.95m** (the physical
+max — the same hardcoded ceiling `water_safety.yaml`'s `water_stop_refill_at_max_depth` already
+enforces, so no new ceiling entity was needed) instead of a fixed 1.6m, when
+`water_predictive_fill_enabled=on` AND `orchestrator=='surplus'` AND tank level is below
+`water_predictive_fill_threshold_percent` (live 75%, unchanged). 1.95m is a ceiling to push
+toward, not a fixed destination — ending surplus or crossing the threshold reverts the target to
+the demand target on the next re-evaluation, and whatever stop automation is live
+(`water_stop_at_daily_target` or the hard max-depth stop) takes it from wherever the fill
+actually got to. Branch 4.7 in `water_tank_refill_control.yaml` (renamed "Surplus Buffer Fill")
+got the same trigger flip. `source` attribute renamed `predictive_fill_full` →
+`surplus_buffer_push`; the one consumer (`water_stop_at_daily_target`'s notify message) updated
+to match.
+**Net effect:** on a surplus day the tank fills well past today's/tomorrow's demand target
+toward the physical max; the following day, already starting from near-full, needs a smaller
+(or zero) fill regardless of that day's own demand target — directly addressing "if sun is
+available... do a smaller fill next day."
+
+**Finding 2 — the last-sun-slot cutoff (14:00) is shared with the pool pump, and summer's
+longer days made a flat cutoff too early for both.** User requested a seasonal 3-tier cutoff
+(14:00 winter / 15:00 summer / blended spring-autumn at a 75% shoulder, explicitly choosing 75%
+over the geyser's own 85% precedent) for BOTH domains, not water alone. Implemented as
+`sensor.last_sun_slot_start_hour` (`power_state.yaml`) — full detail, new helpers, and all 6
+consumers (3 water, 3 power) in **POWER_CONTRACT.md Issue 42** (cross-domain; this is the
+water-side pointer). `water_templates.yaml`'s 3 consumers (`water_refill_allowed`'s
+`last_sun_blocked` attribute twice, and the Issue 23 blocked-reason branch 3c) all moved from
+the old flat `input_number.last_sun_slot_start_hour` to the new sensor; the blocked-reason
+branch 3c's display text now reads the sensor's `start_time` attribute (HH:MM) instead of
+truncating a fractional hour to the hour digit only, so spring/autumn's 14:45 displays
+correctly instead of showing "14:00".
+
+**Finding 3 — usage data could not be cleanly calibrated against the evening-watering
+addition.** `sensor.water_usage_today` reports physically impossible daily values (up to 123m
+on a 1.95m-deep tank — a known reliability problem, not newly introduced here). Raw tank-level
+swing history is confounded by the same-window summer/winter demand-profile swap (changes which
+weekday maps to which demand type) and by the pre-positioning design itself (today's swing
+partly reflects yesterday's look-ahead target, not today's actual draw). No clean before/after
+number was extractable from either source in the time available.
+**Fix 3 (precautionary, user-approved):** bumped `water_target_depth_partial` (Wash/Clean)
+1.20→1.30m and `water_target_depth_irrigation` 1.25→1.35m in `water_helpers.yaml`'s `initial:`
+— the two demand types most likely under-provisioned by an added evening watering. **⚠️ LIVE
+values unchanged (still 1.20 / 1.25) until the dashboard sliders are bumped to match** — same
+`initial:`-doesn't-retroactively-apply caveat as the 2026-07-17
+`water_predictive_fill_threshold_percent` recalibration. This is independent of, and additive
+with, Finding 1's surplus push — the two together should reduce reliance on any single day's
+demand-target sizing being exactly right.
+
+**Not yet live-verified:** `ha core check` passed and all 6 touched files (3 water, 3 power)
+parse; automation IDs confirmed present. Nothing here has been observed through a real surplus
+day, a real seasonal last-sun transition, or a live dashboard-bumped target yet. Pending: next
+surplus period with tank below 75% (confirm the fill actually pushes past the demand target
+toward 1.95m and reverts cleanly when surplus ends); next summer/spring-autumn last-sun
+transition for both pool and water; user bumping the two dashboard sliders.
+
+**Files:** `water_helpers.yaml`, `water_templates.yaml`, `water_tank_refill_control.yaml`,
+`power_helpers.yaml`, `power_state.yaml`, `power_automations.yaml` (power files — see
+POWER_CONTRACT.md Issue 42 for their own full writeup).
 
 ---
 
@@ -1403,6 +1520,12 @@ The Tuya sensor is adequate for coarse level monitoring and scheduling decisions
 User reported a perceived weekly watering rhythm and asked whether predictive fill needed tuning. Checked live entities + recorder DB directly rather than relying on docs:
 
 - **Predictive fill (Branch 4.7) was a red herring.** `water_predictive_fill_enabled=on`, threshold correctly live at 75% (the 2026-07-17 recalibration caveat — "live value still 50%" — no longer applies, it's live now). But Branch 4.7 also gates on `sensor.energy_orchestrator_state == 'conserve'`, and over the prior 10 days the orchestrator was **never once** in `conserve` (only `normal`/`surplus`, plus a few instant restart-glitch `critical` blips). Branch 4.7 hasn't fired at all — correctly idle given healthy solar/SOC, not broken.
+  **Correction 2026-11-02 (Issue 24):** this was closer to "broken" than "correctly idle" — the
+  conserve gate wasn't just quiet that week, it was structurally unreachable (see Issue 24's
+  root-cause detail: `water_refill_allowed`'s own 2026-06-21 conserve gate means Branch 4.7's
+  precondition can only be true when the tank is already critical, at which point an earlier
+  branch always wins). Flipped to `'surplus'` in Issue 24, which is actually common and now
+  does something — see that issue, not this one, for the live redesign.
 - **The demand-day → depth-target system is the real driver, and it's working as designed.** `sensor.water_effective_fill_target` reads `sensor.water_target_depth_tomorrow` (line 443 of `water_templates.yaml`), i.e. the tank fills toward **tomorrow's** demand target, not today's — intentional look-ahead pre-positioning, confirmed against the original E5 design note. This makes Friday's fill look "biggest" (it's pre-filling for Saturday's Pool/1.6m day), which can read as a M/W/F/S pattern depending on how the demand selectors land that week.
 - **Multiple pump on/off cycles per day are NOT `water_borehole_mid_run_shutdown` chatter.** Initial hypothesis (built from a raw `COUNT(state='off')` per day — 21–56/day) was wrong: those rows are mostly duplicate re-published states (attribute-only updates), not real transitions. Deduplicating to actual state changes, `binary_sensor.water_refill_allowed` is stable all day; the only transitions are the evening dusk-cutoff/22:00 resume and a handful of few-second Tuya/recorder blips (mostly after solar hours). Real daytime blip count in 10 days: **one** (Aug 31, 12:00–12:03). The 2-4 separate pump sessions/day seen in the recorder are almost certainly the pump legitimately reaching `water_effective_fill_target`, stopping, then house consumption draining the tank back below target later the same day, and Branch 4 restarting it — correct behavior, not a bug.
 - **Fix applied anyway:** debounced the `permission_revoked` trigger in `water_borehole_mid_run_shutdown` with `for: "00:01:00"` (mirrors Issue 9's max-depth debounce) as cheap insurance against that one blip class. Confirmed low-risk — it's a `condition:` re-check at trigger time elsewhere (Branch 4, block automation), not a subscribed watcher, so nothing else depends on instant reaction to this sensor.
@@ -1430,3 +1553,16 @@ is declared via 3 new mobile action buttons or by hand; new automations
 `water_known_drain_response` + `water_known_drain_auto_clear` (3h / midnight). Sweep:
 Entity Reference (Lifecycle Flags, Counters), File Inventory (4 files), Protections 3/5 +
 Safety Summary table all reconciled. Not yet live-verified — see Issue 23.*
+
+*Last updated: 2026-11-02 (Issue 24 / BUG-W05) — "Predictive Fill" (dead code since 2026-06-21,
+see Finding 1) redesigned into "Surplus Buffer Fill": `sensor.water_effective_fill_target`
+pushes to 1.95m (physical max, not a new fixed 1.6m) on `orchestrator=='surplus'` + tank below
+75%, instead of the unreachable `'conserve'` condition; `source` attribute renamed
+`surplus_buffer_push`. Last-sun-slot cutoff made seasonal (14:00/14:45/15:00), shared with the
+pool pump — full detail in POWER_CONTRACT.md Issue 42, water's 3 consumers updated here.
+`water_target_depth_partial`/`_irrigation` `initial:` bumped +0.10m each (precautionary, usage
+data inconclusive — see Finding 3); ⚠️ live values not yet bumped on the dashboard. Sweep:
+Effective Fill Target Sensor, Predictive→Surplus Buffer Fill Helpers section (also corrected a
+stale "live value still 50%" claim — it's been 75% for a while), Refill Permission Gate prose,
+Thresholds table, the 2026-09-02 "red herring" investigation note (added a correction rather
+than rewriting it) all reconciled. Not yet live-verified — see Issue 24.*

@@ -117,6 +117,7 @@ Telegram mirror  →  notify.telegram_bot_5527
 | `sensor.security_mode` | security (core) | notify_security_events | ✅ |
 | `group.inverter_grid` | power | water, alerts_power | ✅ |
 | `sensor.inverter_battery_soc` | power | water (via battery SOC check) | ✅ |
+| `sensor.last_sun_slot_start_hour` | power (`power_state.yaml`) | water (`water_templates.yaml`, 3 consumers), power's own pool-pump control (`power_automations.yaml` ×2, `pool_pump_control_status`) | ✅ added 2026-11-02 (POWER_CONTRACT Issue 42 / WATER_CONTRACT Issue 23-24) — seasonal 3-tier replacement for the flat `input_number.last_sun_slot_start_hour` both domains read directly before this |
 | `sensor.inverter_pv_power` | power | alerts_power, security (added 2026-09-17, SECURITY_CONTRACT.md BUG-S81 — `binary_sensor.security_weather_corroborated_clear`, first Power→Security dependency in this repo) | ✅ |
 | `sensor.solcast_pv_forecast_power_now` | power (Solcast integration) | security (added 2026-09-17, BUG-S81 — same corroboration sensor, forecast-for-right-now denominator) | ✅ |
 | `sensor.inverter_power` | power | alerts_power | ✅ |

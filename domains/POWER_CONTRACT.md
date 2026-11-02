@@ -1053,11 +1053,19 @@ input_number.grid_offline_soc_min_geyser     %   min SOC for geyser non-critical
 input_number.geyser_grid_offline_critical_soc % min SOC for geyser even in critical window (default: 35)
 input_number.last_sun_soc_target_summer      %   overnight charge target summer (default: 80)
 input_number.last_sun_soc_target_winter      %   overnight charge target winter (default: 90)
-input_number.last_sun_slot_start_hour        h   hour when last-sun-slot starts (default: 14.0)
+~~input_number.last_sun_slot_start_hour~~    h   REPLACED 2026-11-02 (Issue 42) — see sensor.last_sun_slot_start_hour below
 input_number.geyser_target_hours_summer      h   geyser daily solar target summer (default: 2.0)
 input_number.geyser_target_hours_winter      h   geyser daily solar target winter (default: 3.5)
 sensor.last_sun_soc_target                   %   bucket-aware (80% summer bucket / 90% winter bucket)
 sensor.geyser_target_run_hours_today         h   bucket-aware geyser target
+sensor.last_sun_slot_start_hour               h   seasonal 3-tier (added 2026-11-02, Issue 42):
+                                                  14.0 winter / 14.75 spring-autumn (75% of the
+                                                  winter→summer gap) / 15.0 summer. Reads
+                                                  sensor.season directly (NOT season_bucket —
+                                                  no spring/autumn blend there), same pattern as
+                                                  sensor.geyser_morning_start_today (Issue 41).
+                                                  Backed by input_number.last_sun_slot_start_hour_
+                                                  summer/_winter + last_sun_slot_shoulder_pct.
 ```
 
 **Season Bucket — spring grace period (added 2026-09-11):** `pool_target_run_hours_today`,
@@ -1091,6 +1099,12 @@ Cross-domain note: `sensor.last_sun_soc_target` is also read by `water_templates
 unchanged, only its seasonal computation moved behind `season_bucket`, so no
 WATER_CONTRACT.md update was needed.
 
+**Cross-domain note (updated 2026-11-02, Issue 42):** `sensor.last_sun_slot_start_hour`
+(the other half of the last-sun-slot gate, see Issue 42 above) is read by BOTH this
+file's own pool-pump branches below AND `water_templates.yaml` (3 consumers) — it is a
+genuinely shared power↔water interface, not power-internal. See SYSTEM_CONTRACT.md
+Section 2 (Cross-Domain Dependency Matrix) and WATER_CONTRACT.md Issue 23/24.
+
 **Control logic summary (updated E3 2026-06-14 — orchestrator as primary gate):**
 
 `sensor.energy_orchestrator_state` is the primary gate for all pool pump decisions from E3 onwards. This is the reference pattern all appliance automations will follow — geyser and borehole control will adopt the same structure.
@@ -1099,11 +1113,11 @@ WATER_CONTRACT.md update was needed.
 - **Turn on (Branch 5)**: `energy_orchestrator_state in ['surplus', 'normal']` + headroom > 1200W + daily target not reached + local gates below. Replaces raw battery_state_health / load_shedding_stage / upcoming-shed SOC checks.
 - **Turn on local gates (preserved — not covered by orchestrator)**:
   - Grid-offline SOC floor: `grid_offline_soc_min_pool` (60%) — blocks when grid down and SOC too low
-  - Last-sun-slot: blocks from `last_sun_slot_start_hour` (14:00) when SOC < `last_sun_soc_target` (80%/90% by season bucket)
+  - Last-sun-slot: blocks from `sensor.last_sun_slot_start_hour` (14:00 winter / 14:45 spring-autumn / 15:00 summer, Issue 42) when SOC < `last_sun_soc_target` (80%/90% by season bucket)
   - Winter morning hold: `pool_winter_start_hour` (10:00) — no pool before 10:00 in winter
 - **Turn off (16:00 hard stop — Branch 0)**: unconditional — no minimum run time guard.
 - **Turn off (Branch 2a — grid offline + low SOC)**: immediately shuts off if grid is offline AND SOC < `grid_offline_soc_min_pool` (60%). Bypasses minimum run time.
-- **Turn off (Branch 2b — last sun slot)**: shuts off from `last_sun_slot_start_hour` when SOC < `last_sun_soc_target`. Bypasses minimum run time.
+- **Turn off (Branch 2b — last sun slot)**: shuts off from `sensor.last_sun_slot_start_hour` (seasonal, Issue 42) when SOC < `last_sun_soc_target`. Bypasses minimum run time.
 - **Turn off (Branch 2 — orchestrator hard block)**: `energy_orchestrator_state in [loadshedding, loadshedding_critical, critical]`. Enforces minimum run time EXCEPT `loadshedding_critical` (emergency — turns off immediately). Replaces raw load_shedding_stage + upcoming-shed checks. Notifies at severity: warning.
 - **Turn off (Branch 3 — conserve / solar dropped)**: `energy_orchestrator_state == conserve` OR `solar_available_surplus < 800W` (hysteresis floor). Enforces minimum run time. Replaces raw battery_state_health low/critical + headroom checks.
 - **Turn off (target met — Branch 4)**: daily run hours >= season target — enforces minimum run time.
@@ -3335,6 +3349,45 @@ render-verified to match exactly one trigger. **Not yet live-exercised:** first 
 
 ---
 
+### Issue 42 — ✅ FIXED 2026-11-02: `last_sun_slot_start_hour` flat 14:00 all year — made seasonal 3-tier, shared with water (WATER_CONTRACT Issue 24)
+
+**Priority: LOW | Status: deployed, Reload Template Entities + Automations + Helpers required**
+
+**Context:** user asked water to push fills further on good-solar days (see WATER_CONTRACT
+Issue 24) and, while discussing the shared 14:00 last-sun-slot cutoff (pool pump's Branch 2b
+shutdown, `power_automations.yaml`, and water's permission gate both read the same flat
+`input_number.last_sun_slot_start_hour`), observed that full summer's longer days make a flat
+14:00 cutoff for both systems cut the window short.
+
+**Fix:** Replaced the single flat helper with the same 3-tier seasonal pattern already used by
+`sensor.geyser_morning_start_today` (Issue 41, directly adjacent above) — `sensor.season` read
+directly (not `season_bucket`, which has no spring/autumn blend): winter and summer are explicit
+anchors, spring/autumn blend at a tunable shoulder % of the winter→summer gap. New
+`input_number.last_sun_slot_start_hour_summer` (15), `_winter` (14, unchanged), and
+`last_sun_slot_shoulder_pct` (75 — user explicitly chose 75% here, not the geyser's 85%) replace
+the deleted flat `last_sun_slot_start_hour`. New `sensor.last_sun_slot_start_hour`
+(`power_state.yaml`, carries a `start_time` HH:MM attribute for display) is the new single
+source both domains read: `power_automations.yaml`'s two pool-pump branches and
+`power_state.yaml`'s `pool_pump_control_status` template, plus `water_templates.yaml`'s three
+consumers (`water_refill_allowed`'s `last_sun_blocked` attribute, and the new blocked-reason
+branch from WATER_CONTRACT Issue 23). `sensor.last_sun_soc_target` (the SOC-target half of the
+last-sun-slot gate) is unchanged — still the older 2-bucket `season_bucket` pattern, not part of
+this change.
+
+**Net effect:** winter unchanged at 14:00; spring/autumn now cuts off at 14:45 (was 14:00);
+summer now cuts off at 15:00 (was 14:00) — for both the pool pump's Branch 2b shutdown and
+water's refill permission gate, since both read the same new sensor.
+
+**Not yet live-verified:** `ha core check` passed and all 3 touched power files parse, but the
+seasonal blend has not been observed live through an actual 14:00-15:00 transition on each
+season. Pending: next summer-day last-sun transition (confirm pool + water both now run until
+15:00, not 14:00); next spring/autumn day (confirm 14:45, not 14:00 or 15:00).
+
+**Files:** `power_helpers.yaml`, `power_state.yaml`, `power_automations.yaml`
+(`water_templates.yaml` is the water-side half — see WATER_CONTRACT Issue 23/24).
+
+---
+
 ## 12. Error Signatures (Watchman-Confirmed)
 
 These entities appear in watchman_report.txt as missing or unavailable. Map these to the issues above.
@@ -3779,6 +3832,11 @@ and its two corrected same-fact references above in Sections 3/6); zoom-button
 snap-back and y-axis over-scale bugs root-caused and fixed on 4 cards; 14d/60d/90d range
 buttons added across 4 cards. New "`custom:plotly-graph` Card Gotchas" subsection added
 above capturing the three underlying card-behavior bugs for future sessions.*
+*Last updated: 2026-11-02 — Issue 42: `last_sun_slot_start_hour` flat 14:00 all year replaced
+with a seasonal 3-tier sensor (14:00 winter / 14:45 spring-autumn / 15:00 summer), same pattern
+as Issue 41's geyser morning-start sensor; shared with water (WATER_CONTRACT Issue 23/24) —
+pool pump's Branch 2b + `pool_pump_control_status` and water's 3 consumers all moved to the new
+sensor. Entity Reference, cross-domain note, and both pool-pump prose lines reconciled.*
 *Last updated: 2026-10-27 — Issue 41: geyser 17:30 early start skipped when tank reached temp at midday (not staff days); status/midday_adequacy display fixes; weekday start 3-tier (summer 05:00 / spring+autumn 04:50 / winter 04:00) via new sensor.geyser_morning_start_today + 2 helpers. Issue 40 entry inserted (missed its anchor on 2026-10-26).*
 *Last updated: 2026-10-26 — Issue 40 (BUG-PWR-POOLMANUAL01) closed: stuck pool manual-run flag (killed mid-run by a reload) blocked solar pool runs 23–26 Oct; stale-flag watchdog (pool+geyser), Run Pool Now pre-flight + start verification with cause diagnosis, status sensor shows manual-run states.*
 *Last updated: 2026-10-23 — Pool target reworked to 4-season + solar/weather-aware logic

@@ -5,6 +5,54 @@
 
 ## ⚠️ OPEN TODO
 
+- [ ] **2026-11-02 — Water + Power: surplus buffer fill (fixed dead "Predictive Fill"), seasonal
+      last-sun-slot cutoff, demand-target bump (WATER_CONTRACT Issue 24 / POWER_CONTRACT Issue
+      42, BUG-W05).** User: "seems every day we filling a large percentage and if sun is
+      available then do move to then do a smaller fill next day?" — plus "did add an evening
+      water additional to the morning garden water about month or 2 back" (asked whether
+      demand targets still account for it) and "extend 2pm cutoff to 3pm seeing as is full
+      summer now."
+      **Finding: the existing "Predictive Fill" feature (Branch 4.7, `water_tank_refill_
+      control.yaml`) was dead code since 2026-06-21** — it fired on `orchestrator=='conserve'`,
+      but `water_refill_allowed`'s own conserve gate (added after this feature) already blocks
+      refill during conserve unless the tank is critical, at which point an earlier branch
+      (critical state) always wins first. Recorder-confirmed: `'conserve'` occurred 2 ticks out
+      of ~1600 sampled over 10 days, never alongside `refill_allowed=on`. A 2026-09-02
+      investigation note had already spotted this branch never firing and concluded "correctly
+      idle, not broken" — corrected in WATER_CONTRACT.md to point at this session instead of
+      rewriting that note.
+      **Fix:** flipped the trigger to `'surplus'` (abundant solar — confirmed present ~half of
+      daytime ticks on a typical day) and the stop target from a fixed 1.6m to **1.95m** (the
+      physical max, same hardcoded ceiling the existing max-depth safety stop already enforces
+      — no new ceiling entity needed): `sensor.water_effective_fill_target`
+      (`water_templates.yaml`) and Branch 4.7 (renamed "Surplus Buffer Fill") both updated;
+      `source` attribute `predictive_fill_full`→`surplus_buffer_push`. 1.95m is a ceiling to
+      push toward, not a fixed destination — ending surplus or crossing the 75% threshold
+      reverts the target immediately, and the fill stops at wherever it got to. Net effect: a
+      big fill on a good-sun day banks buffer so the next (lower-demand) day needs less.
+      **Last-sun-slot cutoff (14:00) made seasonal, shared with the pool pump** (same helper
+      was already feeding both domains) — user explicitly asked for both, not water alone, with
+      spring/autumn blended at a 75% shoulder (their choice, not the geyser's 85% precedent).
+      New `sensor.last_sun_slot_start_hour` (`power_state.yaml`) — 14:00 winter / 14:45
+      spring-autumn / 15:00 summer — replaces the flat `input_number.last_sun_slot_start_hour`
+      everywhere (3 water consumers, 3 power/pool consumers). New SYSTEM_CONTRACT.md
+      cross-domain row.
+      **Demand targets bumped precautionarily** — `water_target_depth_partial` (Wash/Clean)
+      1.20→1.30m, `water_target_depth_irrigation` 1.25→1.35m (`initial:` only; user chose this
+      over data-driven calibration after `sensor.water_usage_today` turned out to report
+      physically impossible values, up to 123m/day, and raw tank-swing history was confounded
+      by the same-window summer/winter profile swap — no clean before/after was extractable).
+      **⚠️ LIVE values not yet bumped on the dashboard** — `initial:` only seeds a helper on
+      first creation; this needs a manual Helpers-dashboard slider change to actually take
+      effect, same caveat as the 2026-07-17 predictive-fill-threshold recalibration.
+      Config valid (`ha core check` + PyYAML on all 6 touched files); automation IDs confirmed
+      present. **Nothing live-verified yet** — pending: next surplus period with tank below
+      75% (confirm the push actually happens and reverts cleanly), next seasonal last-sun
+      transition for both pool and water, and the two manual dashboard slider bumps above.
+      Files: `packages/water/water_helpers.yaml`, `water_templates.yaml`,
+      `water_tank_refill_control.yaml`, `packages/power/power_helpers.yaml`, `power_state.yaml`,
+      `power_automations.yaml`, `docs/domains/WATER_CONTRACT.md`,
+      `docs/domains/POWER_CONTRACT.md`, `docs/SYSTEM_CONTRACT.md`.
 - [ ] **2026-11-01 — Water: no-rise/degraded-rate stop reasons fixed + known-drain override
       (WATER_CONTRACT Issue 23, BUG-W04).** User asked why the borehole pump stopped twice
       (14:01 and 14:17), then after re-pushing it on, found the pool was being filled —
