@@ -330,11 +330,11 @@ input_number.water_battery_soc_sufficient   %  (initial: 50)  — min SOC to sta
 input_number.water_battery_soc_hard_stop    %  (initial: 40)  — absolute SOC floor (temp; lower to 20% after new batteries)
 input_number.water_target_depth_normal      m  (initial: 1.00) — stop depth for Normal days
 input_number.water_target_depth_partial     m  (initial: 1.30, was 1.20 — bumped 2026-11-02,
-                                                 Issue 24; ⚠️ LIVE value still 1.20 until the
-                                                 dashboard slider is bumped, `initial:` doesn't
-                                                 retroactively apply) — stop depth for Wash/Clean days
+                                                 Issue 24; live value also bumped to 1.30 same
+                                                 day, dashboard slider + reload confirmed) — stop
+                                                 depth for Wash/Clean days
 input_number.water_target_depth_irrigation  m  (initial: 1.35, was 1.25 — bumped 2026-11-02,
-                                                 Issue 24; ⚠️ LIVE value still 1.25, same caveat)
+                                                 Issue 24; live value also bumped to 1.35, same)
                                                  — stop depth for Irrigation days
 input_number.water_target_depth_full        m  (initial: 1.60) — stop depth for Pool days (entity_id
                                                  unchanged; also the floor the surplus buffer fill
@@ -1157,19 +1157,18 @@ partly reflects yesterday's look-ahead target, not today's actual draw). No clea
 number was extractable from either source in the time available.
 **Fix 3 (precautionary, user-approved):** bumped `water_target_depth_partial` (Wash/Clean)
 1.20→1.30m and `water_target_depth_irrigation` 1.25→1.35m in `water_helpers.yaml`'s `initial:`
-— the two demand types most likely under-provisioned by an added evening watering. **⚠️ LIVE
-values unchanged (still 1.20 / 1.25) until the dashboard sliders are bumped to match** — same
-`initial:`-doesn't-retroactively-apply caveat as the 2026-07-17
-`water_predictive_fill_threshold_percent` recalibration. This is independent of, and additive
-with, Finding 1's surplus push — the two together should reduce reliance on any single day's
-demand-target sizing being exactly right.
+— the two demand types most likely under-provisioned by an added evening watering. Dashboard
+sliders bumped to match and Helpers/Template Entities/Automations reloaded same day
+(user-confirmed 2026-11-02) — live values now 1.30 / 1.35, no longer pending. This is
+independent of, and additive with, Finding 1's surplus push — the two together should reduce
+reliance on any single day's demand-target sizing being exactly right.
 
-**Not yet live-verified:** `ha core check` passed and all 6 touched files (3 water, 3 power)
-parse; automation IDs confirmed present. Nothing here has been observed through a real surplus
-day, a real seasonal last-sun transition, or a live dashboard-bumped target yet. Pending: next
-surplus period with tank below 75% (confirm the fill actually pushes past the demand target
-toward 1.95m and reverts cleanly when surplus ends); next summer/spring-autumn last-sun
-transition for both pool and water; user bumping the two dashboard sliders.
+**Not yet live-verified (behavior only):** `ha core check` passed and all 6 touched files (3
+water, 3 power) parse; automation IDs confirmed present; dashboard sliders bumped and reload
+done. What remains unobserved is the actual *behavior*: a real surplus day, a real seasonal
+last-sun transition. Pending: next surplus period with tank below 75% (confirm the fill
+actually pushes past the demand target toward 1.95m and reverts cleanly when surplus ends);
+next summer/spring-autumn last-sun transition for both pool and water.
 
 **Files:** `water_helpers.yaml`, `water_templates.yaml`, `water_tank_refill_control.yaml`,
 `power_helpers.yaml`, `power_state.yaml`, `power_automations.yaml` (power files — see
@@ -1561,8 +1560,14 @@ pushes to 1.95m (physical max, not a new fixed 1.6m) on `orchestrator=='surplus'
 `surplus_buffer_push`. Last-sun-slot cutoff made seasonal (14:00/14:45/15:00), shared with the
 pool pump — full detail in POWER_CONTRACT.md Issue 42, water's 3 consumers updated here.
 `water_target_depth_partial`/`_irrigation` `initial:` bumped +0.10m each (precautionary, usage
-data inconclusive — see Finding 3); ⚠️ live values not yet bumped on the dashboard. Sweep:
-Effective Fill Target Sensor, Predictive→Surplus Buffer Fill Helpers section (also corrected a
-stale "live value still 50%" claim — it's been 75% for a while), Refill Permission Gate prose,
-Thresholds table, the 2026-09-02 "red herring" investigation note (added a correction rather
-than rewriting it) all reconciled. Not yet live-verified — see Issue 24.*
+data inconclusive — see Finding 3). Sweep: Effective Fill Target Sensor, Predictive→Surplus
+Buffer Fill Helpers section (also corrected a stale "live value still 50%" claim — it's been
+75% for a while), Refill Permission Gate prose, Thresholds table, the 2026-09-02 "red herring"
+investigation note (added a correction rather than rewriting it) all reconciled. Not yet
+live-verified — see Issue 24.*
+
+*Follow-up same day (2026-11-02): user bumped both dashboard sliders to match `initial:` and
+reloaded Helpers/Template Entities/Automations — live values for `water_target_depth_partial`/
+`_irrigation` now 1.30/1.35, Thresholds table and Issue 24 Fix 3/Finding 3 updated accordingly.
+Behavior (surplus push, seasonal cutoff transition) still unobserved — see Issue 24's
+"Not yet live-verified" note.*

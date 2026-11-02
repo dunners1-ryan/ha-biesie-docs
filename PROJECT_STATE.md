@@ -42,13 +42,13 @@
       over data-driven calibration after `sensor.water_usage_today` turned out to report
       physically impossible values, up to 123m/day, and raw tank-swing history was confounded
       by the same-window summer/winter profile swap — no clean before/after was extractable).
-      **⚠️ LIVE values not yet bumped on the dashboard** — `initial:` only seeds a helper on
-      first creation; this needs a manual Helpers-dashboard slider change to actually take
-      effect, same caveat as the 2026-07-17 predictive-fill-threshold recalibration.
+      **Dashboard sliders bumped + Helpers/Template Entities/Automations reloaded, same day
+      (user-confirmed)** — live values for `water_target_depth_partial`/`_irrigation` now match
+      `initial:` (1.30/1.35); all 2026-11-02 template/automation changes are active.
       Config valid (`ha core check` + PyYAML on all 6 touched files); automation IDs confirmed
-      present. **Nothing live-verified yet** — pending: next surplus period with tank below
-      75% (confirm the push actually happens and reverts cleanly), next seasonal last-sun
-      transition for both pool and water, and the two manual dashboard slider bumps above.
+      present. **Behavior still not observed live** — pending: next surplus period with tank
+      below 75% (confirm the push actually happens and reverts cleanly) and next seasonal
+      last-sun transition for both pool and water.
       Files: `packages/water/water_helpers.yaml`, `water_templates.yaml`,
       `water_tank_refill_control.yaml`, `packages/power/power_helpers.yaml`, `power_state.yaml`,
       `power_automations.yaml`, `docs/domains/WATER_CONTRACT.md`,
