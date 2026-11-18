@@ -47,7 +47,7 @@ bottles for the stove/heater (Section 8).
 | `packages/utilities/watercooler_core.yaml` | `command_line:` sensor reading the invoice history file + all template sensors (stock estimate, order guidance, cost estimate vs. actual, alert context) |
 | `packages/utilities/watercooler_automations.yaml` | Log Bottle Changed (backdate support added 2026-09-23) / Place Order / Delivery Reminder / Confirm Delivery / Invoice Reminder / Swap Overdue Reminder (added 2026-09-29) / month-counter reset / alert routing trio / `alert:` block |
 | `packages/utilities/watercooler_invoice_history.json` | Real invoice records + a `summary.monthly_breakdown` block — see Section 4 |
-| `packages/utilities/watercooler_swap_history.jsonl` | **Append-only bottle-swap log** (added 2026-11-18) — one JSON line per swap/run-out/install; see Section 3-swap-log below |
+| `packages/utilities/watercooler_swap_history.jsonl` | **Append-only bottle-swap log** (added 2026-11-18) — one JSON line per swap/run-out/install; see Section 3 "Swap history log" below |
 | `packages/utilities/watercooler_swap_log.sh` | Appends one line to the swap log; called by `shell_command.watercooler_swap_log` from Log Bottle Changed (real-swap branch only) |
 | `packages/utilities/watercooler_swap_stats.sh` | sh+awk summary of the swap log → `sensor.watercooler_swap_history` (command_line, 600s) |
 
