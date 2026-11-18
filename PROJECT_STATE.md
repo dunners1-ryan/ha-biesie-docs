@@ -132,6 +132,12 @@
       (28 Oct) is hot in time for showers, and a non-staff day skipping 17:30 after a midday reach.
       Files: `packages/power/geyser_automations.yaml`, `power_state.yaml`, `power_helpers.yaml`,
       `docs/domains/POWER_CONTRACT.md`.
+- [x] **2026-11-18 — Utilities: gas gauge reading logged via `/log-gas-reading`**
+      (`packages/utilities/gas_gauge_history.json`, `record_count` 4→5). "Gas, green zone, lower
+      third, clear of Low Gas" — first reading on the Swap bottle connected 2026-11-07 (11 days in).
+      Model at the time: `sensor.gas_stove_fraction_remaining` 0.857 / 66 d. Gauge reads lower than
+      the model, as the previous Swap bottle's readings did — informational only (Section 8f: not fed
+      into the EMA). No code/entity changes.
 - [x] **2026-10-27 — Utilities: Water Cooler stock/timestamps corrected (data fix, no code).**
       HA showed 3 spare bottles vs 1 real. Cause: backdate toggle never turned on, so the
       26 Oct 09:00 swap was logged as 27 Oct 12:42 (second press ignored by the duplicate
