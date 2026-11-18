@@ -504,6 +504,7 @@ No security-domain helpers were found to be UI-created. All are YAML-defined in
 | `binary_sensor.security_visibility_poor` | Weather poor visibility | 10min delay_on/off (BUG-L25) + PV-corroboration veto (BUG-S81), both 2026-09-17 |
 | `binary_sensor.security_weather_low_light` | Weather low light — `fog` only, not plain `cloudy` (narrowed 2026-09-17, BUG-S84 — was "somewhat overcast", now genuinely "poor visibility from fog/mist") | 10min delay_on/off (BUG-L25) + PV-corroboration veto (BUG-S81), both 2026-09-17 |
 | `binary_sensor.security_weather_corroborated_clear` | Actual PV output tracking Solcast's forecast closely (>60% of `solcast_pv_forecast_power_now`, above a 200W floor) — genuine sun regardless of what the weather API claims | **New 2026-09-17 (BUG-S81)** — veto-only input to the two rows above |
+| `binary_sensor.security_weather_corroborated_dark` | Daytime sky genuinely dark per our own PV: forecast >800W → PV <15% of forecast AND SOC <98% (curtailment guard); forecast ≤800W → hold-only while PV <300W; `night_early` on → off. 10min delay_on/off | **New 2026-11-18 (BUG-S88)** — the positive mirror of corroborated_clear. Independent of OWM, so it also counts when the API is limited/stale. Feeds `security_lighting_required`, `security_lighting_allowed`, `boundary_security_on` (trigger + reason text) and `entrance_down_lights_daytime_low_light`. Doesn't come back after a reload/restart in the middle of a storm (the hold branch needs `this.state`=on) until PV is <15% of forecast again with forecast >800W |
 | `binary_sensor.security_lighting_required` | Lighting should be on | |
 | `binary_sensor.security_lighting_allowed` | Lighting permitted (night/bad weather) | ✅ Fixed 2026-04-15 (Issue #4, doc-drift corrected 2026-09-17 — this row still said "BROKEN" three years after the fix) |
 | `binary_sensor.security_lighting_suppressed` | Guest/entertaining mode active | |
@@ -3149,6 +3150,48 @@ automation reloads `[]`; covers report live state (gate closed, garage open); bu
 engine decision templates rendered against live state for all 8 target/command cases.
 **Not yet exercised:** a real pulse through the engine, a real notification button tap,
 the verify-timeout warning, and the garage relay at all.
+
+### BUG-S88 — Rainy, genuinely dark afternoon lit nothing until `night_early`: every daytime weather input was OpenWeatherMap-only — ✅ FIXED 2026-11-18
+
+**Symptom (user):** "with rain today why [haven't the] security boundary and inside lights
+come on, especially not earlier for [the evening] run?"
+**Recorder (2026-11-18, SAST):** `weather.openweathermap` was `rainy` only 05:26–06:26 (that
+spell *did* work — `security_visibility_poor` on 05:36–06:02, entrance/main lights on), then
+`cloudy` 08:47–15:17 and `partlycloudy` (40%) from 15:17 onward. Met.no
+(`weather.forecast_home`) said `rainy` from 10:32 and again from 16:14. From ~16:20 actual
+`sensor.inverter_pv_power` was 1–3% of `sensor.solcast_pv_forecast_power_now` (e.g. 30W vs
+2,250W at 16:30). So `security_visibility_poor` and `security_weather_low_light` stayed off.
+Plain `cloudy` no longer counts since BUG-S84 (by design), and the PV signal
+(`corroborated_clear`, BUG-S81) can only veto a trigger, never add one. Result:
+`security_lighting_required` stayed off until `night_early` (~18:22), and that sensor gates both
+`boundary_security_on` and `lighting_evening.yaml`'s weather path.
+**Fix:** new `binary_sensor.security_weather_corroborated_dark` (security_core.yaml). It
+turns on from a positive PV-darkness reading, not from a weather condition string. That
+matches BUG-S84's "truly dark conditions" intent without bringing back plain cloudy, and
+without Met.no, which BUG-S79 dropped for false positives. It's OR'd into
+`security_lighting_required` (also in its OWM limited/stale branch) and
+`security_lighting_allowed`; it's also a defense-in-depth trigger plus a "dark sky (solar X W
+vs Y W forecast)" reason in `boundary_security_on`, and a daytime input to
+`entrance_down_lights_daytime_low_light`. Front/back/carport/office stay `night_early`-gated
+(BUG-L22), unchanged.
+**Design from a 14-day backtest (04–18 Nov, history API):**
+- A naive ratio <0.15 with a 500W floor false-fired on 11 and 12 Nov: SOC 100%, OWM `sunny`,
+  and the inverter curtailing PV down to the house load. That's why the SOC <98% guard exists.
+- On clear evenings, west-horizon shading pushes the ratio to about 0.2 by 17:30–17:50, so the
+  floor is 800W.
+- Solcast's live "now" figure itself collapses under a storm (17 Nov 15:00 = 174W), and on
+  4 and 8 Nov the sun came back late (PV 700–1,000W against a ~50W forecast). So below the
+  floor the sensor only holds an existing "dark" state while PV stays under 300W, and never
+  turns on from there.
+- Final rule: on for 4 and 8 Nov (both release correctly when the sun returns) and for 17 and
+  18 Nov (held until night_early). Zero clear-day false positives.
+**Expected side effect:** on a dark storm afternoon, the indoor evening routine
+(`evening_routine_on_auto`, weather trigger) can now start early (14:03 on 17 Nov in the
+backtest). `evening_routine_weather_clear` undoes it if the sky clears before civil night.
+**Verified:** `ha core check` passed; template + automation reload; entity registered.
+**Not yet observed live:** the sensor turning on during a real dark afternoon. Next storm:
+confirm onset time, that the boundary notification shows the "dark sky" reason, and the
+hold/release behaviour.
 
 ## Section 7: Active Log Errors
 

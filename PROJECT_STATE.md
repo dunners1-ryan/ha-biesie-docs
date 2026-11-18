@@ -5,6 +5,27 @@
 
 ## ⚠️ OPEN TODO
 
+- [ ] **2026-11-18 — Security/Lighting: BUG-S88 — dark rainy afternoon lit nothing until
+      `night_early`.** User asked why the boundary lights and indoor evening lights didn't come
+      on earlier, given today's rain. Recorder: OWM said `cloudy`/`partlycloudy` all afternoon
+      (it never said `rainy` after 06:26); Met.no said `rainy`. From ~16:20, PV was 1–3% of the
+      Solcast forecast. Every daytime lighting input reads OWM only, and the PV check (BUG-S81)
+      could only veto.
+      **Fix:** new `binary_sensor.security_weather_corroborated_dark` (`security_core.yaml`):
+      - Turns on when forecast >800W, PV <15% of forecast and SOC <98%.
+      - Below 800W forecast it only holds an existing "dark" state while PV <300W.
+      - Turns off once `night_early` is on.
+      It's OR'd into `security_lighting_required` (also when OWM is limited/stale) and
+      `security_lighting_allowed`. Also added to `boundary_security_on` (trigger + "dark sky"
+      reason) and `entrance_down_lights_daytime_low_light` (`lighting_boundary.yaml`).
+      Thresholds are backtested over 14 days: on for 4, 8, 17 and 18 Nov (all genuinely dark),
+      no clear-day false positives. The SOC guard removed curtailment false positives on 11 and
+      12 Nov. `ha core check` passed; template + automation reloaded.
+      **Pending:** see it turn on live during the next dark afternoon (onset time, reason
+      text, release when the sun returns). Side effect to watch: the indoor evening routine
+      can now start mid-afternoon on storm days.
+      Files: `packages/security/security_core.yaml`, `packages/lighting/lighting_boundary.yaml`,
+      `docs/domains/SECURITY_CONTRACT.md`, `docs/domains/LIGHTING_CONTRACT.md`.
 - [ ] **2026-11-02 — Water + Power: surplus buffer fill (fixed dead "Predictive Fill"), seasonal
       last-sun-slot cutoff, demand-target bump (WATER_CONTRACT Issue 24 / POWER_CONTRACT Issue
       42, BUG-W05).** User: "seems every day we filling a large percentage and if sun is
