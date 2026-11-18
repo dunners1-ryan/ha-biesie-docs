@@ -47,6 +47,9 @@ bottles for the stove/heater (Section 8).
 | `packages/utilities/watercooler_core.yaml` | `command_line:` sensor reading the invoice history file + all template sensors (stock estimate, order guidance, cost estimate vs. actual, alert context) |
 | `packages/utilities/watercooler_automations.yaml` | Log Bottle Changed (backdate support added 2026-09-23) / Place Order / Delivery Reminder / Confirm Delivery / Invoice Reminder / Swap Overdue Reminder (added 2026-09-29) / month-counter reset / alert routing trio / `alert:` block |
 | `packages/utilities/watercooler_invoice_history.json` | Real invoice records + a `summary.monthly_breakdown` block — see Section 4 |
+| `packages/utilities/watercooler_swap_history.jsonl` | **Append-only bottle-swap log** (added 2026-11-18) — one JSON line per swap/run-out/install; see Section 3-swap-log below |
+| `packages/utilities/watercooler_swap_log.sh` | Appends one line to the swap log; called by `shell_command.watercooler_swap_log` from Log Bottle Changed (real-swap branch only) |
+| `packages/utilities/watercooler_swap_stats.sh` | sh+awk summary of the swap log → `sensor.watercooler_swap_history` (command_line, 600s) |
 
 Dashboard: Operations → **Water Cooler** (`watercooler-control`), linked from
 a Home-dashboard summary card (`.storage/lovelace.dashboard_overview`,
@@ -229,6 +232,20 @@ calibrating estimate.
   PROJECT_STATE.md's 2026-09-11 entry, was blocked by the environment's
   credential-access guardrail this session); set it via Developer Tools →
   States or the dashboard card's own +/- control.
+
+### Swap history log (added 2026-11-18)
+
+**Why:** swap events existed only as `last_bottle_change_time` state changes + logbook lines in the recorder (90-day purge, and polluted by manual corrections — e.g. the 2026-11-18 accidental press that pushed `avg_days_per_bottle` to 11.75). There was no durable record to study usage per month/season.
+
+**Where:** `packages/utilities/watercooler_swap_history.jsonl`, one compact JSON object per line:
+`{"ts":"2026-11-17T09:00:00","type":"swap|runout|install","source":"live|backdated|recorder|reconstructed","interval_days":4.04|null,"note":"…"}`. Live lines also carry `stock_after`, `empties_after`, `avg_after`.
+- `swap` = bottle swapped, an empty produced. `runout` = a bottle emptied before the swap (the interval still counts as that bottle's life). `install` = a bottle loaded into an empty cooler with no empty produced (e.g. delivery day after the mounted empty was collected) — `interval_days` null, excluded from stats.
+- Only lines with a numeric `interval_days` count toward stats.
+- **Live logging:** `automation.water_cooler_log_bottle_changed` calls `shell_command.watercooler_swap_log` in its real-swap branch only (never on the ignored-duplicate branch), after the helper updates. `continue_on_error: true`. Append-only (`>>`), so it can't clobber history. New shell_command → needs `shell_command.reload` (or restart) on first deploy.
+- **Backfill (2026-11-18):** 19 records 2026-09-01 → 2026-11-17 from recorder history of `last_bottle_change_time`, with known corrections applied (09-04 duplicate press collapsed; 09-17 unlogged swap and 10-26 correction from PROJECT_STATE; Nov 3 run-out, Nov 6 install, Nov 10/13/17 swaps reconstructed from the user's account — times approximate, flagged `reconstructed`). The 2026-11-18 17:55 accidental press is deliberately NOT in the log.
+- **Sensor:** `sensor.watercooler_swap_history` — state = record count; attributes `avg_days_all`, `avg_days_last5`, `avg_days_last10`, `monthly`, `seasonal` (southern hemisphere: summer Dec–Feb, autumn Mar–May, winter Jun–Aug, spring Sep–Nov), `last_swap`, `interval_count`.
+- **Not done / gaps:** installs and run-outs are not yet loggable from a button — add lines by hand (Claude session) for now. Swaps before 2026-09-01 are not in the log. `avg_days_per_bottle` (EMA) is still the live driver of the fraction/stock sensors; the log is for reporting and for sanity-checking the EMA (backfilled all-time average 4.34 d, last-5 4.38 d, vs EMA hand-set to 3.8 on 2026-11-18).
+- **Correcting a bad entry:** edit/delete the line in the `.jsonl` (plain text); the sensor re-reads within 10 min.
 
 ---
 
@@ -686,14 +703,16 @@ the user to press the reset button in its own completion notification
 whenever the just-completed refill/exchange is for whichever bottle is
 currently on the stove — the only appliance this gauge is fitted to.
 
-**Trend as of 2026-10-26** (`record_count: 4`): `Gas (green, near top edge)`
+**Trend as of 2026-11-18** (`record_count: 5`): `Gas (green, near top edge)`
 2026-09-02 → `Gas (green, upper-middle)` 2026-09-21 → `Gas (green, lower
-end, just above Low Gas)` 2026-10-13 → same zone, unchanged, 2026-10-26. A
-steady decline through September that's plateaued at the bottom of green
-for the two most recent readings (13 days apart) — purely informational,
-not reconciled against `sensor.gas_stove_fraction_remaining`'s independent
-EMA estimate (0.64 as of 2026-10-26) per this section's own "not fed into
-the EMA" rule above.
+end, just above Low Gas)` 2026-10-13 → same zone, unchanged, 2026-10-26 →
+`Gas (green, lower third, clear of Low Gas)` 2026-11-18. The last reading
+is on a **different physical bottle**, not a continuation of the September
+decline — the Swap bottle was exchanged ~2026-11-06 (see this section's own
+Session Log entry below), so the 2026-11-18 reading is only ~12 days into
+that bottle's life. Purely informational, not reconciled against `sensor.
+gas_stove_fraction_remaining`'s independent EMA estimate (0.852 as of
+2026-11-18) per this section's own "not fed into the EMA" rule above.
 
 ### 8g. Alert Pipeline
 
@@ -1039,6 +1058,8 @@ full HA restart to activate (same disclaimer as every other domain).
 ---
 
 ## Session Log
+
+- **2026-11-18 (Water Cooler swap history)** — After a trip with missed swaps, stock/empties/EMA/last-change/last-delivery were corrected live (stock 4, empties 3, avg 3.8, last change 2026-11-17 09:00, last delivery 2026-11-06 08:00). Added the append-only swap history log + `sensor.watercooler_swap_history` + shell_command logging (see "Swap history log" in Section 3 / Section 2).
 
 - **2026-08-31** — Domain created from scratch. Full stock/order/delivery/
   cost-tracking build, Operations dashboard view + Home summary card, this
@@ -1444,3 +1465,26 @@ Mon 2026-10-05 08:30 delivery (8 in, 7 empties out) was confirmed a day late wit
 `set_value`/`set_datetime`: `empties_on_hand` 7→0, `month_empties_returned` 0→7,
 `last_delivery_time` 2026-10-05 08:30:00. Gap noted: Confirm Delivery (Section 4, step 3) has no
 backdate path; fill in `_delivery_empties_taken` *before* pressing it. No YAML changed.
+
+### Session Log — 2026-11-18 (Gas Bottles data correction + gauge reading)
+
+Both `input_button.gas_log_refill_done` and `_log_exchange_done` were pressed on 2026-11-07
+17:44 (R355 each) for what was, per the user, a single real event: the Swap bottle — then at
+~1/4 remaining — was exchanged on Fri 2026-11-06, before a trip, stove in use throughout. The
+Owned bottle is still empty, not refilled. Unlike the 2026-09-22 incident (8d), this was not a
+design gap — both buttons did exactly what they're built to do when pressed — just the wrong
+pair of presses. Corrected via the Supervisor API, no YAML changed: dropped the false refill row
+from `sensor.gas_transaction_log` and moved the exchange row to 2026-11-06 (month cost R710→
+R355, year R3,067→R2,712); `gas_owned_bottle_status` back to `Empty — Needs Refill`, `gas_swap_
+bottle_status` to `In Use`; `gas_stove_bottle_connected_time`/`gas_last_completed_time` set to
+2026-11-06 12:00 (time approximate, date confirmed); `gas_avg_days_per_bottle_stove` replayed by
+hand from its pre-incident 97.06d — the 45.81d real interval is only ~3/4 of a bottle (it went
+back with ~1/4 left), so scaled to a full-bottle-equivalent 61.08d before applying the EMA, giving
+82.69d (vs. 77.06d had the raw interval been taken at face value). `binary_sensor.gas_low`/`sensor.
+gas_alert_context` correctly back to warning (no spare — Owned is empty). Gauge reading logged via
+`/log-gas-reading` same session: `record_count` 4→5, `Gas (green, lower third, clear of Low Gas)`
+— first reading on the exchanged bottle, ~12 days in, not a continuation of the prior bottle's
+trend (8f updated). See `docs/PROJECT_STATE.md`'s 2026-11-18 entry for the full narrative. **Open,
+not investigated this session**: `sensor.mobile_gas_days` (22.9d) reads the heater's days-
+remaining even though `gas_heater_bottle_identity` is `None` — flagged in PROJECT_STATE, not yet
+root-caused.

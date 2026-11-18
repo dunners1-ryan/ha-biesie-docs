@@ -114,6 +114,7 @@ Telegram mirror  →  notify.telegram_bot_5527
 | `input_boolean.security_alert_notify` | alerts (`alerts_security.yaml`) | security (`security_event_router` MUTED branch, `security_pool_alarm_trigger`) | ✅ **Cross-domain since 2026-09-20 (BUG-S85)** — previously gated only the alerts repeat-reminder pipeline. Cleared daily by `security_alerts_mute_morning_reset` (security) via `input_datetime.security_alerts_morning_reset`. |
 | `sensor.security_movement_path` | security | lighting_security | ✅ |
 | `sensor.security_lighting_intent` | security | lighting_security | ✅ |
+| `binary_sensor.security_weather_corroborated_dark` | security (`security_core.yaml`, added 2026-11-18, BUG-S88 — PV-vs-Solcast-forecast dark-sky signal, mirror of corroborated_clear) | security (own OR-branch of `security_lighting_required`/`_allowed`), lighting (`lighting_boundary.yaml` — `boundary_security_on` trigger + reason text, `entrance_down_lights_daytime_low_light` trigger) — read directly, not just indirectly via `security_lighting_required`, same pattern as the `night_early` row above | ✅ |
 | `sensor.security_mode` | security (core) | notify_security_events | ✅ |
 | `group.inverter_grid` | power | water, alerts_power | ✅ |
 | `sensor.inverter_battery_soc` | power | water (via battery SOC check) | ✅ |

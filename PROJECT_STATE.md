@@ -5,6 +5,9 @@
 
 ## ⚠️ OPEN TODO
 
+- [x] **2026-11-18 — Water Cooler: swap history log added + state corrected after missed swaps (live data fix + new files).**
+      Missed swaps while away (Nov 10 / 13 / 17) plus an accidental Log Bottle Changed press at 17:55 left stock 8, empties 5, EMA 11.75, last change 11-18. Corrected live via API: stock 4, empties 3, avg 3.8, last change 2026-11-17 09:00, last delivery 2026-11-06 08:00 (8 delivered, 6th install was not a swap). New: `watercooler_swap_history.jsonl` (19 backfilled records), `watercooler_swap_log.sh`, `watercooler_swap_stats.sh`, `shell_command.watercooler_swap_log`, `sensor.watercooler_swap_history`; Log Bottle Changed now appends a line per real swap. check_config valid; automation/command_line/shell_command reloaded. Documented in UTILITIES_CONTRACT. **Open:** backfilled average is 4.34 d vs EMA 3.8 — consider setting EMA ~4.3; no button yet for install/run-out events.
+
 - [ ] **2026-11-18 — Security/Lighting: BUG-S88 — dark rainy afternoon lit nothing until
       `night_early`.** User asked why the boundary lights and indoor evening lights didn't come
       on earlier, given today's rain. Recorder: OWM said `cloudy`/`partlycloudy` all afternoon
@@ -6150,6 +6153,11 @@ input_boolean.security_visitor_alerts_suppressed ← added 2026-08-31 (BUG-S77),
                                                     dashboard — Operations → Security → "Camera System Control" card)
 binary_sensor.security_weather_corroborated_clear ← added 2026-09-17 (BUG-S81) — PV-output-vs-Solcast-forecast veto on
                                                      security_visibility_poor/security_weather_low_light (security_core.yaml)
+binary_sensor.security_weather_corroborated_dark  ← added 2026-11-18 (BUG-S88) — PV-vs-Solcast-forecast positive dark-sky
+                                                     signal (mirror of corroborated_clear above, security_core.yaml). Feeds
+                                                     security_lighting_required/_allowed, boundary_security_on, and
+                                                     entrance_down_lights_daytime_low_light (lighting_boundary.yaml) — a
+                                                     cross-domain publish, see SYSTEM_CONTRACT.md.
 ```
 
 ### Access Control — Gate + Garage (added 2026-10-03, security_access_control.yaml)
