@@ -713,6 +713,9 @@ security_event_end
 | Context | `sensor.weather_api_health` | Weather API health check |
 | Context | `input_datetime.low_trust_start` | No longer used — boundary permissive window rebuilt 2026-05-17 (ISSUE 3) |
 | Context | `input_datetime.low_trust_end` | No longer used — same as above |
+| Power | `sensor.inverter_pv_power` | PV-vs-forecast weather corroboration (`corroborated_clear` BUG-S81 2026-09-17, `corroborated_dark` BUG-S88 2026-11-18) — first Power→Security dependency, see SYSTEM_CONTRACT.md |
+| Power | `sensor.solcast_pv_forecast_power_now` | Forecast-for-right-now denominator for the same two corroboration sensors |
+| Power | `sensor.inverter_battery_soc` | `corroborated_dark` curtailment guard (BUG-S88, 2026-11-18) — a full battery throttles PV to load, which otherwise reads as false darkness in bright sun |
 | Hardware | `binary_sensor.main_gate_sensor` | Arrival/visitor detection, correlation |
 | Hardware | `weather.home` | Visibility sensors (MISSING per Watchman) |
 | Notifications | `script.notify_security_event` | All outbound notifications |
@@ -725,6 +728,7 @@ security_event_end
 | Lighting | `sensor.security_movement_path` | Current active zone |
 | Lighting | `binary_sensor.security_lighting_required` | Lighting should be on |
 | Lighting | `binary_sensor.security_lighting_allowed` | Lighting permitted (night/weather) |
+| Lighting | `binary_sensor.security_weather_corroborated_dark` | PV-confirmed dark daytime sky (BUG-S88, 2026-11-18) — read directly by `lighting_boundary.yaml`, not just via the two rows above |
 | Lighting | `sensor.security_threat_level` | Drives lighting reset after event |
 | Alerts | `input_boolean.security_alert_active` | Alert active flag |
 | Presence | `input_boolean.arrival_detected` | Security writes ON when arrival gate+camera event fires |
@@ -4005,6 +4009,11 @@ SPRINT 7 — Notification spam + false intruder fixes (2026-05-18)
       Old: `zones=PG--- gate=open home=some arriving=yes departing=no staff=yes conf=medium trig=camera.ipcam01...`
       New: `zones: PG--- | gate: open | home: some\narriving: yes | departing: no | staff: yes\nconf: medium | cam: ipcam01_street_driveway_up`
       iOS/Android notification renders as 3 separate lines.
+
+[✅] BUG-S88: Rainy, genuinely dark afternoon lit nothing until night_early — every
+      daytime weather input was OpenWeatherMap-only. New binary_sensor.security_
+      weather_corroborated_dark (PV vs Solcast forecast, SOC-curtailment-guarded) OR'd
+      into security_lighting_required/_allowed — DONE 2026-11-18.
 ```
 
 ---
