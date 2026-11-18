@@ -132,12 +132,23 @@
       (28 Oct) is hot in time for showers, and a non-staff day skipping 17:30 after a midday reach.
       Files: `packages/power/geyser_automations.yaml`, `power_state.yaml`, `power_helpers.yaml`,
       `docs/domains/POWER_CONTRACT.md`.
-- [x] **2026-11-18 — Utilities: gas gauge reading logged via `/log-gas-reading`**
-      (`packages/utilities/gas_gauge_history.json`, `record_count` 4→5). "Gas, green zone, lower
-      third, clear of Low Gas" — first reading on the Swap bottle connected 2026-11-07 (11 days in).
-      Model at the time: `sensor.gas_stove_fraction_remaining` 0.857 / 66 d. Gauge reads lower than
-      the model, as the previous Swap bottle's readings did — informational only (Section 8f: not fed
-      into the EMA). No code/entity changes.
+- [x] **2026-11-18 — Utilities/Gas: false refill removed + exchange redated (data fix, no code);
+      gauge reading logged.** On 2026-11-07 17:44 both "Log Refill Done" (R355) and "Log Exchange
+      Done" (R355) were pressed. Per the user, only the exchange happened: the Swap bottle was
+      exchanged at ~1/4 left on Fri 2026-11-06, before a trip (stove stayed in use), and the Owned
+      bottle is still empty. Corrections, applied live via the Supervisor API:
+      `sensor.gas_transaction_log` lost the false refill row and the exchange row moved to 2026-11-06
+      (9→8 rows; month cost R710→R355, year R3067→R2712; done with a POST to the state, which the
+      self-referencing `this` picks up on the next event). Owned status set back to `Empty — Needs
+      Refill`, Swap set to `In Use`. `gas_stove_bottle_connected_time` and `gas_last_completed_time`
+      set to 2026-11-06 12:00 (time approximate). Stove EMA replayed from the 97.06 pre-incident value
+      with a full-bottle-equivalent interval of 45.81 d ÷ 0.75 = 61.08 d (the bottle went back
+      with 1/4 left), giving **82.69 d** (the automation had set 77.06 from the raw 47 d). Stove is
+      now 0.852 / ~70 d. The spare-bottle warning (`binary_sensor.gas_low` on, alert context `warning`)
+      is correct again. Gauge reading logged in `gas_gauge_history.json` (`record_count` 4→5): "Gas,
+      green zone, lower third, clear of Low Gas", informational only (UTILITIES_CONTRACT 8f).
+      Open: `sensor.mobile_gas_days` shows the heater's 22.9 d even though nothing is assigned to
+      the heater (identity None). Not investigated.
 - [x] **2026-10-27 — Utilities: Water Cooler stock/timestamps corrected (data fix, no code).**
       HA showed 3 spare bottles vs 1 real. Cause: backdate toggle never turned on, so the
       26 Oct 09:00 swap was logged as 27 Oct 12:42 (second press ignored by the duplicate
