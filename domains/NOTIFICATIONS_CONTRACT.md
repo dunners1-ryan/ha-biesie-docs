@@ -2,6 +2,17 @@
 # NOTIFICATIONS CONTRACT
 # HABiesie — Notifications Domain
 # Generated: 2026-04-13
+# Last updated: 2026-11-23 — BUG-N19: all 6 scripts' `information`/escalation branches
+# converted from `notify.send_message` (message+title only, can't carry `clickAction`) to
+# the per-device `notify.mobile_app_*` pattern so every push — not just warning/critical —
+# opens its domain screen; `notify_security_event`'s info branch already used this pattern
+# (S17c, for the image attachment) so security was the only domain that reliably did this
+# already, which is what the user's "most alerts go to security" report was actually
+# seeing. Also added `click_url` overrides to 4 `notify_system_event` callers that didn't
+# exist yet at BUG-A24 time: gas_automations.yaml, watercooler_automations.yaml,
+# vacuum.yaml + vacuum_consumables_automations.yaml, load_shedding_automations.yaml. See
+# Section 5 "Update 2026-11-23" and Section 10 BUG-N19; ALERTS_CONTRACT.md BUG-A28;
+# PROJECT_STATE.md 2026-11-23.
 # Last updated: 2026-10-03 — notify_security_event gained `access_controls` (gate/garage
 # Open/Close buttons from live state, phone + Telegram; see Extended Fields). Previously
 # 2026-09-11 — all 6 notify_*_event scripts gained `click_url` (variable
@@ -128,7 +139,7 @@ Domain State Change
 | warning | bypass | ✅ | ✅ | iOS `interruption-level: time-sensitive`; Android `channel: security_warning` — ONE shared warning sound reused across every domain (power/water/presence/system/lighting/security), no new on-device setup |
 | critical | bypass | ✅ | ✅ | iOS `interruption-level: critical`; all `channel: alarm`, `ttl: 0`, `priority: high` |
 
-**2026-07-06 — universal warning-tier sound:** previously only `notify_security_events.yaml` had the warning-tier sound (S17c, 2026-07-03). Extended the identical treatment to `notify_power_event.yaml`, `notify_water_events.yaml`, `notify_presence_events.yaml`, `notify_system_event.yaml`, `notify_light_events.yaml` — all 6 scripts now use the legacy per-device `notify.mobile_app_*` pattern for both warning and critical (info stays on plain `notify.send_message`, which can't carry the extra push/channel data). The `security_warning` Android channel name is reused verbatim across all domains by design — one shared warning sound, not per-category sounds, per user's explicit choice.
+**2026-07-06 — universal warning-tier sound:** previously only `notify_security_events.yaml` had the warning-tier sound (S17c, 2026-07-03). Extended the identical treatment to `notify_power_event.yaml`, `notify_water_events.yaml`, `notify_presence_events.yaml`, `notify_system_event.yaml`, `notify_light_events.yaml` — all 6 scripts now use the legacy per-device `notify.mobile_app_*` pattern for both warning and critical. The `security_warning` Android channel name is reused verbatim across all domains by design — one shared warning sound, not per-category sounds, per user's explicit choice. *(Updated 2026-11-23 — info branches were on plain `notify.send_message` at the time of this note, which can't carry `push`/`channel` data OR `clickAction`; as of BUG-N19 all 6 scripts' info branches now also use the per-device pattern, purely to carry `clickAction` — still no push/channel/sound added at info tier by design, see Section 3 conformance table.)*
 
 **2026-07-06 — arrivals/departures promoted to warning:** `security_automations.yaml`'s 4 arrival/departure notification call sites (Arrival Stage 1/2, Departure Stage 1/2) changed from `severity: "information"` to `"warning"` — always audible, no quiet-hours exception. The "Dogs home alone?" departure prompt stays `critical`, unchanged.
 
@@ -153,6 +164,7 @@ sleep hours (departure can happen at any time). Added 2026-06-14.
 | Escaped vars default-guarded | ✅ *(fixed)* | ✅ *(fixed)* | ✅ *(fixed)* | ✅ *(fixed)* | ✅ *(fixed)* | ✅ *(fixed)* |
 | Logbook entry | ❌ | ❌ | ✅ | ❌ | ✅ | ✅ |
 | Escalation on quiet hours | ❌ | ✅ (unique) | ❌ | ❌ | ❌ | ❌ |
+| `clickAction` on info/escalation branch | ✅ *(fixed 2026-11-23)* | ✅ *(fixed 2026-11-23)* | ✅ (already, S17c) | ✅ *(fixed 2026-11-23)* | ✅ *(fixed 2026-11-23)* | ✅ *(fixed 2026-11-23)* |
 
 ### Notes
 
@@ -438,6 +450,10 @@ one static default can't be right for all of them, so callers pass their own
 | `alerts_device_batteries.yaml` (fleet, both calls) | Batteries (same view, different device set — see the file's own header) |
 | `alerts_device_power.yaml` (both calls) | HA System (`/dashboard-system/ha-system`) — currently only monitors `binary_sensor.rpi_power_status` |
 | `alerts_system_health.yaml` (both calls) | HA System (`/dashboard-system/ha-system`) |
+| `gas_automations.yaml` (7 calls) | Gas Bottles (`/dashboard-operations/gas-control`) — added 2026-11-23 |
+| `watercooler_automations.yaml` (8 calls) | Water Cooler (`/dashboard-operations/watercooler-control`) — added 2026-11-23 |
+| `vacuum.yaml` (7) + `vacuum_consumables_automations.yaml` (1) | Vacuum (`/dashboard-operations/vacuum`) — added 2026-11-23 |
+| `load_shedding_automations.yaml` (3 script calls) | Power Control (`/dashboard-operations/power-control`) — added 2026-11-23 |
 | `alerts_garden.yaml` (all 3 calls) | *not overridden* — no dedicated Garden dashboard view exists; falls back to the Alerts page. Revisit if/when one is added. |
 | `camera_health` (via `notify_security_event` directly, not `notify_system_event`) | already correct — Security Control |
 
@@ -457,6 +473,37 @@ both reloads returned `200 []`. Not yet exercised with a real push (would notify
 Vicky's phones) — send one real warning/critical alert per domain and confirm the tap
 opens the intended view before considering this fully verified.
 
+**Update 2026-11-23 — BUG-N19: `information`/escalation branches had no click-through at
+all, and 4 newer `notify_system_event` callers had no override.** User reported "most
+alerts go to security as opposed to water/others" — audit found no water (or other
+domain) call actually routes to Security; the real causes were narrower:
+1. **Gas (`gas_automations.yaml`, 7 calls), Water Cooler (`watercooler_automations.yaml`,
+   8), Vacuum (`vacuum.yaml` 7 + `vacuum_consumables_automations.yaml` 1), and Load
+   Shedding (`load_shedding_automations.yaml`, 3)** all call `script.notify_system_event`
+   with no `click_url` — none of these subsystems existed yet when BUG-A24 wired the
+   per-caller override table above, so they fell back to the System → Alerts page. Added:
+   Gas → Gas Bottles, Water Cooler → Water Cooler, Vacuum → Vacuum, Load Shedding → Power
+   Control.
+2. **The actual "looks like everything goes to Security" cause:** `notify_power_event`,
+   `notify_water_events`, `notify_presence_events`, `notify_system_event`, and
+   `notify_light_events` all used plain `notify.send_message` on their `information` and
+   quiet-hours-escalation branches — that service's schema is message+title only (same
+   limitation as BUG-N13/N14/N15), so it structurally cannot carry `data.clickAction`.
+   Every info-tier push, including every "Cancel From Notification" confirmation (sent at
+   `information` severity), opened the app to whatever screen it last had open.
+   `notify_security_event` was the only script that already used the per-device
+   `notify.mobile_app_*` pattern on its info branch (added for the image attachment,
+   S17c/2026-07-03, not for click-through) — so security pushes were the only ones that
+   consistently landed somewhere relevant. Converted all 5 scripts' info and escalation
+   branches to the same per-device pattern (`iphone16promax_ryan`, `ap_0223_1001`,
+   `honor10_dash`, `honorx7_dash`, each `continue_on_error: true`) with
+   `data.clickAction: "{{ link }}"` — matching warning/critical. No push/channel/sound
+   fields were added to these branches (still info-tier, silent by design) — only the tap
+   target changed. See Section 3 conformance table (new "clickAction on info tier" row)
+   and PROJECT_STATE.md 2026-11-23 for the full file list. `ha core check` passed;
+   `script.reload` + `automation.reload` done. Not yet exercised with a real info-tier
+   push on a phone.
+
 ---
 
 ## 6. DIRECT NOTIFY BYPASS VIOLATIONS
@@ -464,6 +511,13 @@ opens the intended view before considering this fully verified.
 All the following locations bypass the canonical notification pipeline (script → severity routing
 → quiet hours). They call notify platforms directly, skipping quiet hours, Telegram mirroring,
 logbook, and escalation rules.
+
+**Update 2026-11-23 — audited every remaining bypass for click-through impact (BUG-N19
+follow-on check, not a new violation):** `lighting_bar_presence.yaml`, `power_automations.yaml`,
+`solar_forecast.yaml`, `water_reporting.yaml`, and `load_shedding_automations.yaml`'s own
+direct `notify.send_message` calls all target `notify.telegram_bot_5527` only — no mobile
+push, so `clickAction` doesn't apply to any of them and none needed touching. See Section 5
+"All 6 scripts — Alert Click-Through" for the fix to the six scripts' own info branches.
 
 ### Priority 1 — High Volume / Always-On Bypasses — ✅ ALL THREE FIXED, doc-drift correction 2026-08-21
 
@@ -741,6 +795,43 @@ see WATER_CONTRACT.md Issue 12.
 ---
 
 ## 10. BUGS
+
+### BUG-N19 [MEDIUM] ~~`information`/escalation branches on 5 of 6 scripts had no `clickAction` at all; 4 newer `notify_system_event` callers had no `click_url` override~~ ✅ FIXED 2026-11-23
+
+User reported "most alerts go to security as opposed to water/others" when tapping a
+push. Audit found no domain actually mis-routes to Security — every water/power/etc.
+call already targets its own script. Two real gaps instead:
+
+1. `notify_power_event.yaml`, `notify_water_events.yaml`, `notify_presence_events.yaml`,
+   `notify_system_event.yaml`, `notify_light_events.yaml` all used `notify.send_message`
+   (message+title schema only, same limitation as BUG-N13/N14/N15) on their
+   `information` and quiet-hours-escalation branches — structurally unable to carry
+   `data.clickAction`. Every info-tier push, including "Cancel From Notification"
+   confirmations (sent at `information` severity), opened whatever screen the app last
+   had open. `notify_security_event`'s info branch was the sole exception — it already
+   used the per-device `notify.mobile_app_*` pattern (added S17c/2026-07-03 for the
+   image attachment, not for click-through) — so security pushes were the only ones
+   that consistently landed on a relevant screen, which is what the user was seeing.
+2. Gas (`gas_automations.yaml`), Water Cooler (`watercooler_automations.yaml`), Vacuum
+   (`vacuum.yaml` + `vacuum_consumables_automations.yaml`), and Load Shedding
+   (`load_shedding_automations.yaml`) all call `script.notify_system_event` with no
+   `click_url` — none of these subsystems existed when BUG-A24 (2026-09-11) wired the
+   per-caller override table, so they fell back to the System → Alerts page.
+
+**Fix:** converted all 5 scripts' info/escalation branches to the per-device
+`notify.mobile_app_*` pattern with `data.clickAction: "{{ link }}"` (no push/channel/
+sound added — still silent at info tier by design). Added `click_url` overrides for
+the 4 newer callers (Gas → Gas Bottles, Water Cooler → Water Cooler, Vacuum → Vacuum,
+Load Shedding → Power Control). Audited every remaining direct `notify.send_message`
+call outside the 6 scripts — all Telegram-only, no click-through applicable, none
+touched. See Section 3 conformance table, Section 5 "Update 2026-11-23", and
+ALERTS_CONTRACT.md BUG-A28 (same fix, cross-referenced from that contract since it's
+the click-through topic's home).
+
+Files: `notify_power_event.yaml`, `notify_water_events.yaml`,
+`notify_presence_events.yaml`, `notify_system_event.yaml`, `notify_light_events.yaml`,
+`gas_automations.yaml`, `watercooler_automations.yaml`, `vacuum.yaml`,
+`vacuum_consumables_automations.yaml`, `load_shedding_automations.yaml`.
 
 ### BUG-N15 [HIGH] ~~`omit` sentinel undefined in `notify_security_events.yaml` / `notify_system_event.yaml` — WARNING/CRITICAL action buttons + non-critical Telegram broken~~ ✅ FIXED 2026-08-09
 

@@ -5,6 +5,58 @@
 
 ## ⚠️ OPEN TODO
 
+- [ ] **2026-11-23 — Notifications: alert click-through audit — 4 domains had no tap
+      target + all 5 non-security scripts' information/escalation branches had no
+      `clickAction` at all (BUG-A28 / BUG-N19).** User: "run through all alerts and which
+      screen is opened when click on alerts as most seem to go to security as opposed to
+      water if water and others."
+      **Finding (audit, no code change needed for the "goes to security" perception
+      itself):** no water alert actually routes to Security — every water call already uses
+      `script.notify_water_event` → Water Control. The perception came from two real gaps:
+      (1) Gas, Water Cooler, Vacuum, and Load Shedding alerts all call
+      `script.notify_system_event` with no `click_url` override, so they fell back to the
+      System → Alerts page, not their own domain screens — never built out when BUG-A24
+      (2026-09-11) wired overrides for media/network/temperature/batteries/device-power/
+      system-health, because none of those 4 subsystems existed yet at that time. (2) The
+      `information`-severity and quiet-hours-escalation branches of `notify_power_event`,
+      `notify_water_events`, `notify_presence_events`, `notify_system_event`, and
+      `notify_light_events` used `notify.send_message`, which structurally cannot carry
+      `data.clickAction` — every info-tier push (plus every "Cancel From Notification"
+      confirmation sent as `information`) opened the app to whatever screen it last had
+      open, not the relevant one. `notify_security_event` was the only script that already
+      used the per-device `notify.mobile_app_*` pattern on its info branch (S17c, 2026-07-03
+      — for the image attachment, not click-through), so security alerts were the only ones
+      that reliably landed somewhere relevant — explaining the "most go to security" feel.
+      **Fix:** added `click_url` to all `script.notify_system_event` calls in
+      `gas_automations.yaml` (7), `watercooler_automations.yaml` (8), `vacuum.yaml` (7) +
+      `vacuum_consumables_automations.yaml` (1), and `load_shedding_automations.yaml` (3) —
+      Gas Bottles / Water Cooler / Vacuum / Power Control respectively. Converted the info
+      and escalation branches of the 5 affected scripts from `notify.send_message` to the
+      existing per-device `notify.mobile_app_*` pattern with `data.clickAction: "{{ link }}"`
+      (same shape security already used), gated per-device with `continue_on_error: true`.
+      Audited every other bypass `notify.send_message` call outside the 6 scripts
+      (`lighting_bar_presence.yaml`, `power_automations.yaml`, `solar_forecast.yaml`,
+      `water_reporting.yaml`, `load_shedding_automations.yaml`'s own direct calls) — all
+      target Telegram only, no phone push, so no click-through applies and none were
+      touched. Garden alerts (`alerts_garden.yaml`) still fall back to the Alerts page —
+      no dedicated Garden dashboard view exists, unchanged from BUG-A24.
+      `ha core check` passed on all 11 edited files; `script.reload` + `automation.reload`
+      done. Documented: NOTIFICATIONS_CONTRACT.md (Section 3 conformance table + Section 5
+      click-through table + BUG-N19), ALERTS_CONTRACT.md (BUG-A28), UTILITIES_CONTRACT.md,
+      SMART_CLEANING_CONTRACT.md.
+      **Pending — not yet exercised with a real push:** trigger one real alert per newly-
+      wired domain (gas, water cooler, vacuum, load shedding) and one real information-tier
+      alert (e.g. a routine water/power info push) and confirm the tap opens the intended
+      view on a phone. Also unverified: whether per-device `continue_on_error` delivery on
+      the info branch (vs. the old single group `notify.send_message` call) changes
+      behavior when one device is unreachable — expected to only improve resilience, not
+      checked live.
+      Files: `packages/utilities/gas_automations.yaml`,
+      `packages/utilities/watercooler_automations.yaml`, `packages/integrations/vacuum.yaml`,
+      `packages/utilities/vacuum_consumables_automations.yaml`,
+      `packages/load_shedding/load_shedding_automations.yaml`,
+      `packages/notifications/notify_{power,water,system,lighting,presence}_event*.yaml`.
+
 - [x] **2026-11-18 — Water Cooler: swap history log added + state corrected after missed swaps (live data fix + new files).**
       Missed swaps while away (Nov 10 / 13 / 17) plus an accidental Log Bottle Changed press at 17:55 left stock 8, empties 5, EMA 11.75, last change 11-18. Corrected live via API: stock 4, empties 3, avg 3.8, last change 2026-11-17 09:00, last delivery 2026-11-06 08:00 (8 delivered, 6th install was not a swap). New: `watercooler_swap_history.jsonl` (19 backfilled records), `watercooler_swap_log.sh`, `watercooler_swap_stats.sh`, `shell_command.watercooler_swap_log`, `sensor.watercooler_swap_history`; Log Bottle Changed now appends a line per real swap. check_config valid; automation/command_line/shell_command reloaded. Documented in UTILITIES_CONTRACT. **Follow-up same day:** EMA reset to 4.3 (matches backfilled 4.34 / last-5 4.38). Added `input_boolean.watercooler_install_on_empty` (Bottles card, beside Backdate): install onto an empty cooler = no empty produced, no EMA update, logged as `install`. Dashboard saved via `lovelace/config/save` (backup `.storage/lovelace.dashboard_operations.bak.20261118_wcinstall`). **Open:** no button for run-out events; install path untested live (needs a real press).
 

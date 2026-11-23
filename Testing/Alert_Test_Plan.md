@@ -128,19 +128,25 @@
 > mute either way (still in the shared Tier 2 loop); (4) mute left OFF overnight → back to
 > `on` by the next day without manual intervention.
 >
-> **⚠️ 2026-09-11: `clickAction` (tap-through) added to every domain's mobile push —
-> not covered by any test's Expected Results here.** All 6 `notify_*_event` scripts now
-> send `clickAction` in the nested `data:` block of every warning/critical (and, for
-> security/system, info) `notify.mobile_app_*` call, opening a specific dashboard view on
-> tap instead of just the app — see NOTIFICATIONS_CONTRACT.md "Alert Click-Through" and
-> ALERTS_CONTRACT.md BUG-A24 for the full per-domain default/override table. This is a
-> delivery-payload change across every test in this plan (1 through 8 all send at least
-> one push through one of these 6 scripts), not touched by a real push since shipping —
-> when each TEST is next run, add a check that tapping the notification opens the
-> documented view (Security→Security Control, Power→Power Control, Water→Water Control,
-> Network/Temperature-WAN-LAN→Network Control, Media/Temperature-Device-Storage→Media
-> Control, Batteries→Batteries, Device Power/System Health→HA System, Garden→Alerts page
-> fallback, no dedicated view yet).
+> **⚠️ 2026-09-11 (BUG-A24), updated 2026-11-23 (BUG-N19/BUG-A28): `clickAction`
+> (tap-through) added to every domain's mobile push — still not exercised with a real
+> push since shipping, on any version.** All 6 `notify_*_event` scripts send `clickAction`
+> in the nested `data:` block of every warning/critical AND — as of 2026-11-23 — every
+> `information`/escalation `notify.mobile_app_*` call too (previously only security/system
+> had tap-through on info; the other 4 scripts used `notify.send_message`, which can't
+> carry it — see NOTIFICATIONS_CONTRACT.md BUG-N19). Gas, Water Cooler, Vacuum, and Load
+> Shedding (all `notify_system_event` callers, didn't exist at BUG-A24 time) also gained
+> their own `click_url` override. See NOTIFICATIONS_CONTRACT.md "Alert Click-Through" and
+> ALERTS_CONTRACT.md BUG-A24/BUG-A28 for the full per-domain default/override table. This
+> is a delivery-payload change across every test in this plan (1 through 8 all send at
+> least one push through one of these 6 scripts) — when each TEST is next run, add a check
+> that tapping the notification opens the documented view, **including an information-
+> severity push now, not just warning/critical**: Security→Security Control, Power→Power
+> Control, Water→Water Control, Network/Temperature-WAN-LAN→Network Control,
+> Media/Temperature-Device-Storage→Media Control, Batteries→Batteries, Device
+> Power/System Health→HA System, Gas→Gas Bottles, Water Cooler→Water Cooler,
+> Vacuum→Vacuum, Load Shedding→Power Control, Garden→Alerts page fallback (no dedicated
+> view yet).
 
 ---
 

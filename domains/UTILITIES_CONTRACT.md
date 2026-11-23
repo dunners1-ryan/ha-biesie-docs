@@ -369,6 +369,10 @@ sensor.alert_device_entities  (aggregator — picked up automatically purely
 sensor.global_alert_context  → dashboard + notification scripts
 ```
 
+*(2026-11-23 — `route_watercooler_alert` now passes `click_url: .../watercooler-control`,
+so tapping the push opens the Water Cooler dashboard view instead of falling back to the
+System → Alerts page. See NOTIFICATIONS_CONTRACT.md BUG-N19 / ALERTS_CONTRACT.md BUG-A28.)*
+
 `alert.watercooler_alert` exists only for aggregator/dashboard visibility
 and `can_acknowledge` UI — **not** the real delivery path (that's
 `route_watercooler_alert`, same disclaimer as the vacuum's `alert:` block).
@@ -726,6 +730,10 @@ considered while a bottle is actually assigned to it (identity ≠ `None`).
 Requires a full HA restart to activate (`alert:` entities cannot be
 reloaded) — same disclaimer as every other domain's `alert:` block.
 
+*(2026-11-23 — `route_gas_alert` now passes `click_url: .../gas-control`, opening the Gas
+Bottles dashboard view on tap instead of System → Alerts. See NOTIFICATIONS_CONTRACT.md
+BUG-N19 / ALERTS_CONTRACT.md BUG-A28.)*
+
 ### 8h. Cost Model — price references
 
 Unlike Water Cooler's invoice-derived, VAT-verified constants, gas pricing
@@ -1056,9 +1064,20 @@ avoided here by writing it down as a known gotcha for this package before
 building the third subsystem. `alert.vacuum_consumables_alert` requires a
 full HA restart to activate (same disclaimer as every other domain).
 
+*(2026-11-23 — `route_vacuum_consumables_alert` now passes
+`click_url: .../vacuum`, opening the Vacuum dashboard view on tap instead of System →
+Alerts. See NOTIFICATIONS_CONTRACT.md BUG-N19 / ALERTS_CONTRACT.md BUG-A28.)*
+
 ---
 
 ## Session Log
+
+- **2026-11-23 (Alert click-through)** — Water Cooler, Gas Bottles, and Vacuum
+  Consumables alerts all called `script.notify_system_event` with no `click_url`
+  override (none of these subsystems existed when ALERTS_CONTRACT.md BUG-A24 wired the
+  override table 2026-09-11), so taps fell back to the System → Alerts page. Added
+  overrides (Water Cooler / Gas Bottles / Vacuum). Part of a broader session-wide fix —
+  see PROJECT_STATE.md 2026-11-23, NOTIFICATIONS_CONTRACT.md BUG-N19.
 
 - **2026-11-18 (Water Cooler swap history)** — After a trip with missed swaps, stock/empties/EMA/last-change/last-delivery were corrected live (stock 4, empties 3, avg 3.8, last change 2026-11-17 09:00, last delivery 2026-11-06 08:00). Added the append-only swap history log + `sensor.watercooler_swap_history` + shell_command logging (see "Swap history log" in Section 3 / Section 2).
 
