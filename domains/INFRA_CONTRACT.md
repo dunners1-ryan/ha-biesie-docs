@@ -365,6 +365,14 @@ integration also manages:
 
 ---
 
+### Midea portable aircons — `aircon.yaml` (2026-11-24)
+Office (`climate.office_aircon_port_office`, live) and Luke's room (placeholder ids, unit not
+yet added). Provides `sensor.aircon_{office,luke,total}_power`, `aircon_house_load_share`,
+`aircon_power_source`, `aircon_active_count`, `input_number.aircon_*_rated_watts` and
+`script.aircon_apply_preset`. Power falls back to an estimate when the unit reports 0 W
+(`source` attribute = reported/estimated/idle). UI: Operations → Aircon view; Home → Aircon
+Summary expander. See PROJECT_STATE 2026-11-24 for open items.
+
 ## Part 7: Custom Components (HACS Integrations)
 
 All custom integrations are in `/config/custom_components/`. They are installed

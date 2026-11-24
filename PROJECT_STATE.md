@@ -5,6 +5,35 @@
 
 ## ⚠️ OPEN TODO
 
+- [ ] **2026-11-24 — Aircon: Midea portable units (Office live, Luke's room pending) — new
+      `packages/integrations/aircon.yaml`, Operations "Aircon" view, Home dashboard expanders.**
+      User: new Midea portable aircons for Office and Luke's room; wanted a control view in
+      Operations (current temp per room, presets for temp + mode, power use and effect on
+      house power) and, on Home, the "Home Light & Device Control" section put in an expander
+      with an aircon summary expander below it.
+      **Built:** `sensor.aircon_{office,luke}_power`, `sensor.aircon_total_power`,
+      `sensor.aircon_house_load_share` (% of `house_load_power`), `sensor.aircon_power_source`
+      (Solar/Battery/Grid heuristic + `grid_attributable_w` attribute), `sensor.aircon_active_count`,
+      `input_number.aircon_{office,luke}_rated_watts` (estimate fallback, default 1000 W),
+      `script.aircon_apply_preset` (room: office|luke; presets cool_20/cool_22/eco_24/sleep/
+      heat_21/fan/dry/off). Operations → new "Aircon" view (after Appliance Control).
+      Home → "Home Light & Device Control" now an `expander-card` (expanded), plus collapsed
+      "Aircon Summary" expander below it. Reload only (helpers/template/script) — no restart.
+      Dashboards pushed via `lovelace/config/save`; backups
+      `.storage/lovelace.dashboard_{operations,overview}.bak.20261124_aircon`.
+      **Open / caveats:**
+      1. **Luke's unit entity ids are PLACEHOLDERS** (`climate.luke_bedroom_aircon_port_luke`,
+         `sensor.luke_bedroom_aircon_port_luke_{real_time_power,total_energy_consumption}`) —
+         unit not added yet. Replace in `aircon.yaml` (template sensors + script `rooms` map)
+         and in the Aircon view / Home expander once the real ids exist.
+      2. **Office unit reports 0 W real-time power** (and sentinel 255 compressor values) while
+         in cool mode — power sensors fall back to an ESTIMATE (rated W while mode is wrong
+         side of setpoint; fan_only = 60 W) and label it "(est)". Replace/tune once true
+         metering is known (smart plug or unit firmware). Rated-watts helpers editable.
+      3. Preset button behaviour (set_temperature / fan / preset_mode on the Midea entity)
+         not exercised live — office unit left in cool/16 °C by the user, untouched.
+      Files: `packages/integrations/aircon.yaml`, dashboards `operations` + `overview`.
+
 - [ ] **2026-11-23 — Notifications: alert click-through audit — 4 domains had no tap
       target + all 5 non-security scripts' information/escalation branches had no
       `clickAction` at all (BUG-A28 / BUG-N19).** User: "run through all alerts and which
